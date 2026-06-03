@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MotoPOS Facturacion</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">MP</div>
+          <div>
+            <strong>MotoPOS</strong>
+            <span>Facturacion electronica</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Principal">
+          <button class="nav-item active" data-view="factura">Factura POS</button>
+          <button class="nav-item" data-view="clientes">Clientes y placas</button>
+          <button class="nav-item" data-view="facturas">Facturas</button>
+          <button class="nav-item" data-view="analisis">Analisis</button>
+        </nav>
+
+        <section class="sidebar-panel">
+          <span class="panel-label">Caja</span>
+          <strong>Caja 1</strong>
+          <small>PCDA | POS electronico</small>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Factura de venta nacional</p>
+            <h1>POS Electronico</h1>
+          </div>
+          <div class="topbar-actions">
+            <span class="status-pill">DIAN listo</span>
+            <button class="secondary" id="newInvoiceBtn">Nueva factura</button>
+          </div>
+        </header>
+
+        <section class="view active" id="view-factura">
+          <div class="document-grid">
+            <section class="panel document-panel">
+              <div class="panel-heading">
+                <h2>Informacion del documento</h2>
+                <strong id="invoiceNumber">PCDA-0001</strong>
+              </div>
+
+              <div class="field-grid two">
+                <label>
+                  Cliente
+                  <div class="lookup">
+                    <input id="clientDoc" list="clientDocs" value="222222222222" autocomplete="off" />
+                    <button id="findClientBtn" class="icon-button" title="Buscar cliente">Buscar</button>
+                    <button id="openClientBtn" class="icon-button" title="Nuevo tercero">Nuevo</button>
+                  </div>
+                </label>
+                <label>
+                  Nombre
+                  <input id="clientName" value="Consumidor final" />
+                </label>
+                <label>
+                  Placa
+                  <input id="vehiclePlate" placeholder="ABC123" maxlength="8" />
+                </label>
+                <label>
+                  Rango moto
+                  <select id="vehicleRange">
+                    <option value="MOTOCICLETAS 2009-ANTES">MOTOCICLETAS 2009-ANTES</option>
+                    <option value="MOTOCICLETAS 2010-2018">MOTOCICLETAS 2010-2018</option>
+                    <option value="MOTOCICLETAS 2019-2023">MOTOCICLETAS 2019-2023</option>
+                    <option value="MOTOCICLETAS 2024-2026" selected>MOTOCICLETAS 2024-2026</option>
+                  </select>
+                </label>
+                <label>
+                  Telefono
+                  <input id="clientPhone" placeholder="3000000000" />
+                </label>
+                <label>
+                  Correo
+                  <input id="clientEmail" placeholder="cliente@correo.com" />
+                </label>
+              </div>
+            </section>
+
+            <section class="panel meta-panel">
+              <div class="mini-title">PCDA</div>
+              <div class="field-grid">
+                <label>
+                  Fecha
+                  <input id="invoiceDate" type="date" />
+                </label>
+                <label>
+                  Fecha renovacion
+                  <input id="renewalDate" type="date" />
+                </label>
+                <label>
+                  Producto
+                  <select id="serviceLine">
+                    <option>CERTIMOTOS</option>
+                    <option>SOAT</option>
+                    <option>REVISION TECNOMECANICA</option>
+                  </select>
+                </label>
+                <label>
+                  Metodo de pago
+                  <select id="paymentMethod">
+                    <option>Efectivo</option>
+                    <option>Tarjeta</option>
+                    <option>Transferencia</option>
+                    <option>Mixto</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel line-panel">
+            <div class="panel-heading">
+              <h2>Detalle de la factura</h2>
+              <div class="button-row">
+                <button class="secondary" id="openProductsBtn">Ver producto</button>
+                <button class="primary" id="openRecurringBtn">Ventas recurrentes</button>
+                <button class="success" id="quickProductBtn">Buscar producto</button>
+              </div>
+            </div>
+
+            <div class="entry-grid">
+              <label>
+                Codigo
+                <input id="productCode" list="productCodes" />
+              </label>
+              <label>
+                Producto
+                <input id="productName" />
+              </label>
+              <label>
+                Cantidad
+                <input id="productQty" type="number" min="1" value="1" />
+              </label>
+              <label>
+                Impuesto
+                <select id="productTax">
+                  <option value="0">0%</option>
+                  <option value="19" selected>19%</option>
+                </select>
+              </label>
+              <label>
+                Valor unitario
+                <input id="productPrice" type="number" min="0" />
+              </label>
+              <button class="success add-line" id="addLineBtn">Agregar</button>
+            </div>
+
+            <div class="line-summary">
+              <strong>Productos registrados</strong>
+              <strong id="cartTotalTop">$0</strong>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Codigo</th>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>Impuesto</th>
+                    <th>Vr. Unitario</th>
+                    <th>Vr. Total</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="cartBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="checkout-grid">
+            <label class="panel notes-panel">
+              Observaciones
+              <textarea id="notes" rows="4" placeholder="Placa, kilometraje, observacion del servicio"></textarea>
+            </label>
+
+            <section class="panel totals-panel">
+              <h2>Totales</h2>
+              <div class="amount-row"><span>Bruto</span><strong id="grossTotal">$0</strong></div>
+              <div class="amount-row"><span>Impuesto</span><strong id="taxTotal">$0</strong></div>
+              <div class="amount-row total"><span>Total</span><strong id="grandTotal">$0</strong></div>
+            </section>
+
+            <section class="panel payment-panel">
+              <h2>Forma de pago</h2>
+              <label>
+                Efectivo
+                <input id="cashPaid" type="number" min="0" value="0" />
+              </label>
+              <label>
+                Tarjeta
+                <input id="cardPaid" type="number" min="0" value="0" />
+              </label>
+              <label>
+                Otros
+                <input id="otherPaid" type="number" min="0" value="0" />
+              </label>
+            </section>
+
+            <section class="panel final-panel">
+              <div class="amount-row total"><span>Total</span><strong id="finalTotal">$0</strong></div>
+              <div class="amount-row"><span>Valor entregado</span><strong id="paidTotal">$0</strong></div>
+              <div class="amount-row"><span>Cambio</span><strong id="changeDue">$0</strong></div>
+              <button class="success full" id="finalizeBtn">Facturar</button>
+              <button class="danger full" id="clearBtn">Cancelar</button>
+            </section>
+          </section>
+        </section>
+
+        <section class="view" id="view-clientes">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Clientes y placas</h2>
+              <button class="success" id="newClientFromListBtn">Nuevo tercero</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>CC/NIT</th>
+                    <th>Cliente</th>
+                    <th>Placa</th>
+                    <th>Rango moto</th>
+                    <th>Telefono</th>
+                    <th>Correo</th>
+                  </tr>
+                </thead>
+                <tbody id="clientsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="view-facturas">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Facturas emitidas</h2>
+              <button class="secondary" id="exportBtn">Exportar CSV</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Factura</th>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th>Placa</th>
+                    <th>Estado DIAN</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody id="invoicesBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="view-analisis">
+          <div class="analysis-grid">
+            <section class="panel">
+              <h2>Analisis por placa</h2>
+              <label>
+                Buscar placa o cliente
+                <input id="analysisSearch" placeholder="ABC123 o nombre" />
+              </label>
+              <div class="kpi-grid">
+                <div class="kpi"><span>Facturas</span><strong id="kpiInvoices">0</strong></div>
+                <div class="kpi"><span>Total vendido</span><strong id="kpiRevenue">$0</strong></div>
+                <div class="kpi"><span>Placas</span><strong id="kpiVehicles">0</strong></div>
+              </div>
+              <div id="rangeBars" class="range-bars"></div>
+            </section>
+
+            <section class="panel">
+              <h2>Historial</h2>
+              <div class="table-wrap compact">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Placa</th>
+                      <th>Rango</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analysisBody"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="recurringDialog">
+      <form method="dialog" class="modal">
+        <header>
+          <h2>Ventas recurrentes</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div class="recurring-layout">
+          <div>
+            <h3>Tus ventas recurrentes</h3>
+            <div id="bundleList" class="bundle-list"></div>
+          </div>
+          <div>
+            <h3>Productos</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>ValorTotal</th>
+                  </tr>
+                </thead>
+                <tbody id="bundleProductsBody"></tbody>
+              </table>
+            </div>
+            <div class="bundle-total">Total general: <strong id="bundleTotal">$0</strong></div>
+          </div>
+        </div>
+        <footer>
+          <button class="danger" value="cancel">Cerrar</button>
+          <button class="success" id="addBundleBtn" value="default">Anadir productos</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="clientDialog">
+      <form method="dialog" class="modal client-modal">
+        <header>
+          <h2>Nuevo tercero</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div class="field-grid two">
+          <label>
+            Tipo de identificacion
+            <select id="modalIdType">
+              <option>CC</option>
+              <option>NIT</option>
+              <option>CE</option>
+            </select>
+          </label>
+          <label>
+            Tipo de persona
+            <select id="modalPersonType">
+              <option>Persona natural</option>
+              <option>Persona juridica</option>
+            </select>
+          </label>
+          <label>
+            CC/NIT
+            <input id="modalDoc" required />
+          </label>
+          <label>
+            Nombre o razon social
+            <input id="modalName" required />
+          </label>
+          <label>
+            Placa principal
+            <input id="modalPlate" maxlength="8" />
+          </label>
+          <label>
+            Rango moto
+            <select id="modalRange">
+              <option>MOTOCICLETAS 2009-ANTES</option>
+              <option>MOTOCICLETAS 2010-2018</option>
+              <option>MOTOCICLETAS 2019-2023</option>
+              <option>MOTOCICLETAS 2024-2026</option>
+            </select>
+          </label>
+          <label>
+            Direccion
+            <input id="modalAddress" />
+          </label>
+          <label>
+            Correo
+            <input id="modalEmail" type="email" />
+          </label>
+          <label>
+            Telefono
+            <input id="modalPhone" />
+          </label>
+          <label>
+            Estado
+            <select id="modalStatus">
+              <option>ACTIVO</option>
+              <option>INACTIVO</option>
+            </select>
+          </label>
+        </div>
+        <footer>
+          <button class="secondary" value="cancel">Cancelar</button>
+          <button class="success" id="saveClientBtn" value="default">Guardar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="receiptDialog">
+      <form method="dialog" class="modal receipt-modal">
+        <header>
+          <h2>Factura generada</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div id="receiptContent" class="receipt-content"></div>
+        <footer>
+          <button class="secondary" value="cancel">Cerrar</button>
+          <button class="success" id="printBtn" value="default">Imprimir</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <datalist id="clientDocs"></datalist>
+    <datalist id="productCodes"></datalist>
+    <script src="app.js"></script>
+  </body>
+</html>
