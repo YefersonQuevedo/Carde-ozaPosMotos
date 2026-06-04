@@ -1,36 +1,63 @@
-# MotoPOS V2 Facturacion
+# MotoPOS V3 — POS + Facturacion RTM de motos
 
-Prototipo web independiente para facturacion POS/electronica de servicios de motos, cierre diario, cartera y convenios.
+Sistema POS para centro de revision tecnico-mecanica (RTM) de motos:
+venta progresiva paso a paso, cierre diario que cuadra con el Excel del cliente,
+cartera (ADDI/GORA/credito), provision por RTM pendiente y convenios/referidos.
 
-## Incluye
+- **Backend**: Node + Express + Prisma sobre **MySQL** (tablas bien definidas, **sin llaves foraneas**).
+- **Frontend**: HTML/JS plano (wizard de venta progresivo) que consume la API por `fetch`.
+- **Facturacion electronica**: por ahora **marca local** (numero + IVA discriminado). La integracion real con DIAN es fase aparte.
 
-- Factura POS con cliente, placa, rango de moto y renovacion.
-- Ventas recurrentes por rango de modelo.
-- Flujo operativo: RTM ya pagada, usuario directo/referido, credito, RTM hoy/pendiente y envio DIAN.
-- Productos con impuestos, pagos reales y cambio.
-- Metodos de pago del cierre: efectivo, Datafono SG, QR SG, QR CM, Datafono CM, transferencia, ADDI, GORA y credito propio.
-- Costos operativos tomados del formato de cierre: SICOV, recaudo, ANSV, FUPA, sustratos, IVA de facturacion y coste de transaccion.
-- Cierre diario con ingresos por metodo, provision, cartera, Jasper estimado y deducciones.
-- Cuentas por cobrar para ADDI, GORA, credito propio o saldos pendientes.
-- Catalogo de convenios/referidos.
-- Registro de terceros/clientes con placa principal.
-- Facturas guardadas en `localStorage`.
-- Analisis por placa, cliente y rango de moto.
-- Exportacion CSV de facturas.
+Detalle del modelo y formulas: ver [`MODELO_DATOS.md`](MODELO_DATOS.md).
 
-## Abrir
+## Estructura
 
-Abrir `index.html` en el navegador. No requiere instalar dependencias.
-
-Tambien se puede servir por HTTP local:
-
-```powershell
-cd "E:\guardando datos\pos-motos-facturacion"
-node server.js
+```
+backend/        API Express + Prisma (esquema, migraciones, seed, servicios)
+frontend/       App web (index.html, app.js, api.js, styles.css)
 ```
 
-Luego abrir `http://127.0.0.1:5180`.
+> Los archivos en la raiz (`app.js`, `index.html`, `styles.css`, `server.js`) son el
+> **prototipo V2 legado** (localStorage). La version activa es `backend/` + `frontend/`.
 
-## Siguiente paso real
+## Puesta en marcha
 
-Validar el flujo con el usuario final y luego conectar el boton `Facturar` a un backend que emita ante DIAN/POS electronico, guarde en base de datos y persista cierres/cartera.
+1. Configurar la base:
+
+   ```powershell
+   cd backend
+   copy .env.example .env   # ajusta DATABASE_URL a tu MySQL
+   npm install
+   npx prisma migrate dev --name init
+   npm run seed             # carga productos, paquetes, metodos y ~143 convenios del Excel
+   ```
+
+2. Levantar la API (sirve tambien el frontend):
+
+   ```powershell
+   npm run dev
+   ```
+
+   Abrir `http://127.0.0.1:5180`.
+
+## Flujo de venta (progresivo)
+
+1. Cliente (buscar/crear) · 2. Moto (placa + anio → rango/paquete) · 3. ¿RTM ya paga?
+· 4. ¿Necesita credito? (ADDI/GORA) o metodo(s) de pago (mixto) · 5. Usuario directo o referido
+· 6. ¿RTM hoy? (si → caja, no → provision) · 7. Registrar venta · 8. Emitir factura (separado).
+
+## API
+
+| Metodo | Ruta | Uso |
+| --- | --- | --- |
+| GET | `/api/catalog` | Productos, paquetes, metodos de pago |
+| GET/POST | `/api/clients` | Buscar / crear-actualizar cliente |
+| GET/POST | `/api/vehicles` | Motos por cliente/placa |
+| GET/POST | `/api/allies` | Convenios / referidos |
+| POST | `/api/sales` | Registrar venta (calcula costos, provision, cartera) |
+| POST | `/api/sales/:id/invoice` | Emitir factura local |
+| GET | `/api/sales` | Listar / filtrar ventas |
+| GET/POST | `/api/closings` | Cierre del dia (al vuelo / congelar) |
+| GET | `/api/closings/consolidado` | Consolidado de cierres |
+| GET | `/api/receivables` | Cartera abierta |
+| POST | `/api/receivables/:id/pay` | Marcar cartera pagada |

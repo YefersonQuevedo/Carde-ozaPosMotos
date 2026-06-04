@@ -51,6 +51,7 @@ textarea:focus {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
+  min-width: 0;
 }
 
 .sidebar {
@@ -60,12 +61,14 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
 }
 
 .brand {
   display: flex;
   gap: 12px;
   align-items: center;
+  min-width: 0;
 }
 
 .brand-mark {
@@ -91,6 +94,7 @@ textarea:focus {
 .nav {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .nav-item {
@@ -98,6 +102,7 @@ textarea:focus {
   color: #cfdbeb;
   background: transparent;
   padding: 10px 12px;
+  min-width: 0;
 }
 
 .nav-item.active {
@@ -111,6 +116,7 @@ textarea:focus {
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
+  min-width: 0;
 }
 
 .panel-label,
@@ -134,6 +140,7 @@ textarea:focus {
   gap: 16px;
   align-items: center;
   margin-bottom: 18px;
+  min-width: 0;
 }
 
 h1,
@@ -251,6 +258,7 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .document-panel,
@@ -278,6 +286,7 @@ h3 {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 14px;
+  min-width: 0;
 }
 
 .panel-heading p {
@@ -343,7 +352,7 @@ textarea {
 
 .sale-search-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 1.1fr) minmax(300px, 1.1fr) minmax(260px, 0.8fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
   align-items: stretch;
 }
@@ -537,6 +546,20 @@ textarea {
   padding: 22px;
 }
 
+.form-section-title {
+  grid-column: 1 / -1;
+  color: #233347;
+  font-size: 13px;
+  font-weight: 900;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.form-section-title:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .flow-panel {
   margin-top: 16px;
 }
@@ -674,7 +697,7 @@ th.number {
 
 .ally-form {
   display: grid;
-  grid-template-columns: 1.1fr 0.8fr 1fr 0.85fr 0.85fr auto;
+  grid-template-columns: 1.1fr 0.8fr 1fr 0.85fr 0.85fr 0.7fr auto;
   gap: 10px;
   align-items: end;
   margin-bottom: 16px;
@@ -694,6 +717,11 @@ th.number {
 
 .full {
   width: 100%;
+}
+
+.hidden-field-store,
+.deferred-metric {
+  display: none;
 }
 
 dialog {
@@ -735,6 +763,68 @@ dialog::backdrop {
   color: var(--muted);
 }
 
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.checkout-modal {
+  background: #fff;
+}
+
+.checkout-flow {
+  display: grid;
+  gap: 14px;
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.checkout-step {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 16px;
+}
+
+.checkout-step h3 {
+  margin: 0;
+  padding-right: 42px;
+}
+
+.step-badge.inline {
+  top: 14px;
+  right: 14px;
+}
+
+.readonly-hint {
+  align-self: end;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 9px 0;
+}
+
+.checkout-payments {
+  margin-top: 6px;
+}
+
+.checkout-snapshot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.checkout-snapshot .amount-row {
+  padding: 6px 0;
+}
+
 .recurring-layout {
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;
@@ -767,11 +857,13 @@ dialog::backdrop {
   text-align: right;
 }
 
-.client-modal {
+.client-modal,
+.vehicle-modal {
   padding-bottom: 0;
 }
 
-.client-modal .field-grid {
+.client-modal .field-grid,
+.vehicle-modal .field-grid {
   padding: 22px;
 }
 
@@ -1019,6 +1111,7 @@ dialog::backdrop {
 
   .document-grid,
   .checkout-grid,
+  .checkout-snapshot,
   .analysis-grid,
   .closing-grid,
   .sale-search-grid,
@@ -1061,6 +1154,33 @@ dialog::backdrop {
 
   .sidebar {
     display: flex;
+    width: 100%;
+    padding: 16px 14px;
+  }
+
+  .brand > div:last-child,
+  .topbar > div,
+  .panel-heading > div {
+    min-width: 0;
+  }
+
+  .nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .nav-item {
+    text-align: center;
+    padding-inline: 8px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .doc-chip {
+    width: 100%;
   }
 
   .field-grid.two,

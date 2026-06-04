@@ -66,7 +66,7 @@
                 <label>
                   Cliente
                   <div class="lookup clean-lookup">
-                    <input id="clientDoc" list="clientDocs" value="222222222222" autocomplete="off" placeholder="Cedula, NIT, nombre o placa" />
+                    <input id="clientDoc" list="clientDocs" value="222222222222" autocomplete="off" placeholder="Cedula, NIT o nombre" />
                     <button id="findClientBtn" class="secondary" title="Buscar cliente">Buscar</button>
                     <button id="openClientBtn" class="icon-button add-icon" title="Nuevo tercero">+</button>
                   </div>
@@ -77,25 +77,28 @@
               <section class="search-block">
                 <span class="step-badge">2</span>
                 <label>
-                  Producto
+                  Moto de la venta
+                  <div class="lookup clean-lookup">
+                    <input id="vehicleLookup" list="vehiclePlates" placeholder="Placa o modelo" />
+                    <button id="findVehicleBtn" class="secondary" title="Buscar moto">Buscar</button>
+                    <button id="openVehicleBtn" class="icon-button add-icon" title="Nueva moto">+</button>
+                  </div>
+                </label>
+                <div id="vehicleSummary" class="entity-summary">Sin moto seleccionada</div>
+              </section>
+
+              <section class="search-block">
+                <span class="step-badge">3</span>
+                <label>
+                  Paquete RTM
                   <div class="lookup product-lookup">
-                    <input id="productSearch" list="productCodes" placeholder="Codigo o nombre del producto" />
-                    <button class="success" id="quickProductBtn">Agregar</button>
-                    <button class="icon-button add-icon" id="openProductDialogBtn" title="Producto manual">+</button>
+                    <input id="productSearch" list="packageOptions" placeholder="Ej: RTM-3 o MOTOCICLETAS 2019-2023" />
+                    <button class="success" id="quickProductBtn">Agregar combo</button>
                   </div>
                 </label>
                 <div class="button-row compact-actions">
-                  <button class="primary" id="openRecurringBtn">Ventas recurrentes</button>
-                  <button class="secondary" id="openProductsBtn">Producto manual</button>
-                </div>
-              </section>
-
-              <section class="search-block sale-status-block">
-                <span class="step-badge">3</span>
-                <div class="status-stack">
-                  <span class="panel-label">Estado de la venta</span>
-                  <strong id="flowHint">Venta directa sin credito</strong>
-                  <small>Las opciones avanzadas estan abajo.</small>
+                  <button class="primary" id="openRecurringBtn">Tabla de paquetes</button>
+                  <button class="secondary" id="openPackageBtn">Agregar paquete</button>
                 </div>
               </section>
             </div>
@@ -104,7 +107,7 @@
           <div class="sale-body-grid">
             <section class="panel line-panel sale-lines-panel">
               <div class="line-summary">
-                <strong>Productos registrados</strong>
+                <strong>Componentes del combo</strong>
                 <strong id="cartTotalTop">$0</strong>
               </div>
 
@@ -131,157 +134,41 @@
               <div class="amount-row"><span>Base</span><strong id="grossTotal">$0</strong></div>
               <div class="amount-row"><span>Impuesto</span><strong id="taxTotal">$0</strong></div>
               <div class="amount-row total"><span>Total</span><strong id="finalTotal">$0</strong></div>
-              <div class="amount-row"><span>Valor entregado</span><strong id="paidTotal">$0</strong></div>
-              <div class="amount-row"><span>Saldo cartera</span><strong id="receivableTotal">$0</strong></div>
-              <div class="amount-row"><span>A provision</span><strong id="provisionTotal">$0</strong></div>
-              <div class="amount-row"><span>Cambio</span><strong id="changeDue">$0</strong></div>
-              <div class="amount-row quiet"><span>Costos operativos</span><strong id="operatingCost">$0</strong></div>
-              <div class="amount-row quiet"><span>Margen estimado</span><strong id="estimatedMargin">$0</strong></div>
+              <div class="amount-row deferred-metric"><span>Valor entregado</span><strong id="paidTotal">$0</strong></div>
+              <div class="amount-row deferred-metric"><span>Saldo cartera</span><strong id="receivableTotal">$0</strong></div>
+              <div class="amount-row deferred-metric"><span>A provision</span><strong id="provisionTotal">$0</strong></div>
+              <div class="amount-row deferred-metric"><span>Cambio</span><strong id="changeDue">$0</strong></div>
+              <div class="amount-row quiet deferred-metric"><span>Costos operativos</span><strong id="operatingCost">$0</strong></div>
+              <div class="amount-row quiet deferred-metric"><span>Margen estimado</span><strong id="estimatedMargin">$0</strong></div>
               <strong id="grandTotal" class="visually-hidden">$0</strong>
               <button class="success full" id="finalizeBtn">Facturar</button>
               <button class="danger full" id="clearBtn">Cancelar</button>
             </section>
           </div>
 
-          <div class="progressive-grid">
-            <details class="panel progressive-panel">
-              <summary>
-                <span>Opciones operativas</span>
-                <small>RTM, referido, DIAN y datos del vehiculo</small>
-              </summary>
-              <div class="field-grid flow-grid">
-                <label>
-                  Nombre
-                  <input id="clientName" value="Consumidor final" />
-                </label>
-                <label>
-                  Placa
-                  <input id="vehiclePlate" placeholder="ABC123" maxlength="8" />
-                </label>
-                <label>
-                  Modelo
-                  <input id="vehicleModel" type="number" min="1900" max="2035" value="2026" />
-                </label>
-                <label>
-                  Rango moto
-                  <select id="vehicleRange">
-                    <option value="MOTOCICLETAS 2009-ANTES">MOTOCICLETAS 2009-ANTES</option>
-                    <option value="MOTOCICLETAS 2010-2018">MOTOCICLETAS 2010-2018</option>
-                    <option value="MOTOCICLETAS 2019-2023">MOTOCICLETAS 2019-2023</option>
-                    <option value="MOTOCICLETAS 2024-2026" selected>MOTOCICLETAS 2024-2026</option>
-                  </select>
-                </label>
-                <label>
-                  Telefono
-                  <input id="clientPhone" placeholder="3000000000" />
-                </label>
-                <label>
-                  Correo
-                  <input id="clientEmail" placeholder="cliente@correo.com" />
-                </label>
-                <label>
-                  Direccion
-                  <input id="clientAddress" placeholder="Girardot" />
-                </label>
-                <label>
-                  Fecha
-                  <input id="invoiceDate" type="date" />
-                </label>
-                <label>
-                  Fecha renovacion
-                  <input id="renewalDate" type="date" />
-                </label>
-                <label>
-                  Producto
-                  <select id="serviceLine">
-                    <option>CERTIMOTOS</option>
-                    <option>REVISION TECNOMECANICA</option>
-                    <option>SOAT</option>
-                  </select>
-                </label>
-                <label>
-                  Estado DIAN
-                  <select id="dianStatus">
-                    <option value="enviada">Enviar a DIAN</option>
-                    <option value="no_enviada">Solo registrar POS</option>
-                    <option value="pendiente">Pendiente envio</option>
-                  </select>
-                </label>
-                <label>
-                  RTM ya pagada
-                  <select id="rtmAlreadyPaid">
-                    <option value="no">No, se cobra ahora</option>
-                    <option value="si">Si, ya esta pagada</option>
-                  </select>
-                </label>
-                <label>
-                  Tipo de usuario
-                  <select id="saleOrigin">
-                    <option value="directo">Usuario directo</option>
-                    <option value="referido">Referido / convenio</option>
-                  </select>
-                </label>
-                <label>
-                  Referido / aliado
-                  <input id="referralName" list="alliesList" value="USUARIO" />
-                </label>
-                <label>
-                  Comision / deduccion
-                  <input id="commissionValue" type="number" min="0" value="20000" />
-                </label>
-                <label>
-                  Credito / financiacion
-                  <select id="creditProvider">
-                    <option value="no">No necesita credito</option>
-                    <option value="ADDI">ADDI</option>
-                    <option value="ALIADOS DE INV. GORA SAS">GORA</option>
-                    <option value="CREDITO PROPIO">Credito propio</option>
-                  </select>
-                </label>
-                <label>
-                  Metodo de pago
-                  <select id="paymentMethod"></select>
-                </label>
-                <label>
-                  Realiza RTM hoy
-                  <select id="rtmToday">
-                    <option value="si">Si, realiza hoy</option>
-                    <option value="no">No, queda pendiente</option>
-                  </select>
-                </label>
-                <label>
-                  PIN adquirido
-                  <input id="pinNumber" placeholder="PIN o consecutivo" />
-                </label>
-              </div>
-            </details>
-
-            <details class="panel progressive-panel">
-              <summary>
-                <span>Pagos y observaciones</span>
-                <small>Solo abre si la venta cambia de forma de pago o requiere nota</small>
-              </summary>
-              <div class="payment-detail-grid">
-                <label class="notes-panel">
-                  Observaciones
-                  <textarea id="notes" rows="5" placeholder="Kilometraje, observacion del servicio, autorizaciones"></textarea>
-                </label>
-                <section class="payment-panel">
-                  <h2>Pagos reales</h2>
-                  <div class="payment-methods">
-                    <label>Efectivo<input id="payCash" type="number" min="0" value="0" /></label>
-                    <label>Datafono SG<input id="payDatafonoSg" type="number" min="0" value="0" /></label>
-                    <label>QR SG<input id="payQrSg" type="number" min="0" value="0" /></label>
-                    <label>QR CM<input id="payQrCm" type="number" min="0" value="0" /></label>
-                    <label>Datafono CM<input id="payDatafonoCm" type="number" min="0" value="0" /></label>
-                    <label>Transferencia<input id="payTransfer" type="number" min="0" value="0" /></label>
-                    <label>ADDI<input id="payAddi" type="number" min="0" value="0" /></label>
-                    <label>GORA<input id="payGora" type="number" min="0" value="0" /></label>
-                    <label>Credito propio<input id="payCredito" type="number" min="0" value="0" /></label>
-                  </div>
-                </section>
-              </div>
-            </details>
+          <div class="hidden-field-store" aria-hidden="true">
+            <input id="clientName" value="Consumidor final" />
+            <input id="clientPhone" />
+            <input id="clientEmail" />
+            <input id="clientAddress" />
+            <input id="vehiclePlate" maxlength="8" />
+            <input id="vehicleModel" type="number" min="1900" max="2035" value="2026" />
+            <select id="vehicleRange">
+              <option value="MOTOCICLETAS 2009-ANTES">MOTOCICLETAS 2009-ANTES</option>
+              <option value="MOTOCICLETAS 2010-2018">MOTOCICLETAS 2010-2018</option>
+              <option value="MOTOCICLETAS 2019-2023">MOTOCICLETAS 2019-2023</option>
+              <option value="MOTOCICLETAS 2024-2026" selected>MOTOCICLETAS 2024-2026</option>
+            </select>
+            <input id="invoiceDate" type="date" />
+            <input id="renewalDate" type="date" />
+            <select id="rtmAlreadyPaid">
+              <option value="no">No, se cobra ahora</option>
+              <option value="si">Si, ya esta pagada</option>
+            </select>
+            <select id="rtmToday">
+              <option value="si">Si, realiza hoy</option>
+              <option value="no">No, queda pendiente</option>
+            </select>
           </div>
         </section>
 
@@ -306,7 +193,7 @@
                 <h3>Ingresos por metodo</h3>
                 <div class="table-wrap compact">
                   <table>
-                    <thead><tr><th>Metodo</th><th>Total</th></tr></thead>
+                    <thead><tr><th>Metodo</th><th>Costo</th><th>Total</th></tr></thead>
                     <tbody id="closingPaymentsBody"></tbody>
                   </table>
                 </div>
@@ -391,6 +278,7 @@
               <label>Empresa<input id="allyCompany" placeholder="Taller, lavadero, transito" /></label>
               <label>Pago<input id="allyPayment" placeholder="NEQUI, cuenta, efectivo" /></label>
               <label>Cuenta<input id="allyAccount" placeholder="Numero de cuenta" /></label>
+              <label>Comision<input id="allyCommission" type="number" min="0" value="40000" /></label>
               <button class="success" id="addAllyBtn">Agregar aliado</button>
             </div>
             <div class="table-wrap">
@@ -402,6 +290,7 @@
                     <th>Empresa</th>
                     <th>Metodo pago</th>
                     <th>Cuenta</th>
+                    <th>Comision</th>
                     <th>Inscrito</th>
                     <th>Notas</th>
                   </tr>
@@ -424,9 +313,7 @@
                   <tr>
                     <th>CC/NIT</th>
                     <th>Cliente</th>
-                    <th>Placa</th>
-                    <th>Modelo</th>
-                    <th>Rango moto</th>
+                    <th>Motos</th>
                     <th>Telefono</th>
                     <th>Correo</th>
                   </tr>
@@ -504,19 +391,136 @@
       </main>
     </div>
 
+    <dialog id="checkoutDialog">
+      <form method="dialog" class="modal checkout-modal">
+        <header>
+          <h2>Finalizar factura</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div class="checkout-flow">
+          <section class="checkout-step">
+            <span class="step-badge inline">1</span>
+            <h3>Estado RTM</h3>
+            <div class="field-grid two">
+              <label>
+                Estado
+                <select id="rtmState">
+                  <option value="charge_done">Cobrar y realizar hoy</option>
+                  <option value="charge_pending">Cobrar y dejar pendiente</option>
+                  <option value="paid_done">Ya pagada y realizada</option>
+                  <option value="paid_pending">Ya pagada sin realizar</option>
+                </select>
+              </label>
+              <label>
+                PIN adquirido
+                <input id="pinNumber" placeholder="PIN o consecutivo" />
+              </label>
+              <label>
+                Estado DIAN
+                <select id="dianStatus">
+                  <option value="enviada">Enviar a DIAN</option>
+                  <option value="no_enviada">Solo registrar POS</option>
+                  <option value="pendiente">Pendiente envio</option>
+                </select>
+              </label>
+              <label>
+                Producto
+                <select id="serviceLine">
+                  <option>CERTIMOTOS</option>
+                  <option>REVISION TECNOMECANICA</option>
+                  <option>SOAT</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="checkout-step">
+            <span class="step-badge inline">2</span>
+            <h3>Referido</h3>
+            <div class="field-grid two">
+              <label>
+                Origen
+                <select id="saleOrigin">
+                  <option value="directo">Usuario directo</option>
+                  <option value="referido">Referido / convenio</option>
+                </select>
+              </label>
+              <label>
+                Aliado / convenio
+                <input id="referralName" list="alliesList" value="USUARIO" />
+              </label>
+              <label>
+                Comision calculada
+                <input id="commissionValue" type="number" min="0" value="20000" readonly />
+              </label>
+              <div class="readonly-hint" id="commissionHint">Tomada del catalogo de aliados.</div>
+            </div>
+          </section>
+
+          <section class="checkout-step">
+            <span class="step-badge inline">3</span>
+            <h3>Pago</h3>
+            <div class="field-grid two">
+              <label>
+                Metodo rapido
+                <select id="paymentMethod"></select>
+              </label>
+              <label>
+                Credito / financiacion
+                <select id="creditProvider">
+                  <option value="no">No necesita credito</option>
+                  <option value="ADDI">ADDI</option>
+                  <option value="ALIADOS DE INV. GORA SAS">GORA</option>
+                  <option value="CREDITO PROPIO">Credito propio</option>
+                </select>
+              </label>
+            </div>
+            <div class="payment-methods checkout-payments">
+              <label>Efectivo<input id="payCash" type="number" min="0" value="0" /></label>
+              <label>Datafono SG<input id="payDatafonoSg" type="number" min="0" value="0" /></label>
+              <label>QR SG<input id="payQrSg" type="number" min="0" value="0" /></label>
+              <label>QR CM<input id="payQrCm" type="number" min="0" value="0" /></label>
+              <label>Datafono CM<input id="payDatafonoCm" type="number" min="0" value="0" /></label>
+              <label>Transferencia<input id="payTransfer" type="number" min="0" value="0" /></label>
+              <label>ADDI<input id="payAddi" type="number" min="0" value="0" /></label>
+              <label>GORA<input id="payGora" type="number" min="0" value="0" /></label>
+              <label>Credito propio<input id="payCredito" type="number" min="0" value="0" /></label>
+            </div>
+            <div class="checkout-snapshot" id="checkoutSnapshot"></div>
+          </section>
+
+          <section class="checkout-step">
+            <span class="step-badge inline">4</span>
+            <h3>Observacion</h3>
+            <label class="notes-panel">
+              Observaciones
+              <textarea id="notes" rows="4" placeholder="Kilometraje, observacion del servicio, autorizaciones"></textarea>
+            </label>
+          </section>
+        </div>
+        <footer>
+          <button class="secondary" value="cancel">Volver</button>
+          <button class="success" id="confirmFinalizeBtn" value="default">Emitir factura</button>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog id="recurringDialog">
       <form method="dialog" class="modal">
         <header>
-          <h2>Ventas recurrentes</h2>
-          <button class="close-button" value="cancel">Cerrar</button>
+          <h2>Paquetes RTM</h2>
+          <div class="modal-actions">
+            <button class="secondary" id="newPackageBtn" value="default">Agregar paquete</button>
+            <button class="close-button" value="cancel">Cerrar</button>
+          </div>
         </header>
         <div class="recurring-layout">
           <div>
-            <h3>Tus ventas recurrentes</h3>
+            <h3>Tabla de paquetes</h3>
             <div id="bundleList" class="bundle-list"></div>
           </div>
           <div>
-            <h3>Productos</h3>
+            <h3>Componentes internos</h3>
             <div class="table-wrap compact">
               <table>
                 <thead>
@@ -534,7 +538,38 @@
         </div>
         <footer>
           <button class="danger" value="cancel">Cerrar</button>
-          <button class="success" id="addBundleBtn" value="default">Anadir productos</button>
+          <button class="success" id="addBundleBtn" value="default">Agregar combo</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="packageDialog">
+      <form method="dialog" class="modal package-modal">
+        <header>
+          <h2>Nuevo paquete RTM</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div class="field-grid two">
+          <label>
+            Codigo
+            <input id="packageCode" placeholder="RTM-5" />
+          </label>
+          <label>
+            Nombre del paquete
+            <input id="packageName" placeholder="MOTOCICLETAS 2027" />
+          </label>
+          <label>
+            Rango / etiqueta
+            <input id="packageRange" placeholder="MOTOCICLETAS 2027" />
+          </label>
+          <label>
+            Valor ANSV
+            <input id="packageAnsv" type="number" min="0" value="8500" />
+          </label>
+        </div>
+        <footer>
+          <button class="secondary" value="cancel">Cancelar</button>
+          <button class="success" id="savePackageBtn" value="default">Guardar paquete</button>
         </footer>
       </form>
     </dialog>
@@ -608,23 +643,6 @@
             <input id="modalName" required />
           </label>
           <label>
-            Placa principal
-            <input id="modalPlate" maxlength="8" />
-          </label>
-          <label>
-            Modelo
-            <input id="modalModel" type="number" min="1900" max="2035" />
-          </label>
-          <label>
-            Rango moto
-            <select id="modalRange">
-              <option>MOTOCICLETAS 2009-ANTES</option>
-              <option>MOTOCICLETAS 2010-2018</option>
-              <option>MOTOCICLETAS 2019-2023</option>
-              <option>MOTOCICLETAS 2024-2026</option>
-            </select>
-          </label>
-          <label>
             Direccion
             <input id="modalAddress" />
           </label>
@@ -651,6 +669,42 @@
       </form>
     </dialog>
 
+    <dialog id="vehicleDialog">
+      <form method="dialog" class="modal vehicle-modal">
+        <header>
+          <h2>Moto del cliente</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div class="field-grid two">
+          <label>
+            Cliente dueño
+            <input id="modalVehicleOwner" readonly />
+          </label>
+          <label>
+            Placa
+            <input id="modalVehiclePlate" maxlength="8" required />
+          </label>
+          <label>
+            Modelo
+            <input id="modalVehicleModel" type="number" min="1900" max="2035" value="2026" />
+          </label>
+          <label>
+            Rango moto
+            <select id="modalVehicleRange">
+              <option>MOTOCICLETAS 2009-ANTES</option>
+              <option>MOTOCICLETAS 2010-2018</option>
+              <option>MOTOCICLETAS 2019-2023</option>
+              <option>MOTOCICLETAS 2024-2026</option>
+            </select>
+          </label>
+        </div>
+        <footer>
+          <button class="secondary" value="cancel">Cancelar</button>
+          <button class="success" id="saveVehicleBtn" value="default">Guardar moto</button>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog id="receiptDialog">
       <form method="dialog" class="modal receipt-modal">
         <header>
@@ -666,6 +720,8 @@
     </dialog>
 
     <datalist id="clientDocs"></datalist>
+    <datalist id="vehiclePlates"></datalist>
+    <datalist id="packageOptions"></datalist>
     <datalist id="productCodes"></datalist>
     <datalist id="alliesList"></datalist>
     <script src="app.js"></script>

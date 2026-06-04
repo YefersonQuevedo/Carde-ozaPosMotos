@@ -1,0 +1,261 @@
+// MotoPOS V3 - Esquema MySQL "sin relaciones".
+// Tablas bien definidas, pero NO se declaran @relation ni llaves foraneas:
+// las referencias (clientDoc, saleId, etc.) son columnas escalares que se
+// resuelven por valor en el codigo. relationMode = "prisma" evita FKs en MySQL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+/// Terceros / clientes. La placa NO vive aqui (va en Vehicle).
+model Client {
+  id             Int      @id @default(autoincrement())
+  docType        String   @default("CC")
+  docNumber      String   @unique
+  dv             String?
+  personType     String   @default("NATURAL")
+  name           String
+  commercialName String?
+  email          String?
+  phone          String?
+  address        String?
+  status         String   @default("ACTIVO")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([name])
+  @@map("clients")
+}
+
+/// Motos. Un cliente puede tener varias (referencia por clientDoc, sin FK).
+model Vehicle {
+  id        Int      @id @default(autoincrement())
+  clientDoc String
+  plate     String
+  modelYear Int?
+  rangeName String?
+  status    String   @default("ACTIVO")
+  createdAt DateTime @default(now())
+
+  @@index([clientDoc])
+  @@index([plate])
+  @@map("vehicles")
+}
+
+/// Convenios / aliados / referidos. "USUARIO" = cliente directo (fidelizado).
+model Ally {
+  id            Int      @id @default(autoincrement())
+  name          String
+  contactPhone  String?
+  altPhone      String?
+  docType       String?
+  docNumber     String?
+  paymentMethod String?
+  accountNumber String?
+  holderDocType String?
+  holderDoc     String?
+  address       String?
+  company       String?
+  observation   String?  @db.Text
+  notes         String?  @db.Text
+  enrolled      Boolean  @default(false)
+  commission    Int      @default(40000)
+  isDirectUser  Boolean  @default(false)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([name])
+  @@map("allies")
+}
+
+/// Componentes fiscales internos (servicio, RUNT, SICOV, recaudo, ANSV).
+/// unitPrice es IVA-incluido (precio final); taxRate es el % embebido.
+model Product {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  unitPrice Int
+  taxRate   Int      @default(0)
+  active    Boolean  @default(true)
+
+  @@map("products")
+}
+
+/// Combos RTM visibles para la venta (uno por rango de modelo).
+model Package {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  rangeName String
+  active    Boolean  @default(true)
+
+  @@map("packages")
+}
+
+/// Relacion paquete -> componentes (por valor de codigo, sin FK).
+model PackageComponent {
+  id           Int    @id @default(autoincrement())
+  packageCode  String
+  productCode  String
+  quantity     Int    @default(1)
+  priceOverride Int?
+
+  @@index([packageCode])
+  @@map("package_components")
+}
+
+/// Catalogo de metodos de pago con su regla de costo y comportamiento fiscal.
+/// groupCode: SG (Supergiros) | CM (Certimotos/empresa) | CREDITO
+/// costType: none | percent | fixed | percent_plus_tax
+model PaymentMethod {
+  id                 Int      @id @default(autoincrement())
+  code               String   @unique
+  name               String
+  groupCode          String
+  isCredit           Boolean  @default(false)
+  generatesReceivable Boolean @default(false)
+  facturaDian        Boolean  @default(false)
+  costType           String   @default("none")
+  costRate           Float    @default(0)
+  costAmount         Int      @default(0)
+  costTaxRate        Float    @default(0)
+  active             Boolean  @default(true)
+
+  @@map("payment_methods")
+}
+
+/// Cabecera de venta/servicio. Columnas planas indexadas para buscar/cuadrar.
+model Sale {
+  id             Int      @id @default(autoincrement())
+  saleNumber     String   @unique
+  saleDate       String   // YYYY-MM-DD (dia operativo del cierre)
+  saleTime       String?
+  clientDoc      String
+  clientName     String
+  plate          String?
+  modelYear      Int?
+  rangeName      String?
+  packageCode    String?
+  allyName       String?
+  allyType       String   @default("usuario") // usuario | referido
+  discountApplied Boolean @default(true)
+  deduction      Int      @default(0)         // DEDUCCIONES CONVENIOS
+  totalBase      Int      @default(0)
+  totalIva       Int      @default(0)
+  total          Int      @default(0)
+  paidAmount     Int      @default(0)
+  changeAmount   Int      @default(0)
+  rtmAlreadyPaid Boolean  @default(false)
+  rtmToday       Boolean  @default(true)
+  rtmStatus      String   @default("done")    // done | pending | paid_not_done
+  pinAdquirido   Int      @default(0)          // >0 => RTM realizada
+  provisionAmount Int     @default(0)
+  receivableAmount Int    @default(0)
+  dianStatus     String   @default("no_emitida") // no_emitida | facturada
+  invoiceNumber  String?
+  cufe           String?
+  responsable    String?
+  observaciones  String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  @@index([saleDate])
+  @@index([clientDoc])
+  @@index([plate])
+  @@map("sales")
+}
+
+/// Lineas fiscales internas de la venta (referencia por saleId, sin FK).
+model SaleLine {
+  id          Int    @id @default(autoincrement())
+  saleId      Int
+  productCode String
+  description String
+  quantity    Int    @default(1)
+  unitPrice   Int
+  taxRate     Int    @default(0)
+  base        Int    @default(0)
+  tax         Int    @default(0)
+  total       Int    @default(0)
+
+  @@index([saleId])
+  @@map("sale_lines")
+}
+
+/// Pagos de la venta. PAGO MIXTO: varias filas por venta.
+/// costAmount / costTax quedan CONGELADOS al registrar (no se recalculan).
+model SalePayment {
+  id         Int    @id @default(autoincrement())
+  saleId     Int
+  methodCode String
+  methodName String
+  groupCode  String
+  amount     Int
+  costType   String @default("none")
+  costAmount Int    @default(0)
+  costTax    Int    @default(0)
+
+  @@index([saleId])
+  @@index([methodCode])
+  @@map("sale_payments")
+}
+
+/// Costos operativos congelados por venta (formato de cierre del Excel).
+model SaleCost {
+  id               Int @id @default(autoincrement())
+  saleId           Int @unique
+  sicov            Int @default(0)
+  ivaSicov         Int @default(0)
+  recaudo          Int @default(0)
+  ivaRecaudo       Int @default(0)
+  ansv             Int @default(0)
+  fupa             Int @default(0)
+  sustratos        Int @default(0)
+  ivaFact          Int @default(0)
+  costeTransaccion Int @default(0)
+  costosTotal      Int @default(0)
+
+  @@map("sale_costs")
+}
+
+/// Cartera: ADDI, GORA o credito propio. Saldo pendiente por venta.
+model Receivable {
+  id        Int       @id @default(autoincrement())
+  saleId    Int
+  provider  String
+  clientDoc String
+  plate     String?
+  amount    Int
+  pending   Int
+  status    String    @default("abierta") // abierta | pagada
+  dueFrom   String
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([provider])
+  @@index([status])
+  @@map("receivables")
+}
+
+/// Snapshot congelado del cierre diario (alimenta el consolidado).
+model DailyClosing {
+  id             Int      @id @default(autoincrement())
+  closingDate    String   @unique
+  salesTotal     Int      @default(0)
+  byMethod       Json
+  provision      Int      @default(0)
+  receivableOpen Int      @default(0)
+  jasperEstimado Int      @default(0)
+  deducciones    Int      @default(0)
+  cajaEfectivo   Int      @default(0)
+  responsable    String?
+  recibe         String?
+  createdAt      DateTime @default(now())
+
+  @@map("daily_closings")
+}
