@@ -18,11 +18,16 @@ export const api = {
   findClients: (q) => req(`/clients?q=${encodeURIComponent(q)}`),
   getClient: (doc) => req(`/clients/${encodeURIComponent(doc)}`),
   saveClient: (body) => req("/clients", { method: "POST", body }),
+  deleteClient: (doc) => req(`/clients/${encodeURIComponent(doc)}`, { method: "DELETE" }),
 
   findVehicles: (params) => req(`/vehicles?${new URLSearchParams(params)}`),
   saveVehicle: (body) => req("/vehicles", { method: "POST", body }),
+  deleteVehicle: (id) => req(`/vehicles/${id}`, { method: "DELETE" }),
 
   findAllies: (q = "") => req(`/allies?q=${encodeURIComponent(q)}`),
+  saveAlly: (body) => req("/allies", { method: "POST", body }),
+  updateAlly: (id, body) => req(`/allies/${id}`, { method: "PUT", body }),
+  deleteAlly: (id) => req(`/allies/${id}`, { method: "DELETE" }),
 
   createSale: (body) => req("/sales", { method: "POST", body }),
   listSales: (params = {}) => req(`/sales?${new URLSearchParams(params)}`),

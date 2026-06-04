@@ -56,4 +56,16 @@ router.post("/", async (req, res, next) => {
   }
 });
 
+// Eliminar cliente y sus motos (sin FK: se borran por valor de docNumber).
+router.delete("/:docNumber", async (req, res, next) => {
+  try {
+    const docNumber = req.params.docNumber;
+    await prisma.vehicle.deleteMany({ where: { clientDoc: docNumber } });
+    await prisma.client.delete({ where: { docNumber } });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

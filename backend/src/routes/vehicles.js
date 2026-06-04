@@ -51,4 +51,13 @@ router.post("/", async (req, res, next) => {
   }
 });
 
+router.delete("/:id", async (req, res, next) => {
+  try {
+    await prisma.vehicle.delete({ where: { id: Number(req.params.id) } });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

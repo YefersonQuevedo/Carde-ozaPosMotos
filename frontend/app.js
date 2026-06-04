@@ -609,9 +609,79 @@ async function loadCartera() {
 async function loadConvenios(q = "") {
   try {
     const items = await api.findAllies(q);
-    $("conveniosBody").innerHTML = `<table class="data"><thead><tr><th>Nombre</th><th>Contacto</th><th>Empresa</th><th>Comision</th><th>Inscrito</th></tr></thead><tbody>${
-      items.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.contactPhone || "")}</td><td>${esc(a.company || "")}</td><td class="r">${money(a.commission)}</td><td>${a.enrolled ? "Si" : "-"}</td></tr>`).join("")
+    $("conveniosBody").innerHTML = `<table class="data"><thead><tr><th>Nombre</th><th>Contacto</th><th>Empresa</th><th class="r">Comision</th><th>Inscrito</th></tr></thead><tbody>${
+      items.map((a) => `<tr class="clickable" data-ally='${esc(JSON.stringify(a))}'><td>${esc(a.name)}</td><td>${esc(a.contactPhone || "")}</td><td>${esc(a.company || "")}</td><td class="r">${money(a.commission)}</td><td>${a.enrolled ? "Si" : "-"}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin convenios</td></tr>'
     }</tbody></table>`;
+    $("conveniosBody").querySelectorAll("[data-ally]").forEach((tr) => tr.addEventListener("click", () => renderAllyForm(JSON.parse(tr.dataset.ally))));
+  } catch (e) { toast(e.message); }
+}
+const ALLY_FIELDS = [
+  ["name", "Nombre completo", "text"],
+  ["company", "Empresa", "text"],
+  ["contactPhone", "Telefono", "text"],
+  ["altPhone", "Telefono alterno", "text"],
+  ["docType", "Tipo documento", "text"],
+  ["docNumber", "Numero documento", "text"],
+  ["paymentMethod", "Metodo de pago", "text"],
+  ["accountNumber", "Numero de cuenta", "text"],
+  ["holderDocType", "Tipo doc titular", "text"],
+  ["holderDoc", "Documento titular", "text"],
+  ["address", "Direccion", "text"],
+  ["commission", "Comision", "number"]
+];
+function renderAllyForm(a) {
+  const ally = a || { commission: 40000, enrolled: false, isDirectUser: false, active: true };
+  $("allyFormTitle").textContent = a ? `Editar: ${a.name}` : "Nuevo convenio";
+  const fields = ALLY_FIELDS.map(([k, label, type]) =>
+    `<label class="fld">${label}<input id="af_${k}" type="${type}" value="${esc(ally[k] ?? "")}" /></label>`
+  ).join("");
+  $("allyForm").innerHTML = `
+    <div class="form-grid">${fields}</div>
+    <label class="fld">Observacion<textarea id="af_observation">${esc(ally.observation ?? "")}</textarea></label>
+    <label class="fld">Notas<textarea id="af_notes">${esc(ally.notes ?? "")}</textarea></label>
+    <div class="row form-checks">
+      <label class="chk"><input type="checkbox" id="af_enrolled" ${ally.enrolled ? "checked" : ""} /> Inscrito</label>
+      <label class="chk"><input type="checkbox" id="af_isDirectUser" ${ally.isDirectUser ? "checked" : ""} /> Usuario directo</label>
+      <label class="chk"><input type="checkbox" id="af_active" ${ally.active !== false ? "checked" : ""} /> Activo</label>
+    </div>
+    <div class="row form-actions">
+      <button class="btn success" id="allySave">${a ? "Guardar cambios" : "Crear convenio"}</button>
+      ${a ? `<button class="btn danger" id="allyDelete">Eliminar</button>` : ""}
+    </div>`;
+  $("allySave").addEventListener("click", () => saveAlly(a?.id));
+  if (a) $("allyDelete").addEventListener("click", () => deleteAlly(a.id, a.name));
+}
+function readAllyForm() {
+  const body = {};
+  ALLY_FIELDS.forEach(([k, , type]) => {
+    const v = $(`af_${k}`).value.trim();
+    body[k] = type === "number" ? Number(v) || 0 : v;
+  });
+  body.observation = $("af_observation").value.trim();
+  body.notes = $("af_notes").value.trim();
+  body.enrolled = $("af_enrolled").checked;
+  body.isDirectUser = $("af_isDirectUser").checked;
+  body.active = $("af_active").checked;
+  return body;
+}
+async function saveAlly(id) {
+  const body = readAllyForm();
+  if (!body.name) return toast("El nombre es obligatorio");
+  try {
+    const saved = id ? await api.updateAlly(id, body) : await api.saveAlly(body);
+    toast(id ? "Convenio actualizado" : "Convenio creado");
+    await loadConvenios($("allySearch").value || "");
+    renderAllyForm(saved);
+  } catch (e) { toast(e.message); }
+}
+async function deleteAlly(id, name) {
+  if (!confirm(`¿Eliminar el convenio "${name}"?`)) return;
+  try {
+    await api.deleteAlly(id);
+    toast("Convenio eliminado");
+    $("allyForm").innerHTML = `<p class="hint">Selecciona un convenio o crea uno nuevo.</p>`;
+    $("allyFormTitle").textContent = "Detalle del convenio";
+    await loadConvenios($("allySearch").value || "");
   } catch (e) { toast(e.message); }
 }
 
@@ -665,11 +735,84 @@ async function loadClientDetail(doc) {
     $("clientDetailName").textContent = c.name;
     const veh = c.vehicles || [];
     $("clientDetailBody").innerHTML = `
-      <div class="detail-meta">${esc(c.docType || "")} ${esc(c.docNumber)}${c.phone ? " · " + esc(c.phone) : ""}${c.email ? " · " + esc(c.email) : ""}${c.address ? " · " + esc(c.address) : ""}</div>
+      <div class="form-grid">
+        <label class="fld">Nombre<input id="cl_name" value="${esc(c.name)}" /></label>
+        <label class="fld">Telefono<input id="cl_phone" value="${esc(c.phone || "")}" /></label>
+        <label class="fld">Email<input id="cl_email" value="${esc(c.email || "")}" /></label>
+        <label class="fld">Direccion<input id="cl_address" value="${esc(c.address || "")}" /></label>
+      </div>
+      <div class="detail-meta">${esc(c.docType || "")} ${esc(c.docNumber)}</div>
+      <div class="row form-actions">
+        <button class="btn success" id="clSave">Guardar cliente</button>
+        <button class="btn danger" id="clDelete">Eliminar</button>
+      </div>
       <h3>Motos / placas (${veh.length})</h3>
-      <table class="data"><thead><tr><th>Placa</th><th>Año</th><th>Rango</th><th>Estado</th></tr></thead><tbody>${
-        veh.map((v) => `<tr><td><b>${esc(v.plate)}</b></td><td>${v.modelYear || "-"}</td><td>${esc(v.rangeName || "")}</td><td>${esc(v.status || "")}</td></tr>`).join("") || '<tr><td class="hint" colspan="4">Sin motos registradas</td></tr>'
-      }</tbody></table>`;
+      <table class="data"><thead><tr><th>Placa</th><th>Año</th><th>Rango</th><th></th></tr></thead><tbody>${
+        veh.map((v) => `<tr><td><b>${esc(v.plate)}</b></td><td>${v.modelYear || "-"}</td><td>${esc(v.rangeName || "")}</td><td><button class="link" data-delveh="${v.id}">eliminar</button></td></tr>`).join("") || '<tr><td class="hint" colspan="4">Sin motos registradas</td></tr>'
+      }</tbody></table>
+      <div class="row" style="margin-top:12px">
+        <input id="cl_newplate" placeholder="Nueva placa" style="text-transform:uppercase" />
+        <input id="cl_newyear" type="number" placeholder="Año" min="1980" max="2035" />
+        <button class="btn" id="clAddVeh">Agregar moto</button>
+      </div>`;
+    $("clSave").addEventListener("click", () => saveClientEdit(c.docNumber));
+    $("clDelete").addEventListener("click", () => deleteClientUI(c.docNumber, c.name));
+    $("clAddVeh").addEventListener("click", () => addVehicleUI(c.docNumber));
+    $("clientDetailBody").querySelectorAll("[data-delveh]").forEach((b) => b.addEventListener("click", () => delVehicleUI(Number(b.dataset.delveh), c.docNumber)));
+  } catch (e) { toast(e.message); }
+}
+async function saveClientEdit(doc) {
+  try {
+    await api.saveClient({ docNumber: doc, name: $("cl_name").value.trim(), phone: $("cl_phone").value.trim(), email: $("cl_email").value.trim(), address: $("cl_address").value.trim() });
+    toast("Cliente guardado");
+    loadClientes($("clientListSearch").value || "");
+    loadClientDetail(doc);
+  } catch (e) { toast(e.message); }
+}
+async function deleteClientUI(doc, name) {
+  if (!confirm(`¿Eliminar a "${name}" y sus motos?`)) return;
+  try {
+    await api.deleteClient(doc);
+    toast("Cliente eliminado");
+    $("clientDetailBody").innerHTML = `<p class="hint">Selecciona un cliente para ver sus motos y placas.</p>`;
+    $("clientDetailName").textContent = "Motos / placas";
+    loadClientes($("clientListSearch").value || "");
+  } catch (e) { toast(e.message); }
+}
+async function addVehicleUI(doc) {
+  const plate = $("cl_newplate").value.trim().toUpperCase();
+  const year = Number($("cl_newyear").value) || null;
+  if (!plate) return toast("Ingresa la placa");
+  try { await api.saveVehicle({ clientDoc: doc, plate, modelYear: year }); toast("Moto agregada"); loadClientDetail(doc); }
+  catch (e) { toast(e.message); }
+}
+async function delVehicleUI(id, doc) {
+  if (!confirm("¿Eliminar esta moto?")) return;
+  try { await api.deleteVehicle(id); toast("Moto eliminada"); loadClientDetail(doc); }
+  catch (e) { toast(e.message); }
+}
+function renderNewClientForm() {
+  $("clientDetailName").textContent = "Nuevo cliente";
+  $("clientDetailBody").innerHTML = `
+    <div class="form-grid">
+      <label class="fld">Documento<input id="cl_newdoc" /></label>
+      <label class="fld">Nombre<input id="cl_name" /></label>
+      <label class="fld">Telefono<input id="cl_phone" /></label>
+      <label class="fld">Email<input id="cl_email" /></label>
+      <label class="fld">Direccion<input id="cl_address" /></label>
+    </div>
+    <div class="row form-actions"><button class="btn success" id="clCreate">Crear cliente</button></div>`;
+  $("clCreate").addEventListener("click", createClientUI);
+}
+async function createClientUI() {
+  const docNumber = $("cl_newdoc").value.trim();
+  const name = $("cl_name").value.trim();
+  if (!docNumber || !name) return toast("Documento y nombre obligatorios");
+  try {
+    await api.saveClient({ docNumber, name, phone: $("cl_phone").value.trim(), email: $("cl_email").value.trim(), address: $("cl_address").value.trim(), docType: /^\d{6,10}$/.test(docNumber) ? "CC" : "NIT" });
+    toast("Cliente creado");
+    loadClientes();
+    loadClientDetail(docNumber);
   } catch (e) { toast(e.message); }
 }
 
@@ -696,7 +839,9 @@ async function init() {
   $("ventasSearch").addEventListener("input", loadVentas);
   $("ventasAll").addEventListener("click", () => { $("ventasDate").value = ""; loadVentas(); });
   $("allySearch").addEventListener("input", (e) => loadConvenios(e.target.value));
+  $("allyNew").addEventListener("click", () => renderAllyForm(null));
   $("clientListSearch").addEventListener("input", (e) => loadClientes(e.target.value));
+  $("clientNew").addEventListener("click", renderNewClientForm);
   try {
     catalog = await api.catalog();
     catalog.products.forEach((p) => (productByCode[p.code] = p));

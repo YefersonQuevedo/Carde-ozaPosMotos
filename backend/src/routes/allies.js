@@ -43,4 +43,43 @@ router.post("/", async (req, res, next) => {
   }
 });
 
+router.put("/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const data = {
+      name: b.name,
+      contactPhone: b.contactPhone || null,
+      altPhone: b.altPhone || null,
+      docType: b.docType || null,
+      docNumber: b.docNumber || null,
+      paymentMethod: b.paymentMethod || null,
+      accountNumber: b.accountNumber || null,
+      holderDocType: b.holderDocType || null,
+      holderDoc: b.holderDoc || null,
+      address: b.address || null,
+      company: b.company || null,
+      observation: b.observation || null,
+      notes: b.notes || null,
+      enrolled: !!b.enrolled,
+      commission: Number(b.commission) || 40000,
+      isDirectUser: !!b.isDirectUser,
+      active: b.active !== false
+    };
+    const ally = await prisma.ally.update({ where: { id }, data });
+    res.json(ally);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete("/:id", async (req, res, next) => {
+  try {
+    await prisma.ally.delete({ where: { id: Number(req.params.id) } });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

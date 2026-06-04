@@ -100,7 +100,10 @@
             <div class="card">
               <div class="card-head">
                 <h2>Clientes</h2>
-                <input type="search" id="clientListSearch" placeholder="Buscar cliente…" />
+                <div class="row">
+                  <input type="search" id="clientListSearch" placeholder="Buscar cliente…" />
+                  <button class="btn primary" id="clientNew">Nuevo</button>
+                </div>
               </div>
               <div id="clientesBody"></div>
             </div>
@@ -113,12 +116,21 @@
 
         <!-- CONVENIOS -->
         <section class="view" id="view-convenios">
-          <div class="card">
-            <div class="card-head">
-              <h2>Convenios / aliados</h2>
-              <input type="search" id="allySearch" placeholder="Buscar aliado…" />
+          <div class="master-detail">
+            <div class="card">
+              <div class="card-head">
+                <h2>Convenios / aliados</h2>
+                <div class="row">
+                  <input type="search" id="allySearch" placeholder="Buscar aliado…" />
+                  <button class="btn primary" id="allyNew">Nuevo</button>
+                </div>
+              </div>
+              <div id="conveniosBody"></div>
             </div>
-            <div id="conveniosBody"></div>
+            <div class="card">
+              <div class="card-head"><h2 id="allyFormTitle">Detalle del convenio</h2></div>
+              <div id="allyForm"><p class="hint">Selecciona un convenio o crea uno nuevo.</p></div>
+            </div>
           </div>
         </section>
 

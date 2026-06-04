@@ -181,6 +181,19 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
 .detail-meta { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
 table.data tr.clickable { cursor: pointer; }
 
+/* Formularios CRUD */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 10px; }
+.fld input, .fld textarea {
+  background: var(--surface); border: 1px solid var(--line); color: var(--text);
+  padding: 9px 11px; border-radius: 8px; font-size: 14px; font-weight: 400;
+}
+.fld textarea { min-height: 56px; resize: vertical; font-family: inherit; }
+.form-checks { gap: 18px; margin-top: 14px; }
+.form-actions { margin-top: 16px; }
+.btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
 .kpi { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
 .kpi span { display: block; color: var(--muted); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
