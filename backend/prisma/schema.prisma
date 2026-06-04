@@ -244,6 +244,22 @@ model Receivable {
   @@map("receivables")
 }
 
+/// Factura emitida a partir de una venta (1 venta -> 0..1 factura).
+/// La venta es el hecho; la factura es su emision fiscal.
+model Invoice {
+  id         Int      @id @default(autoincrement())
+  saleId     Int      @unique
+  number     String   @unique
+  cufe       String?
+  dianStatus String   @default("emitida_local") // emitida_local | aceptada | rechazada
+  base       Int      @default(0)
+  iva        Int      @default(0)
+  total      Int      @default(0)
+  issuedAt   DateTime @default(now())
+
+  @@map("invoices")
+}
+
 /// Anulacion de una venta (append-only: la venta no se borra, se reversa).
 model Reversal {
   id           Int      @id @default(autoincrement())

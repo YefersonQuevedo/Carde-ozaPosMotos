@@ -6,7 +6,7 @@ const PREFIX = "PCDA";
 
 /// Siguiente numero de factura segun cuantas ya estan emitidas.
 export async function nextInvoiceNumber(prisma) {
-  const count = await prisma.sale.count({ where: { dianStatus: "facturada" } });
+  const count = await prisma.invoice.count();
   return `${PREFIX}-${String(count + 1).padStart(4, "0")}`;
 }
 

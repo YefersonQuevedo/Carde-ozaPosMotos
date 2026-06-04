@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { paymentCost, computeSaleCosts } from "../services/costs.js";
-import { nextInvoiceNumber, buildInvoiceDoc } from "../services/invoice.js";
+import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
 
 const router = Router();
 
@@ -183,6 +183,13 @@ router.post("/", async (req, res, next) => {
       }
       await tx.saleCost.create({ data: { saleId: created.id, ...costs } });
 
+      if (facturada) {
+        const tax = discriminateTax(lines);
+        await tx.invoice.create({
+          data: { saleId: created.id, number: invoiceNumber, base: tax.base, iva: tax.iva, total: tax.total }
+        });
+      }
+
       for (const p of receivablePayments) {
         await tx.receivable.create({
           data: {
@@ -277,12 +284,16 @@ router.post("/:id/invoice", async (req, res, next) => {
     const payments = await prisma.salePayment.findMany({ where: { saleId: id } });
     const costs = computeSaleCosts({ pinAdquirido: sale.pinAdquirido, modelYear: sale.modelYear, facturada: true, payments });
 
+    const tax = discriminateTax(lines);
     const updated = await prisma.$transaction(async (tx) => {
       const s = await tx.sale.update({
         where: { id },
         data: { dianStatus: "facturada", invoiceNumber }
       });
       await tx.saleCost.update({ where: { saleId: id }, data: costs });
+      await tx.invoice.create({
+        data: { saleId: id, number: invoiceNumber, base: tax.base, iva: tax.iva, total: tax.total }
+      });
       return s;
     });
     res.json({ sale: updated, doc: buildInvoiceDoc(updated, lines, invoiceNumber) });
