@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/costs.js";
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
+import { auth } from "../auth.js";
 
 const router = Router();
 
@@ -228,7 +229,7 @@ router.post("/", async (req, res, next) => {
 });
 
 // POST /api/sales/:id/void — anula la venta (no se borra) + reversa + cancela cartera.
-router.post("/:id/void", async (req, res, next) => {
+router.post("/:id/void", auth(["admin"]), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const sale = await prisma.sale.findUnique({ where: { id } });

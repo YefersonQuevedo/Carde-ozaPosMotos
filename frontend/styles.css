@@ -209,6 +209,21 @@ table.data tfoot tr:hover td { background: transparent; }
 .rng input { flex: 0 0 auto; }
 
 /* ---------- Toast ---------- */
+/* Login */
+.login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #0f1a2e, #132033); display: grid; place-items: center; z-index: 100; }
+.login-card { background: var(--surface); border-radius: 16px; padding: 34px 30px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.login-card h1 { font-size: 22px; }
+.login-card h1 span { color: var(--green); }
+.login-card .brand-mark.big { width: 60px; height: 60px; font-size: 28px; margin: 0 auto 6px; border-radius: 14px; }
+.login-card input { width: 100%; text-align: left; }
+.login-error { color: var(--red); font-size: 13px; font-weight: 600; min-height: 16px; }
+
+/* Caja de usuario en el sidebar */
+.userbox { background: #1c2c44; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; }
+.userbox .uname { color: #fff; font-weight: 700; font-size: 13px; }
+.userbox .urole { color: #8aa0b3; font-size: 11px; text-transform: capitalize; margin-bottom: 6px; }
+.userbox .link { color: #ff9b9b; }
+
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
   background: #132033; color: #fff; padding: 13px 22px; border-radius: 10px; font-weight: 600;

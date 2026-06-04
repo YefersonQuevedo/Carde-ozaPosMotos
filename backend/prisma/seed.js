@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -81,6 +82,14 @@ async function main() {
   // Tarifas (catalogo: se reescriben en cada seed)
   await prisma.tariff.deleteMany();
   for (const t of tariffs) await prisma.tariff.create({ data: t });
+
+  // Usuario admin inicial (solo si no hay usuarios). Clave: admin123
+  if ((await prisma.user.count()) === 0) {
+    await prisma.user.create({
+      data: { username: "admin", name: "Administrador", role: "admin", passwordHash: await bcrypt.hash("admin123", 10) }
+    });
+    console.log("Usuario admin creado (admin / admin123).");
+  }
 
   // Convenios / aliados desde el Excel — solo si la tabla esta vacia (no pisar ediciones).
   const existingAllies = await prisma.ally.count();

@@ -11,6 +11,9 @@ import sales from "./routes/sales.js";
 import closings from "./routes/closings.js";
 import receivables from "./routes/receivables.js";
 import allyPayments from "./routes/allyPayments.js";
+import authRoutes from "./routes/auth.js";
+import users from "./routes/users.js";
+import { auth } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -19,6 +22,10 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.use("/api/auth", authRoutes); // publico (login)
+
+// A partir de aqui todo exige sesion valida.
+app.use("/api", auth());
 app.use("/api/clients", clients);
 app.use("/api/vehicles", vehicles);
 app.use("/api/allies", allies);
@@ -27,6 +34,7 @@ app.use("/api/sales", sales);
 app.use("/api/closings", closings);
 app.use("/api/receivables", receivables);
 app.use("/api/ally-payments", allyPayments);
+app.use("/api/users", users);
 
 // Sirve el frontend estatico (../frontend).
 app.use(express.static(join(__dirname, "..", "..", "frontend")));

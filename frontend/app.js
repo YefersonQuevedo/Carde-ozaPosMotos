@@ -758,7 +758,8 @@ async function loadVentas() {
     $("ventasBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Venta</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th>RTM</th><th>Factura</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead><tbody>${
       items.map((s) => {
         const anulada = s.status === "anulada";
-        return `<tr style="${anulada ? "opacity:.5;text-decoration:line-through" : ""}"><td>${esc(s.saleDate)}</td><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.allyType)}</td><td>${esc(s.rtmStatus)}</td><td>${esc(s.invoiceNumber || "-")}</td><td class="r">${money(s.total)}</td><td>${anulada ? "anulada" : "activa"}</td><td>${anulada ? "" : `<button class="link" data-void="${s.id}">anular</button>`}</td></tr>`;
+        const canVoid = !anulada && api.currentUser()?.role === "admin";
+        return `<tr style="${anulada ? "opacity:.5;text-decoration:line-through" : ""}"><td>${esc(s.saleDate)}</td><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.allyType)}</td><td>${esc(s.rtmStatus)}</td><td>${esc(s.invoiceNumber || "-")}</td><td class="r">${money(s.total)}</td><td>${anulada ? "anulada" : "activa"}</td><td>${canVoid ? `<button class="link" data-void="${s.id}">anular</button>` : ""}</td></tr>`;
       }).join("") || '<tr><td class="hint" colspan="10">Sin ventas</td></tr>'
     }</tbody></table>`;
     $("ventasBody").querySelectorAll("[data-void]").forEach((b) => b.addEventListener("click", () => voidSaleUI(Number(b.dataset.void))));
@@ -776,7 +777,7 @@ async function voidSaleUI(id) {
 }
 
 // ---------- Navegacion ----------
-const VIEW_TITLES = { venta: "Venta", cierre: "Cierre diario", consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes", convenios: "Convenios", ventas: "Ventas" };
+const VIEW_TITLES = { venta: "Venta", cierre: "Cierre diario", consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes", convenios: "Convenios", ventas: "Ventas", usuarios: "Usuarios" };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
@@ -788,6 +789,67 @@ function switchView(view) {
   if (view === "clientes") loadClientes();
   if (view === "convenios") loadConvenios();
   if (view === "ventas") loadVentas();
+  if (view === "usuarios") loadUsuarios();
+}
+
+// ---------- Usuarios (admin) ----------
+async function loadUsuarios() {
+  try {
+    const users = await api.listUsers();
+    $("usuariosBody").innerHTML = `<table class="data"><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Activo</th></tr></thead><tbody>${
+      users.map((u) => `<tr class="clickable" data-user='${esc(JSON.stringify(u))}'><td>${esc(u.username)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}</td><td>${u.active ? "Si" : "-"}</td></tr>`).join("")
+    }</tbody></table>`;
+    $("usuariosBody").querySelectorAll("[data-user]").forEach((tr) => tr.addEventListener("click", () => renderUserForm(JSON.parse(tr.dataset.user))));
+  } catch (e) { toast(e.message); }
+}
+function renderUserForm(u) {
+  $("userFormTitle").textContent = u ? `Editar: ${u.username}` : "Nuevo usuario";
+  $("userForm").innerHTML = `
+    <div class="form-grid">
+      <label class="fld">Usuario<input id="us_username" value="${esc(u?.username || "")}" ${u ? "disabled" : ""} /></label>
+      <label class="fld">Nombre<input id="us_name" value="${esc(u?.name || "")}" /></label>
+      <label class="fld">Rol
+        <select id="us_role">
+          <option value="vendedor" ${u?.role === "vendedor" ? "selected" : ""}>Vendedor</option>
+          <option value="admin" ${u?.role === "admin" ? "selected" : ""}>Administrador</option>
+        </select>
+      </label>
+      <label class="fld">${u ? "Nueva clave (opcional)" : "Clave"}<input id="us_password" type="password" /></label>
+    </div>
+    <div class="row form-checks"><label class="chk"><input type="checkbox" id="us_active" ${!u || u.active ? "checked" : ""} /> Activo</label></div>
+    <div class="row form-actions">
+      <button class="btn success" id="userSave">${u ? "Guardar" : "Crear usuario"}</button>
+      ${u ? `<button class="btn danger" id="userDelete">Eliminar</button>` : ""}
+    </div>`;
+  $("userSave").addEventListener("click", () => saveUser(u?.id));
+  if (u) $("userDelete").addEventListener("click", () => deleteUserUI(u.id, u.username));
+}
+async function saveUser(id) {
+  const body = {
+    username: $("us_username").value.trim(),
+    name: $("us_name").value.trim(),
+    role: $("us_role").value,
+    active: $("us_active").checked
+  };
+  const pass = $("us_password").value;
+  if (pass) body.password = pass;
+  if (!body.username || !body.name || (!id && !pass)) return toast("Usuario, nombre y clave obligatorios");
+  try {
+    const saved = id ? await api.updateUser(id, body) : await api.createUser(body);
+    toast(id ? "Usuario actualizado" : "Usuario creado");
+    await loadUsuarios();
+    renderUserForm(saved);
+  } catch (e) { toast(e.message); }
+}
+async function deleteUserUI(id, username) {
+  if (!confirm(`¿Eliminar al usuario "${username}"?`)) return;
+  try {
+    await api.deleteUser(id);
+    toast("Usuario eliminado");
+    $("userForm").innerHTML = `<p class="hint">Selecciona un usuario o crea uno nuevo.</p>`;
+    $("userFormTitle").textContent = "Detalle";
+    await loadUsuarios();
+  } catch (e) { toast(e.message); }
 }
 
 async function loadClientes(q = "") {
@@ -894,11 +956,29 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
-async function init() {
+function applyRole() {
+  const u = api.currentUser();
+  $("userBox").innerHTML = u
+    ? `<div class="uname">${esc(u.name)}</div><div class="urole">${esc(u.role)}</div><button class="link" id="logoutBtn">Cerrar sesion</button>`
+    : "";
+  $("logoutBtn")?.addEventListener("click", logout);
+  const isAdmin = u?.role === "admin";
+  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", !isAdmin));
+}
+function showLogin() { $("loginOverlay").classList.remove("hidden"); $("appShell").classList.add("hidden"); }
+function showApp() { $("loginOverlay").classList.add("hidden"); $("appShell").classList.remove("hidden"); }
+function logout() { api.logout(); showLogin(); }
+
+let started = false;
+async function startApp() {
+  showApp();
+  applyRole();
+  if (started) { switchView("venta"); render(); return; }
+  started = true;
   $("closingDate").value = todayIso();
   $("ventasDate").value = todayIso();
   $("topbarMeta").textContent = new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  $("tabs").addEventListener("click", (e) => { if (e.target.dataset.view) switchView(e.target.dataset.view); });
+  $("tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab"); if (t?.dataset.view) switchView(t.dataset.view); });
   $("loadClosing").addEventListener("click", loadClosing);
   $("freezeClosing").addEventListener("click", freezeClosing);
   const monthStart = todayIso().slice(0, 8) + "01";
@@ -912,6 +992,7 @@ async function init() {
   $("allyNew").addEventListener("click", () => renderAllyForm(null));
   $("clientListSearch").addEventListener("input", (e) => loadClientes(e.target.value));
   $("clientNew").addEventListener("click", renderNewClientForm);
+  $("userNew").addEventListener("click", () => renderUserForm(null));
   try {
     catalog = await api.catalog();
     catalog.products.forEach((p) => (productByCode[p.code] = p));
@@ -920,8 +1001,23 @@ async function init() {
     $("connStatus").classList.add("ok");
   } catch (e) {
     $("connStatus").textContent = "sin conexion API";
-    toast("No se pudo cargar el catalogo. ¿Backend corriendo?");
   }
   render();
 }
-init();
+
+function boot() {
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("loginError").textContent = "";
+    try {
+      await api.login($("loginUser").value.trim(), $("loginPass").value);
+      await startApp();
+    } catch (err) {
+      $("loginError").textContent = err.message;
+    }
+  });
+  document.addEventListener("motopos:unauthorized", showLogin);
+  if (api.hasToken()) startApp();
+  else showLogin();
+}
+boot();

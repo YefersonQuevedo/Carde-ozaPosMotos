@@ -10,7 +10,20 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <!-- LOGIN -->
+    <div class="login-overlay" id="loginOverlay">
+      <form class="login-card" id="loginForm">
+        <div class="brand-mark big">M</div>
+        <h1>MotoPOS <span>V3</span></h1>
+        <p class="hint">Inicia sesion para continuar</p>
+        <input id="loginUser" placeholder="Usuario" autocomplete="username" />
+        <input id="loginPass" type="password" placeholder="Clave" autocomplete="current-password" />
+        <button class="btn primary big" type="submit">Entrar</button>
+        <div class="login-error" id="loginError"></div>
+      </form>
+    </div>
+
+    <div class="app-shell hidden" id="appShell">
       <!-- Sidebar -->
       <aside class="sidebar">
         <div class="brand">
@@ -30,9 +43,11 @@
           <button class="tab" data-view="clientes"><span class="ico">👤</span> Clientes</button>
           <button class="tab" data-view="convenios"><span class="ico">🤝</span> Convenios</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas</button>
+          <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
         </nav>
 
         <div class="sidebar-foot">
+          <div class="userbox" id="userBox"></div>
           <div class="conn" id="connStatus"><span class="dot"></span> conectando…</div>
           <small>RTM motos · Girardot</small>
         </div>
@@ -69,6 +84,20 @@
               </div>
             </div>
             <div id="closingBody"></div>
+          </div>
+        </section>
+
+        <!-- USUARIOS (admin) -->
+        <section class="view" id="view-usuarios">
+          <div class="master-detail">
+            <div class="card">
+              <div class="card-head"><h2>Usuarios</h2><button class="btn primary" id="userNew">Nuevo</button></div>
+              <div id="usuariosBody"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2 id="userFormTitle">Detalle</h2></div>
+              <div id="userForm"><p class="hint">Selecciona un usuario o crea uno nuevo.</p></div>
+            </div>
           </div>
         </section>
 

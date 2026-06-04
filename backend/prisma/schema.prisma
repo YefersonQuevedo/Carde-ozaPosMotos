@@ -266,6 +266,19 @@ model Receivable {
   @@map("receivables")
 }
 
+/// Usuarios del sistema. role: admin | vendedor
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("vendedor")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("users")
+}
+
 /// Factura emitida a partir de una venta (1 venta -> 0..1 factura).
 /// La venta es el hecho; la factura es su emision fiscal.
 model Invoice {
