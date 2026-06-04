@@ -210,13 +210,28 @@ table.data tfoot tr:hover td { background: transparent; }
 
 /* ---------- Toast ---------- */
 /* Login */
-.login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #0f1a2e, #132033); display: grid; place-items: center; z-index: 100; }
-.login-card { background: var(--surface); border-radius: 16px; padding: 34px 30px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 12px; text-align: center; }
-.login-card h1 { font-size: 22px; }
-.login-card h1 span { color: var(--green); }
-.login-card .brand-mark.big { width: 60px; height: 60px; font-size: 28px; margin: 0 auto 6px; border-radius: 14px; }
-.login-card input { width: 100%; text-align: left; }
-.login-error { color: var(--red); font-size: 13px; font-weight: 600; min-height: 16px; }
+.login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #0b1322, #15233a 60%, #1a2c47); display: grid; place-items: center; z-index: 100; padding: 20px; }
+.login-split { display: grid; grid-template-columns: 1.05fr 1fr; width: 760px; max-width: 100%; background: var(--surface); border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+@media (max-width: 680px) { .login-split { grid-template-columns: 1fr; } .login-hero { display: none; } }
+
+.login-hero {
+  background: linear-gradient(150deg, #12a85a 0%, #1f5fc4 70%, #2457c5 100%);
+  color: #fff; padding: 40px 34px; display: flex; flex-direction: column; gap: 14px;
+}
+.login-hero .brand-mark.big { width: 64px; height: 64px; font-size: 30px; border-radius: 16px; background: rgba(255,255,255,.18); }
+.login-hero h2 { font-size: 26px; font-weight: 800; }
+.login-hero h2 span { color: #d7ffe7; }
+.login-tag { color: #e7eefb; font-size: 14px; line-height: 1.5; margin: 0; }
+.login-feats { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.login-feats li { position: relative; padding-left: 22px; color: #eaf2ff; font-size: 13.5px; }
+.login-feats li::before { content: "✓"; position: absolute; left: 0; color: #d7ffe7; font-weight: 800; }
+.login-hero small { margin-top: auto; color: rgba(255,255,255,.7); font-size: 12px; }
+
+.login-card { padding: 44px 38px; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.login-card h1 { font-size: 22px; font-weight: 800; }
+.login-card .fld { margin-top: 14px; }
+.login-card .btn.big { margin-top: 20px; }
+.login-error { color: var(--red); font-size: 13px; font-weight: 600; min-height: 18px; margin-top: 8px; text-align: center; }
 
 /* Caja de usuario en el sidebar */
 .userbox { background: #1c2c44; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; }

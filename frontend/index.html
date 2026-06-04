@@ -12,15 +12,27 @@
   <body>
     <!-- LOGIN -->
     <div class="login-overlay" id="loginOverlay">
-      <form class="login-card" id="loginForm">
-        <div class="brand-mark big">M</div>
-        <h1>MotoPOS <span>V3</span></h1>
-        <p class="hint">Inicia sesion para continuar</p>
-        <input id="loginUser" placeholder="Usuario" autocomplete="username" />
-        <input id="loginPass" type="password" placeholder="Clave" autocomplete="current-password" />
-        <button class="btn primary big" type="submit">Entrar</button>
-        <div class="login-error" id="loginError"></div>
-      </form>
+      <div class="login-split">
+        <div class="login-hero">
+          <div class="brand-mark big">M</div>
+          <h2>MotoPOS <span>V3</span></h2>
+          <p class="login-tag">Facturacion y POS para revision tecnico-mecanica</p>
+          <ul class="login-feats">
+            <li>Venta paso a paso</li>
+            <li>Cierre que cuadra con tu Excel</li>
+            <li>Cartera, convenios y reportes</li>
+          </ul>
+          <small>RTM motos · Girardot</small>
+        </div>
+        <form class="login-card" id="loginForm">
+          <h1>Iniciar sesion</h1>
+          <p class="hint">Ingresa tus credenciales</p>
+          <label class="fld">Usuario<input id="loginUser" placeholder="usuario" autocomplete="username" /></label>
+          <label class="fld">Clave<input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" /></label>
+          <button class="btn primary big" type="submit">Entrar</button>
+          <div class="login-error" id="loginError"></div>
+        </form>
+      </div>
     </div>
 
     <div class="app-shell hidden" id="appShell">
