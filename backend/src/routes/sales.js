@@ -150,6 +150,7 @@ router.post("/", async (req, res, next) => {
           modelYear,
           rangeName,
           packageCode: b.packageCode || null,
+          allyId: ally?.id ?? null,
           allyName,
           allyType,
           discountApplied,

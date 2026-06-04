@@ -3,15 +3,19 @@ import { prisma } from "../db.js";
 
 const router = Router();
 
+// Clave estable: allyId si existe, si no el nombre (compatibilidad con datos viejos).
+const allyKey = (allyId, allyName) => (allyId != null ? `id:${allyId}` : `nm:${allyName}`);
+
 // Devengado por convenio = suma de comisiones (deduction) en ventas de referidos.
 async function accruedByAlly() {
   const sales = await prisma.sale.findMany({
     where: { allyType: "referido", deduction: { gt: 0 } },
-    select: { allyName: true, deduction: true, pinAdquirido: true }
+    select: { allyId: true, allyName: true, deduction: true, pinAdquirido: true }
   });
   const map = {};
   for (const s of sales) {
-    const m = (map[s.allyName] ||= { accrued: 0, rtm: 0 });
+    const k = allyKey(s.allyId, s.allyName);
+    const m = (map[k] ||= { allyId: s.allyId ?? null, allyName: s.allyName, accrued: 0, rtm: 0 });
     m.accrued += s.deduction;
     if (s.pinAdquirido > 0) m.rtm += 1;
   }
@@ -19,9 +23,13 @@ async function accruedByAlly() {
 }
 
 async function paidByAlly() {
-  const pays = await prisma.allyPayment.findMany({ select: { allyName: true, amount: true } });
+  const pays = await prisma.allyPayment.findMany({ select: { allyId: true, allyName: true, amount: true } });
   const map = {};
-  for (const p of pays) map[p.allyName] = (map[p.allyName] || 0) + p.amount;
+  for (const p of pays) {
+    const k = allyKey(p.allyId, p.allyName);
+    const m = (map[k] ||= { allyId: p.allyId ?? null, allyName: p.allyName, paid: 0 });
+    m.paid += p.amount;
+  }
   return map;
 }
 
@@ -30,12 +38,21 @@ router.get("/", async (_req, res, next) => {
   try {
     const accrued = await accruedByAlly();
     const paid = await paidByAlly();
-    const names = new Set([...Object.keys(accrued), ...Object.keys(paid)]);
-    const items = [...names]
-      .map((name) => {
-        const a = accrued[name] || { accrued: 0, rtm: 0 };
-        const p = paid[name] || 0;
-        return { allyName: name, accrued: a.accrued, rtm: a.rtm, paid: p, pending: a.accrued - p };
+    const keys = new Set([...Object.keys(accrued), ...Object.keys(paid)]);
+    const items = [...keys]
+      .map((k) => {
+        const a = accrued[k];
+        const p = paid[k];
+        const acc = a?.accrued || 0;
+        const paidV = p?.paid || 0;
+        return {
+          allyId: a?.allyId ?? p?.allyId ?? null,
+          allyName: a?.allyName ?? p?.allyName ?? "",
+          accrued: acc,
+          rtm: a?.rtm || 0,
+          paid: paidV,
+          pending: acc - paidV
+        };
       })
       .sort((x, y) => y.pending - x.pending);
     const totals = items.reduce(

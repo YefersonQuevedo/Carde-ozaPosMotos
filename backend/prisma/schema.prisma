@@ -142,6 +142,7 @@ model Sale {
   modelYear      Int?
   rangeName      String?
   packageCode    String?
+  allyId         Int?
   allyName       String?
   allyType       String   @default("usuario") // usuario | referido
   discountApplied Boolean @default(true)

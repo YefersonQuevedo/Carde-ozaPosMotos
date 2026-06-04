@@ -598,12 +598,14 @@ async function loadPagoConv() {
     const { items, totals } = await api.allyPayments();
     $("pagoconvTotals").textContent = `Devengado ${money(totals.accrued)} · Pagado ${money(totals.paid)} · Pendiente ${money(totals.pending)}`;
     $("pagoconvBody").innerHTML = `<table class="data"><thead><tr><th>Convenio</th><th class="r">Devengado</th><th class="r">Pagado</th><th class="r">Pendiente</th></tr></thead><tbody>${
-      items.map((a) => `<tr class="clickable" data-name="${esc(a.allyName)}"><td>${esc(a.allyName)}</td><td class="r">${money(a.accrued)}</td><td class="r">${money(a.paid)}</td><td class="r"><b>${money(a.pending)}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="4">Aun no hay comisiones de referidos</td></tr>'
+      items.map((a) => `<tr class="clickable" data-name="${esc(a.allyName)}" data-id="${a.allyId ?? ""}"><td>${esc(a.allyName)}</td><td class="r">${money(a.accrued)}</td><td class="r">${money(a.paid)}</td><td class="r"><b>${money(a.pending)}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="4">Aun no hay comisiones de referidos</td></tr>'
     }</tbody></table>`;
-    $("pagoconvBody").querySelectorAll("[data-name]").forEach((tr) => tr.addEventListener("click", () => loadPagoConvDetail(tr.dataset.name)));
+    $("pagoconvBody").querySelectorAll("[data-name]").forEach((tr) => tr.addEventListener("click", () => loadPagoConvDetail(tr.dataset.name, tr.dataset.id || null)));
   } catch (e) { toast(e.message); }
 }
-async function loadPagoConvDetail(name) {
+let currentAlly = { name: null, id: null };
+async function loadPagoConvDetail(name, allyId = null) {
+  currentAlly = { name, id: allyId ? Number(allyId) : null };
   try {
     const d = await api.allyPaymentDetail(name);
     $("pagoconvName").textContent = name;
@@ -634,7 +636,7 @@ async function addPagoConv(name) {
   const amount = Number(String($("pc_amount").value).replace(/[^\d]/g, "")) || 0;
   if (amount <= 0) return toast("Ingresa un valor");
   try {
-    await api.addAllyPayment({ allyName: name, amount, paidDate: $("pc_date").value || todayIso(), note: $("pc_note").value.trim() });
+    await api.addAllyPayment({ allyName: name, allyId: currentAlly.id, amount, paidDate: $("pc_date").value || todayIso(), note: $("pc_note").value.trim() });
     toast("Pago registrado");
     await loadPagoConvDetail(name);
     loadPagoConv();
