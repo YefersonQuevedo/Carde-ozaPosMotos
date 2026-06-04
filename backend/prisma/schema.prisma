@@ -35,13 +35,14 @@ model Client {
 
 /// Motos. Un cliente puede tener varias (referencia por clientDoc, sin FK).
 model Vehicle {
-  id        Int      @id @default(autoincrement())
-  clientDoc String
-  plate     String
-  modelYear Int?
-  rangeName String?
-  status    String   @default("ACTIVO")
-  createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  clientDoc   String
+  plate       String
+  modelYear   Int?
+  rangeName   String?
+  vehicleType String   @default("MOTO")
+  status      String   @default("ACTIVO")
+  createdAt   DateTime @default(now())
 
   @@index([clientDoc])
   @@index([plate])
@@ -77,23 +78,43 @@ model Ally {
 /// Componentes fiscales internos (servicio, RUNT, SICOV, recaudo, ANSV).
 /// unitPrice es IVA-incluido (precio final); taxRate es el % embebido.
 model Product {
-  id        Int      @id @default(autoincrement())
-  code      String   @unique
-  name      String
-  unitPrice Int
-  taxRate   Int      @default(0)
-  active    Boolean  @default(true)
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  unitPrice   Int
+  taxRate     Int      @default(0)
+  vehicleType String   @default("MOTO")
+  active      Boolean  @default(true)
 
   @@map("products")
 }
 
+/// Tarifas/costos operativos por tipo de vehiculo, con vigencia.
+/// concept: SICOV | RECAUDO | FUPA | SUSTRATOS | IVA_FACT | IVA_RATE | ANSV
+/// Para ANSV se usan yearFrom/yearTo (rango del modelo). value en COP
+/// (para IVA_RATE, value = porcentaje, ej. 19).
+model Tariff {
+  id          Int     @id @default(autoincrement())
+  vehicleType String  @default("MOTO")
+  concept     String
+  value       Int
+  yearFrom    Int     @default(0)
+  yearTo      Int     @default(9999)
+  validFrom   String  @default("2026-01-01")
+  active      Boolean @default(true)
+
+  @@index([vehicleType, concept])
+  @@map("tariffs")
+}
+
 /// Combos RTM visibles para la venta (uno por rango de modelo).
 model Package {
-  id        Int      @id @default(autoincrement())
-  code      String   @unique
-  name      String
-  rangeName String
-  active    Boolean  @default(true)
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  rangeName   String
+  vehicleType String   @default("MOTO")
+  active      Boolean  @default(true)
 
   @@map("packages")
 }
@@ -141,6 +162,7 @@ model Sale {
   plate          String?
   modelYear      Int?
   rangeName      String?
+  vehicleType    String   @default("MOTO")
   packageCode    String?
   allyId         Int?
   allyName       String?

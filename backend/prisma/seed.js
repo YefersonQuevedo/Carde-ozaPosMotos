@@ -46,6 +46,20 @@ const paymentMethods = [
   { code: "CREDITO PROPIO", name: "Credito propio", groupCode: "CREDITO", isCredit: true, generatesReceivable: true, costType: "fixed", costAmount: 1000 }
 ];
 
+// Tarifas MOTO 2026 (replican el formato de cierre del cliente).
+const tariffs = [
+  { vehicleType: "MOTO", concept: "SICOV", value: 29825 },
+  { vehicleType: "MOTO", concept: "RECAUDO", value: 8693 },
+  { vehicleType: "MOTO", concept: "FUPA", value: 5600 },
+  { vehicleType: "MOTO", concept: "SUSTRATOS", value: 800 },
+  { vehicleType: "MOTO", concept: "IVA_FACT", value: 37185 },
+  { vehicleType: "MOTO", concept: "IVA_RATE", value: 19 },
+  { vehicleType: "MOTO", concept: "ANSV", value: 8500, yearFrom: 2024, yearTo: 9999 },
+  { vehicleType: "MOTO", concept: "ANSV", value: 8800, yearFrom: 2019, yearTo: 2023 },
+  { vehicleType: "MOTO", concept: "ANSV", value: 9100, yearFrom: 2010, yearTo: 2018 },
+  { vehicleType: "MOTO", concept: "ANSV", value: 8800, yearFrom: 0, yearTo: 2009 }
+];
+
 async function main() {
   // Catalogos (idempotente por code)
   for (const p of products) {
@@ -64,10 +78,19 @@ async function main() {
     await prisma.paymentMethod.upsert({ where: { code: m.code }, update: m, create: m });
   }
 
-  // Convenios / aliados desde el Excel
+  // Tarifas (catalogo: se reescriben en cada seed)
+  await prisma.tariff.deleteMany();
+  for (const t of tariffs) await prisma.tariff.create({ data: t });
+
+  // Convenios / aliados desde el Excel — solo si la tabla esta vacia (no pisar ediciones).
+  const existingAllies = await prisma.ally.count();
+  if (existingAllies > 0) {
+    console.log(`Aliados ya cargados (${existingAllies}); no se reimportan.`);
+    console.log(`Seed listo: ${products.length} productos, ${packages.length} paquetes, ${paymentMethods.length} metodos, ${tariffs.length} tarifas.`);
+    return;
+  }
   const conveniosPath = join(__dirname, "data", "convenios.json");
   const convenios = JSON.parse(readFileSync(conveniosPath, "utf-8"));
-  await prisma.ally.deleteMany();
 
   // Usuario directo (fidelizado) siempre presente.
   await prisma.ally.create({

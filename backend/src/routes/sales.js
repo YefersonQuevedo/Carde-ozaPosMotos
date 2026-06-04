@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { paymentCost, computeSaleCosts } from "../services/costs.js";
+import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/costs.js";
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
 
 const router = Router();
@@ -46,6 +46,12 @@ async function nextSaleNumber() {
   return `VTA-${String(count + 1).padStart(6, "0")}`;
 }
 
+// Tarifas vigentes para un tipo de vehiculo a una fecha.
+async function tariffsFor(vehicleType, date) {
+  const rows = await prisma.tariff.findMany({ where: { vehicleType, active: true } });
+  return buildTariffLookup(rows, date);
+}
+
 // POST /api/sales — registra la venta (siempre, se facture o no).
 router.post("/", async (req, res, next) => {
   try {
@@ -63,11 +69,12 @@ router.post("/", async (req, res, next) => {
 
     const plate = normalizePlate(v.plate);
     const modelYear = Number(v.modelYear) || null;
+    const vehicleType = v.vehicleType || "MOTO";
     const rangeName = v.rangeName || (modelYear ? rangeFromModel(modelYear) : null);
     if (plate) {
       const existing = await prisma.vehicle.findFirst({ where: { plate, clientDoc: String(c.docNumber) } });
       if (!existing) {
-        await prisma.vehicle.create({ data: { clientDoc: String(c.docNumber), plate, modelYear, rangeName } });
+        await prisma.vehicle.create({ data: { clientDoc: String(c.docNumber), plate, modelYear, rangeName, vehicleType } });
       }
     }
 
@@ -80,9 +87,10 @@ router.post("/", async (req, res, next) => {
     // 3) Estado RTM y dinero.
     const rtmAlreadyPaid = !!b.rtmAlreadyPaid;
     const rtmToday = b.rtmToday !== false; // por defecto se realiza hoy
-    const rtmDone = rtmAlreadyPaid || rtmToday;
-    const rtmStatus = rtmAlreadyPaid ? "paid_not_done" : rtmToday ? "done" : "pending";
-    const pinAdquirido = rtmDone ? 1 : 0;
+    const rtmStatus = rtmAlreadyPaid
+      ? (rtmToday ? "paid_done" : "paid_not_done")
+      : (rtmToday ? "done" : "pending");
+    const pinAdquirido = rtmToday ? 1 : 0;
 
     // 4) Convenio / comision (DEDUCCIONES CONVENIOS).
     const allyName = b.ally?.name || "USUARIO";
@@ -116,6 +124,9 @@ router.post("/", async (req, res, next) => {
     const paidAmount = payments.reduce((s, p) => s + p.amount, 0);
     // Solo el efectivo puede exceder el total (vueltas); los demas metodos no.
     const cashPaid = payments.filter((p) => p.methodCode === "EFECTIVO").reduce((s, p) => s + p.amount, 0);
+    if (!rtmAlreadyPaid && paidAmount < total) {
+      throw Object.assign(new Error("El pago no cubre el total de la venta"), { status: 400 });
+    }
     if (paidAmount - cashPaid > total) {
       throw Object.assign(new Error("Los pagos distintos a efectivo no pueden superar el total"), { status: 400 });
     }
@@ -125,8 +136,10 @@ router.post("/", async (req, res, next) => {
     const forcedDian = payments.some((p) => p._method.facturaDian);
     const facturada = !!b.facturar || forcedDian;
 
-    // 7) Costos congelados.
-    const costs = computeSaleCosts({ pinAdquirido, modelYear, facturada, payments });
+    // 7) Costos congelados (tarifas por tipo de vehiculo y vigencia).
+    const saleDate0 = b.date || new Date().toISOString().slice(0, 10);
+    const tariffs = await tariffsFor(vehicleType, saleDate0);
+    const costs = computeSaleCosts({ tariffs, pinAdquirido, modelYear, facturada, payments });
 
     // 8) Provision (RTM pendiente) y cartera (ADDI/GORA/credito).
     const provisionAmount = rtmStatus === "pending" ? total : 0;
@@ -149,6 +162,7 @@ router.post("/", async (req, res, next) => {
           plate: plate || null,
           modelYear,
           rangeName,
+          vehicleType,
           packageCode: b.packageCode || null,
           allyId: ally?.id ?? null,
           allyName,
@@ -280,9 +294,10 @@ router.post("/:id/invoice", async (req, res, next) => {
     const lines = await prisma.saleLine.findMany({ where: { saleId: id } });
     const invoiceNumber = await nextInvoiceNumber(prisma);
 
-    // Recalcula costos incluyendo IVA de facturacion.
+    // Recalcula costos incluyendo IVA de facturacion (mismas tarifas del tipo de vehiculo).
     const payments = await prisma.salePayment.findMany({ where: { saleId: id } });
-    const costs = computeSaleCosts({ pinAdquirido: sale.pinAdquirido, modelYear: sale.modelYear, facturada: true, payments });
+    const tariffs = await tariffsFor(sale.vehicleType || "MOTO", sale.saleDate);
+    const costs = computeSaleCosts({ tariffs, pinAdquirido: sale.pinAdquirido, modelYear: sale.modelYear, facturada: true, payments });
 
     const tax = discriminateTax(lines);
     const updated = await prisma.$transaction(async (tx) => {
