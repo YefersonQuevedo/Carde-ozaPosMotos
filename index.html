@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MotoPOS Facturacion</title>
+    <title>MotoPOS V2 Facturacion</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -13,13 +13,16 @@
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">MP</div>
           <div>
-            <strong>MotoPOS</strong>
-            <span>Facturacion electronica</span>
+            <strong>MotoPOS V2</strong>
+            <span>POS, cierre y cartera RTM</span>
           </div>
         </div>
 
         <nav class="nav" aria-label="Principal">
-          <button class="nav-item active" data-view="factura">Factura POS</button>
+          <button class="nav-item active" data-view="factura">Venta</button>
+          <button class="nav-item" data-view="cierre">Cierre diario</button>
+          <button class="nav-item" data-view="cartera">Cartera</button>
+          <button class="nav-item" data-view="convenios">Convenios</button>
           <button class="nav-item" data-view="clientes">Clientes y placas</button>
           <button class="nav-item" data-view="facturas">Facturas</button>
           <button class="nav-item" data-view="analisis">Analisis</button>
@@ -35,32 +38,118 @@
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Factura de venta nacional</p>
-            <h1>POS Electronico</h1>
+            <p class="eyebrow">Centro de diagnostico automotor</p>
+            <h1>Facturacion POS y control RTM</h1>
           </div>
           <div class="topbar-actions">
-            <span class="status-pill">DIAN listo</span>
-            <button class="secondary" id="newInvoiceBtn">Nueva factura</button>
+            <span class="status-pill">Prototipo V2</span>
+            <button class="secondary" id="newInvoiceBtn">Nueva venta</button>
           </div>
         </header>
 
         <section class="view active" id="view-factura">
-          <div class="document-grid">
-            <section class="panel document-panel">
-              <div class="panel-heading">
-                <h2>Informacion del documento</h2>
+          <section class="panel sale-command-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Venta rapida</h2>
+                <p class="muted">Busca el cliente y agrega productos; el resto aparece cuando haga falta.</p>
+              </div>
+              <div class="doc-chip">
+                <span>Factura</span>
                 <strong id="invoiceNumber">PCDA-0001</strong>
               </div>
+            </div>
 
-              <div class="field-grid two">
+            <div class="sale-search-grid">
+              <section class="search-block">
+                <span class="step-badge">1</span>
                 <label>
                   Cliente
-                  <div class="lookup">
-                    <input id="clientDoc" list="clientDocs" value="222222222222" autocomplete="off" />
-                    <button id="findClientBtn" class="icon-button" title="Buscar cliente">Buscar</button>
-                    <button id="openClientBtn" class="icon-button" title="Nuevo tercero">Nuevo</button>
+                  <div class="lookup clean-lookup">
+                    <input id="clientDoc" list="clientDocs" value="222222222222" autocomplete="off" placeholder="Cedula, NIT, nombre o placa" />
+                    <button id="findClientBtn" class="secondary" title="Buscar cliente">Buscar</button>
+                    <button id="openClientBtn" class="icon-button add-icon" title="Nuevo tercero">+</button>
                   </div>
                 </label>
+                <div id="clientSummary" class="entity-summary">Consumidor final</div>
+              </section>
+
+              <section class="search-block">
+                <span class="step-badge">2</span>
+                <label>
+                  Producto
+                  <div class="lookup product-lookup">
+                    <input id="productSearch" list="productCodes" placeholder="Codigo o nombre del producto" />
+                    <button class="success" id="quickProductBtn">Agregar</button>
+                    <button class="icon-button add-icon" id="openProductDialogBtn" title="Producto manual">+</button>
+                  </div>
+                </label>
+                <div class="button-row compact-actions">
+                  <button class="primary" id="openRecurringBtn">Ventas recurrentes</button>
+                  <button class="secondary" id="openProductsBtn">Producto manual</button>
+                </div>
+              </section>
+
+              <section class="search-block sale-status-block">
+                <span class="step-badge">3</span>
+                <div class="status-stack">
+                  <span class="panel-label">Estado de la venta</span>
+                  <strong id="flowHint">Venta directa sin credito</strong>
+                  <small>Las opciones avanzadas estan abajo.</small>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <div class="sale-body-grid">
+            <section class="panel line-panel sale-lines-panel">
+              <div class="line-summary">
+                <strong>Productos registrados</strong>
+                <strong id="cartTotalTop">$0</strong>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Codigo</th>
+                      <th>Producto</th>
+                      <th>Cantidad</th>
+                      <th>Impuesto</th>
+                      <th>Vr. Unitario</th>
+                      <th>Vr. Total</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cartBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel final-panel sale-summary-panel">
+              <h2>Resumen</h2>
+              <div class="amount-row"><span>Base</span><strong id="grossTotal">$0</strong></div>
+              <div class="amount-row"><span>Impuesto</span><strong id="taxTotal">$0</strong></div>
+              <div class="amount-row total"><span>Total</span><strong id="finalTotal">$0</strong></div>
+              <div class="amount-row"><span>Valor entregado</span><strong id="paidTotal">$0</strong></div>
+              <div class="amount-row"><span>Saldo cartera</span><strong id="receivableTotal">$0</strong></div>
+              <div class="amount-row"><span>A provision</span><strong id="provisionTotal">$0</strong></div>
+              <div class="amount-row"><span>Cambio</span><strong id="changeDue">$0</strong></div>
+              <div class="amount-row quiet"><span>Costos operativos</span><strong id="operatingCost">$0</strong></div>
+              <div class="amount-row quiet"><span>Margen estimado</span><strong id="estimatedMargin">$0</strong></div>
+              <strong id="grandTotal" class="visually-hidden">$0</strong>
+              <button class="success full" id="finalizeBtn">Facturar</button>
+              <button class="danger full" id="clearBtn">Cancelar</button>
+            </section>
+          </div>
+
+          <div class="progressive-grid">
+            <details class="panel progressive-panel">
+              <summary>
+                <span>Opciones operativas</span>
+                <small>RTM, referido, DIAN y datos del vehiculo</small>
+              </summary>
+              <div class="field-grid flow-grid">
                 <label>
                   Nombre
                   <input id="clientName" value="Consumidor final" />
@@ -68,6 +157,10 @@
                 <label>
                   Placa
                   <input id="vehiclePlate" placeholder="ABC123" maxlength="8" />
+                </label>
+                <label>
+                  Modelo
+                  <input id="vehicleModel" type="number" min="1900" max="2035" value="2026" />
                 </label>
                 <label>
                   Rango moto
@@ -86,12 +179,10 @@
                   Correo
                   <input id="clientEmail" placeholder="cliente@correo.com" />
                 </label>
-              </div>
-            </section>
-
-            <section class="panel meta-panel">
-              <div class="mini-title">PCDA</div>
-              <div class="field-grid">
+                <label>
+                  Direccion
+                  <input id="clientAddress" placeholder="Girardot" />
+                </label>
                 <label>
                   Fecha
                   <input id="invoiceDate" type="date" />
@@ -104,119 +195,220 @@
                   Producto
                   <select id="serviceLine">
                     <option>CERTIMOTOS</option>
-                    <option>SOAT</option>
                     <option>REVISION TECNOMECANICA</option>
+                    <option>SOAT</option>
+                  </select>
+                </label>
+                <label>
+                  Estado DIAN
+                  <select id="dianStatus">
+                    <option value="enviada">Enviar a DIAN</option>
+                    <option value="no_enviada">Solo registrar POS</option>
+                    <option value="pendiente">Pendiente envio</option>
+                  </select>
+                </label>
+                <label>
+                  RTM ya pagada
+                  <select id="rtmAlreadyPaid">
+                    <option value="no">No, se cobra ahora</option>
+                    <option value="si">Si, ya esta pagada</option>
+                  </select>
+                </label>
+                <label>
+                  Tipo de usuario
+                  <select id="saleOrigin">
+                    <option value="directo">Usuario directo</option>
+                    <option value="referido">Referido / convenio</option>
+                  </select>
+                </label>
+                <label>
+                  Referido / aliado
+                  <input id="referralName" list="alliesList" value="USUARIO" />
+                </label>
+                <label>
+                  Comision / deduccion
+                  <input id="commissionValue" type="number" min="0" value="20000" />
+                </label>
+                <label>
+                  Credito / financiacion
+                  <select id="creditProvider">
+                    <option value="no">No necesita credito</option>
+                    <option value="ADDI">ADDI</option>
+                    <option value="ALIADOS DE INV. GORA SAS">GORA</option>
+                    <option value="CREDITO PROPIO">Credito propio</option>
                   </select>
                 </label>
                 <label>
                   Metodo de pago
-                  <select id="paymentMethod">
-                    <option>Efectivo</option>
-                    <option>Tarjeta</option>
-                    <option>Transferencia</option>
-                    <option>Mixto</option>
+                  <select id="paymentMethod"></select>
+                </label>
+                <label>
+                  Realiza RTM hoy
+                  <select id="rtmToday">
+                    <option value="si">Si, realiza hoy</option>
+                    <option value="no">No, queda pendiente</option>
                   </select>
                 </label>
+                <label>
+                  PIN adquirido
+                  <input id="pinNumber" placeholder="PIN o consecutivo" />
+                </label>
               </div>
-            </section>
+            </details>
+
+            <details class="panel progressive-panel">
+              <summary>
+                <span>Pagos y observaciones</span>
+                <small>Solo abre si la venta cambia de forma de pago o requiere nota</small>
+              </summary>
+              <div class="payment-detail-grid">
+                <label class="notes-panel">
+                  Observaciones
+                  <textarea id="notes" rows="5" placeholder="Kilometraje, observacion del servicio, autorizaciones"></textarea>
+                </label>
+                <section class="payment-panel">
+                  <h2>Pagos reales</h2>
+                  <div class="payment-methods">
+                    <label>Efectivo<input id="payCash" type="number" min="0" value="0" /></label>
+                    <label>Datafono SG<input id="payDatafonoSg" type="number" min="0" value="0" /></label>
+                    <label>QR SG<input id="payQrSg" type="number" min="0" value="0" /></label>
+                    <label>QR CM<input id="payQrCm" type="number" min="0" value="0" /></label>
+                    <label>Datafono CM<input id="payDatafonoCm" type="number" min="0" value="0" /></label>
+                    <label>Transferencia<input id="payTransfer" type="number" min="0" value="0" /></label>
+                    <label>ADDI<input id="payAddi" type="number" min="0" value="0" /></label>
+                    <label>GORA<input id="payGora" type="number" min="0" value="0" /></label>
+                    <label>Credito propio<input id="payCredito" type="number" min="0" value="0" /></label>
+                  </div>
+                </section>
+              </div>
+            </details>
           </div>
+        </section>
 
-          <section class="panel line-panel">
+        <section class="view" id="view-cierre">
+          <section class="panel">
             <div class="panel-heading">
-              <h2>Detalle de la factura</h2>
-              <div class="button-row">
-                <button class="secondary" id="openProductsBtn">Ver producto</button>
-                <button class="primary" id="openRecurringBtn">Ventas recurrentes</button>
-                <button class="success" id="quickProductBtn">Buscar producto</button>
+              <h2>Cierre diario</h2>
+              <div class="topbar-actions">
+                <input id="closingDate" type="date" />
+                <button class="secondary" id="todayClosingBtn">Hoy</button>
+                <button class="secondary" id="exportClosingBtn">Exportar cierre CSV</button>
               </div>
             </div>
-
-            <div class="entry-grid">
-              <label>
-                Codigo
-                <input id="productCode" list="productCodes" />
-              </label>
-              <label>
-                Producto
-                <input id="productName" />
-              </label>
-              <label>
-                Cantidad
-                <input id="productQty" type="number" min="1" value="1" />
-              </label>
-              <label>
-                Impuesto
-                <select id="productTax">
-                  <option value="0">0%</option>
-                  <option value="19" selected>19%</option>
-                </select>
-              </label>
-              <label>
-                Valor unitario
-                <input id="productPrice" type="number" min="0" />
-              </label>
-              <button class="success add-line" id="addLineBtn">Agregar</button>
+            <div class="kpi-grid">
+              <div class="kpi"><span>Ventas del dia</span><strong id="closingSales">$0</strong></div>
+              <div class="kpi"><span>RTM realizadas</span><strong id="closingDone">0</strong></div>
+              <div class="kpi"><span>RTM pendientes</span><strong id="closingPending">0</strong></div>
+              <div class="kpi"><span>Cartera abierta</span><strong id="closingReceivable">$0</strong></div>
             </div>
-
-            <div class="line-summary">
-              <strong>Productos registrados</strong>
-              <strong id="cartTotalTop">$0</strong>
+            <div class="closing-grid">
+              <section>
+                <h3>Ingresos por metodo</h3>
+                <div class="table-wrap compact">
+                  <table>
+                    <thead><tr><th>Metodo</th><th>Total</th></tr></thead>
+                    <tbody id="closingPaymentsBody"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section>
+                <h3>Resumen caja</h3>
+                <div class="summary-list" id="closingSummary"></div>
+              </section>
+              <section>
+                <h3>Costos y deducciones</h3>
+                <div class="table-wrap compact">
+                  <table>
+                    <thead><tr><th>Concepto</th><th>Total</th></tr></thead>
+                    <tbody id="closingCostsBody"></tbody>
+                  </table>
+                </div>
+              </section>
             </div>
-
+            <h3 class="section-title">Detalle del dia</h3>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Codigo</th>
-                    <th>Producto</th>
-                    <th>Cantidad</th>
-                    <th>Impuesto</th>
-                    <th>Vr. Unitario</th>
-                    <th>Vr. Total</th>
-                    <th>Acciones</th>
+                    <th>Factura</th>
+                    <th>Cliente</th>
+                    <th>Placa</th>
+                    <th>Metodo</th>
+                    <th>RTM</th>
+                    <th>Referido</th>
+                    <th>Total</th>
                   </tr>
                 </thead>
-                <tbody id="cartBody"></tbody>
+                <tbody id="closingDetailBody"></tbody>
               </table>
             </div>
           </section>
+        </section>
 
-          <section class="checkout-grid">
-            <label class="panel notes-panel">
-              Observaciones
-              <textarea id="notes" rows="4" placeholder="Placa, kilometraje, observacion del servicio"></textarea>
-            </label>
+        <section class="view" id="view-cartera">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Cuentas por cobrar</h2>
+              <span class="soft-pill" id="receivableHint">ADDI, GORA y credito propio</span>
+            </div>
+            <div class="kpi-grid">
+              <div class="kpi"><span>Pendiente</span><strong id="arPending">$0</strong></div>
+              <div class="kpi"><span>Pagado</span><strong id="arPaid">$0</strong></div>
+              <div class="kpi"><span>Facturas abiertas</span><strong id="arOpenCount">0</strong></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Factura</th>
+                    <th>Fecha</th>
+                    <th>Proveedor</th>
+                    <th>Cliente</th>
+                    <th>Placa</th>
+                    <th>Valor</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="receivablesBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
 
-            <section class="panel totals-panel">
-              <h2>Totales</h2>
-              <div class="amount-row"><span>Bruto</span><strong id="grossTotal">$0</strong></div>
-              <div class="amount-row"><span>Impuesto</span><strong id="taxTotal">$0</strong></div>
-              <div class="amount-row total"><span>Total</span><strong id="grandTotal">$0</strong></div>
-            </section>
-
-            <section class="panel payment-panel">
-              <h2>Forma de pago</h2>
-              <label>
-                Efectivo
-                <input id="cashPaid" type="number" min="0" value="0" />
+        <section class="view" id="view-convenios">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Convenios y referidos</h2>
+              <label class="inline-search">
+                Buscar
+                <input id="allySearch" placeholder="Nombre, empresa, telefono" />
               </label>
-              <label>
-                Tarjeta
-                <input id="cardPaid" type="number" min="0" value="0" />
-              </label>
-              <label>
-                Otros
-                <input id="otherPaid" type="number" min="0" value="0" />
-              </label>
-            </section>
-
-            <section class="panel final-panel">
-              <div class="amount-row total"><span>Total</span><strong id="finalTotal">$0</strong></div>
-              <div class="amount-row"><span>Valor entregado</span><strong id="paidTotal">$0</strong></div>
-              <div class="amount-row"><span>Cambio</span><strong id="changeDue">$0</strong></div>
-              <button class="success full" id="finalizeBtn">Facturar</button>
-              <button class="danger full" id="clearBtn">Cancelar</button>
-            </section>
+            </div>
+            <div class="ally-form">
+              <label>Nombre<input id="allyName" placeholder="Nombre aliado" /></label>
+              <label>Telefono<input id="allyPhone" placeholder="3000000000" /></label>
+              <label>Empresa<input id="allyCompany" placeholder="Taller, lavadero, transito" /></label>
+              <label>Pago<input id="allyPayment" placeholder="NEQUI, cuenta, efectivo" /></label>
+              <label>Cuenta<input id="allyAccount" placeholder="Numero de cuenta" /></label>
+              <button class="success" id="addAllyBtn">Agregar aliado</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Aliado</th>
+                    <th>Telefono</th>
+                    <th>Empresa</th>
+                    <th>Metodo pago</th>
+                    <th>Cuenta</th>
+                    <th>Inscrito</th>
+                    <th>Notas</th>
+                  </tr>
+                </thead>
+                <tbody id="alliesBody"></tbody>
+              </table>
+            </div>
           </section>
         </section>
 
@@ -233,6 +425,7 @@
                     <th>CC/NIT</th>
                     <th>Cliente</th>
                     <th>Placa</th>
+                    <th>Modelo</th>
                     <th>Rango moto</th>
                     <th>Telefono</th>
                     <th>Correo</th>
@@ -258,7 +451,9 @@
                     <th>Fecha</th>
                     <th>Cliente</th>
                     <th>Placa</th>
-                    <th>Estado DIAN</th>
+                    <th>Metodo</th>
+                    <th>RTM</th>
+                    <th>DIAN</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -281,7 +476,10 @@
                 <div class="kpi"><span>Total vendido</span><strong id="kpiRevenue">$0</strong></div>
                 <div class="kpi"><span>Placas</span><strong id="kpiVehicles">0</strong></div>
               </div>
+              <h3>Por rango</h3>
               <div id="rangeBars" class="range-bars"></div>
+              <h3>Por metodo</h3>
+              <div id="methodBars" class="range-bars"></div>
             </section>
 
             <section class="panel">
@@ -293,6 +491,7 @@
                       <th>Fecha</th>
                       <th>Placa</th>
                       <th>Rango</th>
+                      <th>Metodo</th>
                       <th>Total</th>
                     </tr>
                   </thead>
@@ -340,6 +539,44 @@
       </form>
     </dialog>
 
+    <dialog id="productDialog">
+      <form method="dialog" class="modal product-modal">
+        <header>
+          <h2>Producto</h2>
+          <button class="close-button" value="cancel">Cerrar</button>
+        </header>
+        <div class="field-grid product-modal-grid">
+          <label>
+            Codigo
+            <input id="productCode" list="productCodes" />
+          </label>
+          <label>
+            Producto
+            <input id="productName" />
+          </label>
+          <label>
+            Cantidad
+            <input id="productQty" type="number" min="1" value="1" />
+          </label>
+          <label>
+            Impuesto
+            <select id="productTax">
+              <option value="0">0%</option>
+              <option value="19" selected>19%</option>
+            </select>
+          </label>
+          <label>
+            Valor unitario
+            <input id="productPrice" type="number" min="0" />
+          </label>
+        </div>
+        <footer>
+          <button class="secondary" value="cancel">Cancelar</button>
+          <button class="success" id="addLineBtn" type="button">Agregar producto</button>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog id="clientDialog">
       <form method="dialog" class="modal client-modal">
         <header>
@@ -373,6 +610,10 @@
           <label>
             Placa principal
             <input id="modalPlate" maxlength="8" />
+          </label>
+          <label>
+            Modelo
+            <input id="modalModel" type="number" min="1900" max="2035" />
           </label>
           <label>
             Rango moto
@@ -426,6 +667,7 @@
 
     <datalist id="clientDocs"></datalist>
     <datalist id="productCodes"></datalist>
+    <datalist id="alliesList"></datalist>
     <script src="app.js"></script>
   </body>
 </html>

@@ -175,6 +175,32 @@ h3 {
   font-weight: 800;
 }
 
+.soft-pill,
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #33506d;
+  background: #eef4ff;
+  border: 1px solid #c7d7f5;
+}
+
+.state-pill.ok {
+  color: #0d6f2b;
+  background: #ddf8e6;
+  border-color: #a9e5bb;
+}
+
+.state-pill.warn {
+  color: #8a5a00;
+  background: #fff2cd;
+  border-color: #ead086;
+}
+
 .primary {
   background: var(--blue);
   color: #fff;
@@ -229,6 +255,7 @@ h3 {
 
 .document-panel,
 .meta-panel,
+.flow-panel,
 .line-panel,
 .notes-panel,
 .totals-panel,
@@ -236,6 +263,9 @@ h3 {
 .final-panel,
 #view-clientes .panel,
 #view-facturas .panel,
+#view-cierre .panel,
+#view-cartera .panel,
+#view-convenios .panel,
 .analysis-grid .panel {
   padding: 18px;
 }
@@ -248,6 +278,10 @@ h3 {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 14px;
+}
+
+.panel-heading p {
+  margin: 5px 0 0;
 }
 
 .mini-title {
@@ -301,6 +335,214 @@ textarea {
 
 .line-panel {
   margin-top: 16px;
+}
+
+.sale-command-panel {
+  padding: 18px;
+}
+
+.sale-search-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.1fr) minmax(300px, 1.1fr) minmax(260px, 0.8fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.search-block {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.step-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: #2457c5;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.clean-lookup,
+.product-lookup {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.add-icon {
+  width: 38px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.entity-summary {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  color: #344253;
+  border: 1px dashed #c9d4e2;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: #fff;
+  font-size: 13px;
+}
+
+.entity-summary strong,
+.entity-summary span,
+.entity-summary small {
+  display: block;
+}
+
+.entity-summary span,
+.entity-summary small {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.compact-actions {
+  justify-content: flex-start;
+}
+
+.sale-status-block {
+  background: #f7fbf8;
+}
+
+.status-stack {
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  min-height: 96px;
+}
+
+.status-stack strong {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.status-stack small {
+  color: var(--muted);
+}
+
+.doc-chip {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.doc-chip strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.sale-body-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.sale-lines-panel {
+  margin-top: 0;
+  padding: 18px;
+}
+
+.sale-lines-panel .line-summary {
+  margin: 0 0 12px;
+  border: 1px solid #f0e8c9;
+  border-radius: 6px;
+}
+
+.sale-summary-panel {
+  position: sticky;
+  top: 16px;
+  padding: 18px;
+}
+
+.amount-row.quiet {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.progressive-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.progressive-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.progressive-panel summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+  padding: 16px 18px;
+  font-weight: 900;
+}
+
+.progressive-panel summary small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.progressive-panel[open] summary {
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.progressive-panel .field-grid,
+.payment-detail-grid {
+  padding: 18px;
+}
+
+.payment-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.55fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.product-modal-grid {
+  grid-template-columns: 0.8fr 1.6fr 0.65fr 0.75fr 1fr;
+  padding: 22px;
+}
+
+.flow-panel {
+  margin-top: 16px;
+}
+
+.flow-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .entry-grid {
@@ -396,6 +638,58 @@ th.number {
   display: grid;
   gap: 10px;
   align-content: start;
+}
+
+.payment-methods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.payment-methods label {
+  min-width: 0;
+}
+
+.closing-grid {
+  display: grid;
+  grid-template-columns: 0.9fr 1fr 0.9fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.closing-grid > section {
+  min-width: 0;
+}
+
+.summary-list {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fbfcfe;
+}
+
+.section-title {
+  margin-top: 20px;
+}
+
+.ally-form {
+  display: grid;
+  grid-template-columns: 1.1fr 0.8fr 1fr 0.85fr 0.85fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.inline-search {
+  min-width: min(360px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr);
+  align-items: center;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0;
 }
 
 .full {
@@ -725,12 +1019,27 @@ dialog::backdrop {
 
   .document-grid,
   .checkout-grid,
-  .analysis-grid {
+  .analysis-grid,
+  .closing-grid,
+  .sale-search-grid,
+  .sale-body-grid,
+  .payment-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sale-summary-panel {
+    position: static;
   }
 
   .entry-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .flow-grid,
+  .payment-methods,
+  .ally-form,
+  .product-modal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .add-line {
@@ -756,9 +1065,24 @@ dialog::backdrop {
 
   .field-grid.two,
   .entry-grid,
+  .flow-grid,
+  .payment-methods,
+  .ally-form,
+  .product-modal-grid,
   .recurring-layout,
   .kpi-grid {
     grid-template-columns: 1fr;
+  }
+
+  .progressive-panel summary,
+  .clean-lookup,
+  .product-lookup {
+    grid-template-columns: 1fr;
+  }
+
+  .progressive-panel summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .add-line {
