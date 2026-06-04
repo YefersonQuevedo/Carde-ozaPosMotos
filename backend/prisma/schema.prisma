@@ -242,6 +242,20 @@ model Receivable {
   @@map("receivables")
 }
 
+/// Pagos hechos a los convenios/referidos (control de comisiones liquidadas).
+model AllyPayment {
+  id        Int      @id @default(autoincrement())
+  allyId    Int?
+  allyName  String
+  amount    Int
+  paidDate  String   // YYYY-MM-DD
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([allyName])
+  @@map("ally_payments")
+}
+
 /// Snapshot congelado del cierre diario (alimenta el consolidado).
 model DailyClosing {
   id             Int      @id @default(autoincrement())

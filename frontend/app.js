@@ -593,6 +593,59 @@ async function loadReport() {
   } catch (e) { toast(e.message); }
 }
 
+async function loadPagoConv() {
+  try {
+    const { items, totals } = await api.allyPayments();
+    $("pagoconvTotals").textContent = `Devengado ${money(totals.accrued)} · Pagado ${money(totals.paid)} · Pendiente ${money(totals.pending)}`;
+    $("pagoconvBody").innerHTML = `<table class="data"><thead><tr><th>Convenio</th><th class="r">Devengado</th><th class="r">Pagado</th><th class="r">Pendiente</th></tr></thead><tbody>${
+      items.map((a) => `<tr class="clickable" data-name="${esc(a.allyName)}"><td>${esc(a.allyName)}</td><td class="r">${money(a.accrued)}</td><td class="r">${money(a.paid)}</td><td class="r"><b>${money(a.pending)}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="4">Aun no hay comisiones de referidos</td></tr>'
+    }</tbody></table>`;
+    $("pagoconvBody").querySelectorAll("[data-name]").forEach((tr) => tr.addEventListener("click", () => loadPagoConvDetail(tr.dataset.name)));
+  } catch (e) { toast(e.message); }
+}
+async function loadPagoConvDetail(name) {
+  try {
+    const d = await api.allyPaymentDetail(name);
+    $("pagoconvName").textContent = name;
+    const sales = d.sales.map((s) => `<tr><td>${esc(s.saleDate)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.clientName)}</td><td>${s.pinAdquirido > 0 ? "Si" : "-"}</td><td class="r">${money(s.deduction)}</td></tr>`).join("");
+    const pays = d.payments.map((p) => `<tr><td>${esc(p.paidDate)}</td><td>${esc(p.note || "")}</td><td class="r">${money(p.amount)}</td><td><button class="link" data-delpay="${p.id}">eliminar</button></td></tr>`).join("");
+    $("pagoconvDetail").innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><span>Devengado</span><b>${money(d.accrued)}</b></div>
+        <div class="kpi"><span>Pagado</span><b>${money(d.paid)}</b></div>
+        <div class="kpi"><span>Pendiente</span><b>${money(d.pending)}</b></div>
+      </div>
+      <h3>Registrar pago</h3>
+      <div class="row">
+        <input id="pc_amount" type="text" inputmode="numeric" placeholder="Valor" />
+        <input id="pc_date" type="date" value="${todayIso()}" />
+        <input id="pc_note" placeholder="Nota (opcional)" />
+        <button class="btn success" id="pc_save">Pagar</button>
+      </div>
+      <h3>Historial de pagos</h3>
+      <table class="data"><thead><tr><th>Fecha</th><th>Nota</th><th class="r">Valor</th><th></th></tr></thead><tbody>${pays || '<tr><td class="hint" colspan="4">Sin pagos registrados</td></tr>'}</tbody></table>
+      <h3>Comisiones devengadas (${d.sales.length})</h3>
+      <table class="data"><thead><tr><th>Fecha</th><th>Placa</th><th>Cliente</th><th>RTM</th><th class="r">Comision</th></tr></thead><tbody>${sales || '<tr><td class="hint" colspan="5">Sin comisiones</td></tr>'}</tbody></table>`;
+    $("pc_save").addEventListener("click", () => addPagoConv(name));
+    $("pagoconvDetail").querySelectorAll("[data-delpay]").forEach((b) => b.addEventListener("click", () => delPagoConv(Number(b.dataset.delpay), name)));
+  } catch (e) { toast(e.message); }
+}
+async function addPagoConv(name) {
+  const amount = Number(String($("pc_amount").value).replace(/[^\d]/g, "")) || 0;
+  if (amount <= 0) return toast("Ingresa un valor");
+  try {
+    await api.addAllyPayment({ allyName: name, amount, paidDate: $("pc_date").value || todayIso(), note: $("pc_note").value.trim() });
+    toast("Pago registrado");
+    await loadPagoConvDetail(name);
+    loadPagoConv();
+  } catch (e) { toast(e.message); }
+}
+async function delPagoConv(id, name) {
+  if (!confirm("¿Eliminar este pago?")) return;
+  try { await api.deleteAllyPayment(id); toast("Pago eliminado"); await loadPagoConvDetail(name); loadPagoConv(); }
+  catch (e) { toast(e.message); }
+}
+
 async function loadCartera() {
   try {
     const { items, open } = await api.receivables({ status: "abierta" });
@@ -707,7 +760,7 @@ async function loadVentas() {
 }
 
 // ---------- Navegacion ----------
-const VIEW_TITLES = { venta: "Venta", cierre: "Cierre diario", consolidado: "Consolidado", cartera: "Cartera", clientes: "Clientes", convenios: "Convenios", ventas: "Ventas" };
+const VIEW_TITLES = { venta: "Venta", cierre: "Cierre diario", consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes", convenios: "Convenios", ventas: "Ventas" };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
@@ -715,6 +768,7 @@ function switchView(view) {
   if (view === "cierre") loadClosing();
   if (view === "consolidado") loadReport();
   if (view === "cartera") loadCartera();
+  if (view === "pagoconv") loadPagoConv();
   if (view === "clientes") loadClientes();
   if (view === "convenios") loadConvenios();
   if (view === "ventas") loadVentas();

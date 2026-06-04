@@ -40,5 +40,10 @@ export const api = {
   report: (from, to) => req(`/closings/report?from=${from}&to=${to}`),
 
   receivables: (params = {}) => req(`/receivables?${new URLSearchParams(params)}`),
-  payReceivable: (id) => req(`/receivables/${id}/pay`, { method: "POST" })
+  payReceivable: (id) => req(`/receivables/${id}/pay`, { method: "POST" }),
+
+  allyPayments: () => req("/ally-payments"),
+  allyPaymentDetail: (name) => req(`/ally-payments/${encodeURIComponent(name)}`),
+  addAllyPayment: (body) => req("/ally-payments", { method: "POST", body }),
+  deleteAllyPayment: (id) => req(`/ally-payments/${id}`, { method: "DELETE" })
 };

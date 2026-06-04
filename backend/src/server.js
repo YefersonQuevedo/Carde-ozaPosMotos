@@ -10,6 +10,7 @@ import catalog from "./routes/catalog.js";
 import sales from "./routes/sales.js";
 import closings from "./routes/closings.js";
 import receivables from "./routes/receivables.js";
+import allyPayments from "./routes/allyPayments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -25,6 +26,7 @@ app.use("/api/catalog", catalog);
 app.use("/api/sales", sales);
 app.use("/api/closings", closings);
 app.use("/api/receivables", receivables);
+app.use("/api/ally-payments", allyPayments);
 
 // Sirve el frontend estatico (../frontend).
 app.use(express.static(join(__dirname, "..", "..", "frontend")));

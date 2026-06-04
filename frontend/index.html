@@ -26,6 +26,7 @@
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre diario</button>
           <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
           <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera</button>
+          <button class="tab" data-view="pagoconv"><span class="ico">💸</span> Pagos conv.</button>
           <button class="tab" data-view="clientes"><span class="ico">👤</span> Clientes</button>
           <button class="tab" data-view="convenios"><span class="ico">🤝</span> Convenios</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas</button>
@@ -110,6 +111,20 @@
             <div class="card">
               <div class="card-head"><h2 id="clientDetailName">Motos / placas</h2></div>
               <div id="clientDetailBody"><p class="hint">Selecciona un cliente para ver sus motos y placas.</p></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGOS A CONVENIOS -->
+        <section class="view" id="view-pagoconv">
+          <div class="master-detail">
+            <div class="card">
+              <div class="card-head"><h2>Pagos a convenios</h2><div id="pagoconvTotals" class="detail-meta"></div></div>
+              <div id="pagoconvBody"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2 id="pagoconvName">Detalle</h2></div>
+              <div id="pagoconvDetail"><p class="hint">Selecciona un convenio para ver lo devengado, lo pagado y registrar pagos.</p></div>
             </div>
           </div>
         </section>
