@@ -33,6 +33,7 @@ export const api = {
   listSales: (params = {}) => req(`/sales?${new URLSearchParams(params)}`),
   getSale: (id) => req(`/sales/${id}`),
   invoice: (id) => req(`/sales/${id}/invoice`, { method: "POST" }),
+  voidSale: (id, body) => req(`/sales/${id}/void`, { method: "POST", body }),
 
   closing: (date, gastos = 0) => req(`/closings?date=${date}&gastos=${gastos}`),
   saveClosing: (body) => req("/closings", { method: "POST", body }),

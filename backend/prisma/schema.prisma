@@ -161,6 +161,7 @@ model Sale {
   dianStatus     String   @default("no_emitida") // no_emitida | facturada
   invoiceNumber  String?
   cufe           String?
+  status         String   @default("activa") // activa | anulada
   responsable    String?
   observaciones  String?  @db.Text
   createdAt      DateTime @default(now())
@@ -241,6 +242,19 @@ model Receivable {
   @@index([provider])
   @@index([status])
   @@map("receivables")
+}
+
+/// Anulacion de una venta (append-only: la venta no se borra, se reversa).
+model Reversal {
+  id           Int      @id @default(autoincrement())
+  saleId       Int
+  saleNumber   String
+  reason       String?
+  authorizedBy String?
+  createdAt    DateTime @default(now())
+
+  @@index([saleId])
+  @@map("reversals")
 }
 
 /// Pagos hechos a los convenios/referidos (control de comisiones liquidadas).

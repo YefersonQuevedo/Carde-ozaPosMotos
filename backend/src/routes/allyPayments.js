@@ -9,7 +9,7 @@ const allyKey = (allyId, allyName) => (allyId != null ? `id:${allyId}` : `nm:${a
 // Devengado por convenio = suma de comisiones (deduction) en ventas de referidos.
 async function accruedByAlly() {
   const sales = await prisma.sale.findMany({
-    where: { allyType: "referido", deduction: { gt: 0 } },
+    where: { allyType: "referido", deduction: { gt: 0 }, status: "activa" },
     select: { allyId: true, allyName: true, deduction: true, pinAdquirido: true }
   });
   const map = {};
@@ -71,7 +71,7 @@ router.get("/:name", async (req, res, next) => {
     const name = req.params.name;
     const [sales, payments] = await Promise.all([
       prisma.sale.findMany({
-        where: { allyName: name, allyType: "referido", deduction: { gt: 0 } },
+        where: { allyName: name, allyType: "referido", deduction: { gt: 0 }, status: "activa" },
         select: { saleNumber: true, saleDate: true, plate: true, clientName: true, deduction: true, pinAdquirido: true },
         orderBy: { saleDate: "desc" }
       }),

@@ -5,7 +5,7 @@ import { computeClosing } from "../services/closing.js";
 const router = Router();
 
 async function gatherDay(date, gastos = 0) {
-  const sales = await prisma.sale.findMany({ where: { saleDate: date } });
+  const sales = await prisma.sale.findMany({ where: { saleDate: date, status: "activa" } });
   const ids = sales.map((s) => s.id);
   const payments = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
   const receivables = ids.length ? await prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [];
@@ -60,7 +60,7 @@ router.get("/report", async (req, res, next) => {
     const month = new Date().toISOString().slice(0, 7);
     const from = String(req.query.from || `${month}-01`);
     const to = String(req.query.to || `${month}-31`);
-    const sales = await prisma.sale.findMany({ where: { saleDate: { gte: from, lte: to } }, orderBy: { saleDate: "asc" } });
+    const sales = await prisma.sale.findMany({ where: { saleDate: { gte: from, lte: to }, status: "activa" }, orderBy: { saleDate: "asc" } });
     const ids = sales.map((s) => s.id);
     const payments = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
     const receivables = ids.length ? await prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [];

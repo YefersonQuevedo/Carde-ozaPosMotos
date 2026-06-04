@@ -206,7 +206,28 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-// GET /api/sales?date=&clientDoc=&plate=&range=
+// POST /api/sales/:id/void — anula la venta (no se borra) + reversa + cancela cartera.
+router.post("/:id/void", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const sale = await prisma.sale.findUnique({ where: { id } });
+    if (!sale) return res.status(404).json({ error: "No existe" });
+    if (sale.status === "anulada") return res.json({ alreadyVoided: true, sale });
+    const updated = await prisma.$transaction(async (tx) => {
+      const s = await tx.sale.update({ where: { id }, data: { status: "anulada" } });
+      await tx.reversal.create({
+        data: { saleId: id, saleNumber: sale.saleNumber, reason: req.body?.reason || null, authorizedBy: req.body?.authorizedBy || null }
+      });
+      await tx.receivable.updateMany({ where: { saleId: id, status: "abierta" }, data: { status: "anulada", pending: 0 } });
+      return s;
+    });
+    res.json({ sale: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/sales?date=&clientDoc=&plate=&range=&status=
 router.get("/", async (req, res, next) => {
   try {
     const { date, clientDoc, plate, range } = req.query;

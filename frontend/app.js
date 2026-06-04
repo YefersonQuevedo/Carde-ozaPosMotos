@@ -755,9 +755,23 @@ async function loadVentas() {
     }
     const total = items.reduce((s, v) => s + v.total, 0);
     $("ventasSummary").textContent = `${items.length} ventas${date ? " · " + date : " · todas"} · ${money(total)}`;
-    $("ventasBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Venta</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th>RTM</th><th>Factura</th><th class="r">Total</th></tr></thead><tbody>${
-      items.map((s) => `<tr><td>${esc(s.saleDate)}</td><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.allyType)}</td><td>${esc(s.rtmStatus)}</td><td>${esc(s.invoiceNumber || "-")}</td><td class="r">${money(s.total)}</td></tr>`).join("") || '<tr><td class="hint" colspan="8">Sin ventas</td></tr>'
+    $("ventasBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Venta</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th>RTM</th><th>Factura</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead><tbody>${
+      items.map((s) => {
+        const anulada = s.status === "anulada";
+        return `<tr style="${anulada ? "opacity:.5;text-decoration:line-through" : ""}"><td>${esc(s.saleDate)}</td><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.allyType)}</td><td>${esc(s.rtmStatus)}</td><td>${esc(s.invoiceNumber || "-")}</td><td class="r">${money(s.total)}</td><td>${anulada ? "anulada" : "activa"}</td><td>${anulada ? "" : `<button class="link" data-void="${s.id}">anular</button>`}</td></tr>`;
+      }).join("") || '<tr><td class="hint" colspan="10">Sin ventas</td></tr>'
     }</tbody></table>`;
+    $("ventasBody").querySelectorAll("[data-void]").forEach((b) => b.addEventListener("click", () => voidSaleUI(Number(b.dataset.void))));
+  } catch (e) { toast(e.message); }
+}
+async function voidSaleUI(id) {
+  const reason = prompt("Motivo de la anulacion:");
+  if (reason === null) return;
+  const authorizedBy = prompt("Autorizado por (codigo/nombre):") || "";
+  try {
+    await api.voidSale(id, { reason, authorizedBy });
+    toast("Venta anulada");
+    loadVentas();
   } catch (e) { toast(e.message); }
 }
 
