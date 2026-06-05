@@ -179,6 +179,7 @@ model Sale {
   rtmToday             Boolean  @default(true)
   rtmStatus            String   @default("done") // done | pending | paid_not_done
   pinAdquirido         Int      @default(0) // >0 => RTM realizada
+  pinNumber            String?  // PIN SuperFlex/RUNT de 19 digitos cuando la RTM se realiza
   provisionAmount      Int      @default(0)
   provisionConsumed    Boolean  @default(false) // esta venta consumio una provision previa (no doble comision/ventas brutas)
   provisionSourcePlate String? // placa provisionada cuya provision se consumio
@@ -194,6 +195,7 @@ model Sale {
   @@index([saleDate])
   @@index([clientDoc])
   @@index([plate])
+  @@index([pinNumber])
   @@map("sales")
 }
 

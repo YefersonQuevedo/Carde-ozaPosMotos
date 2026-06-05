@@ -5,6 +5,8 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const readCop = (id) => Math.round(Number(String($(id)?.value || "").replace(/[^\d]/g, "")) || 0);
+const MOTO_PLATE_RE = /^[A-Z]{3}\d{2}[A-Z]$/;
+const PIN_RE = /^\d{19}$/;
 // Descarga un Blob (export a Excel). Si el navegador lo soporta (Chrome/Edge),
 // abre el dialogo "Guardar como" para elegir la carpeta; si no, descarga normal.
 async function downloadBlob(blob, filename) {
@@ -51,6 +53,7 @@ function blankSale() {
     discountApplied: true,
     rtmTodayAnswered: false,
     rtmToday: true,
+    pinNumber: "",
     provisionChecked: false, // ya se busco provision para este cliente
     provisionMatches: [],    // provisiones abiertas encontradas
     registered: null // respuesta del backend
@@ -120,6 +123,7 @@ function stepOrder() {
     if (sale.needsCredit === true) o.push("creditoProveedor");
     else if (sale.needsCredit === false) o.push("pago");
     if (sale.needsCredit !== null) o.push("tipoCliente", "rtmHoy", "resumen");
+    if (sale.needsCredit !== null && sale.rtmTodayAnswered && sale.rtmToday) o.splice(o.indexOf("resumen"), 0, "pin");
   }
   return o;
 }
@@ -133,6 +137,7 @@ function isDone(key) {
     case "pago": return sale.paymentConfirmed;
     case "tipoCliente": return sale.allyAnswered;
     case "rtmHoy": return sale.rtmTodayAnswered;
+    case "pin": return !sale.rtmToday || PIN_RE.test(sale.pinNumber);
     case "provisionCheck": return !!sale.registered;
     case "resumen": return !!sale.registered;
     default: return false;
@@ -149,7 +154,8 @@ function resetFrom(key) {
     creditoProveedor: () => { sale.creditProvider = null; sale.payments = []; },
     pago: () => { sale.payments = []; sale.paymentConfirmed = false; },
     tipoCliente: () => { sale.allyAnswered = false; },
-    rtmHoy: () => { sale.rtmTodayAnswered = false; }
+    rtmHoy: () => { sale.rtmTodayAnswered = false; sale.pinNumber = ""; },
+    pin: () => { sale.pinNumber = ""; }
   };
   const order = stepOrder();
   const idx = order.indexOf(key);
@@ -259,6 +265,13 @@ function renderActive(key) {
           <button class="choice" data-today="si">Si, se realiza hoy</button>
           <button class="choice" data-today="no">No, queda pendiente</button>
         </div>`, false);
+    case "pin":
+      return card(key, "7b · PIN SuperFlex", `
+        <label class="fld">PIN generado (19 digitos)
+          <input id="pinNumber" inputmode="numeric" maxlength="19" placeholder="0000000000000000000" value="${esc(sale.pinNumber)}" />
+        </label>
+        <div class="hint">Obligatorio porque la RTM se realiza hoy. Debe ser numerico de 19 digitos.</div>
+        <button class="btn primary" id="pinNext">Continuar</button>`, false);
     case "provisionCheck": {
       const search = `
         <div class="row" style="margin-top:8px">
@@ -269,6 +282,7 @@ function renderActive(key) {
         const rows = sale.provisionMatches.map((p) => `
           <div class="payrow">
             <span><b>${esc(p.plate)}</b> · ${esc(p.clientName)} · ${money(p.amount)}${p.allyType === "referido" ? " · ref: " + esc(p.allyName || "") : " · directo"} · ${esc(p.saleDate)}</span>
+            <input id="provPin_${p.saleId}" inputmode="numeric" maxlength="19" placeholder="PIN 19 digitos" style="max-width:180px" />
             <button class="btn success sm" data-consume="${p.saleId}">Realizar RTM</button>
           </div>`).join("");
         return card(key, "Provision encontrada ✓", `
@@ -296,12 +310,13 @@ function renderDone(key) {
   switch (key) {
     case "cliente": body = `${esc(sale.client.name)} · ${esc(sale.client.docNumber)}`; break;
     case "moto": body = `${esc(sale.vehicle.plate)} · ${sale.vehicle.modelYear || "?"} · ${esc(packageForRange(sale.vehicle.rangeName)?.name || sale.vehicle.rangeName)}`; break;
-    case "rtmPaid": body = sale.rtmAlreadyPaid ? "Ya esta paga" : "Se cobra ahora"; break;
+    case "rtmPaid": body = sale.rtmAlreadyPaid ? "Ya estaba pagada" : "Se cobra en esta venta"; break;
     case "credito": body = sale.needsCredit ? "Con financiacion" : "Sin credito"; break;
     case "creditoProveedor": body = sale.creditProvider === "ADDI" ? "ADDI" : "GORA"; break;
     case "pago": body = sale.payments.map((p) => `${methodByCode[p.methodCode].name}: ${money(p.amount)}`).join(" · "); break;
     case "tipoCliente": body = sale.allyType === "usuario" ? "Usuario directo (fidelizado)" : `Referido: ${esc(sale.allyName)}${sale.discountApplied ? " (con descuento)" : ""}`; break;
     case "rtmHoy": body = sale.rtmToday ? "Se realiza hoy" : "Pendiente"; break;
+    case "pin": body = sale.pinNumber; break;
     case "provisionCheck": body = `Provision consumida · ${esc(sale.registered?.sale?.saleNumber || "")}`; break;
     case "resumen": body = `Registrada ${esc(sale.registered?.sale?.saleNumber || "")}`; break;
   }
@@ -309,9 +324,9 @@ function renderDone(key) {
 }
 function titleFor(key) {
   return {
-    cliente: "1 · Cliente", moto: "2 · Moto", rtmPaid: "3 · RTM paga", credito: "4 · Credito",
+    cliente: "1 · Cliente", moto: "2 · Moto", rtmPaid: "3 · Pago previo RTM", credito: "4 · Credito",
     creditoProveedor: "4b · Financiacion", pago: "5 · Pago", tipoCliente: "6 · Tipo cliente",
-    rtmHoy: "7 · RTM hoy", provisionCheck: "Provision", resumen: "8 · Resumen"
+    rtmHoy: "7 · RTM hoy", pin: "7b · PIN", provisionCheck: "Provision", resumen: "8 · Resumen"
   }[key];
 }
 
@@ -388,9 +403,10 @@ function wireWizard() {
       async (q) => (await api.findVehicles({ plate: q })).map((v) => ({ title: v.plate, sub: `${v.modelYear || ""} ${v.rangeName || ""}`.trim(), raw: v })),
       (v) => selectVehicle(v));
     $("vNext").addEventListener("click", () => {
-      const plate = $("vPlate").value.trim().toUpperCase();
+      const plate = $("vPlate").value.trim().toUpperCase().replace(/\s+/g, "");
       const year = Number($("vYear").value) || null;
       if (!plate) return toast("Ingresa la placa");
+      if (!MOTO_PLATE_RE.test(plate)) return toast("La placa de moto debe tener formato AAA00A");
       const range = year ? rangeFromModel(year) : "MOTOCICLETAS 2024-2026";
       sale.vehicle = { plate, modelYear: year, rangeName: range };
       sale.packageCode = packageForRange(range)?.code || "";
@@ -479,8 +495,15 @@ function wireWizard() {
   });
 
   document.querySelectorAll("[data-today]").forEach((b) => b.addEventListener("click", () => {
-    sale.rtmToday = b.dataset.today === "si"; sale.rtmTodayAnswered = true; render();
+    sale.rtmToday = b.dataset.today === "si"; sale.rtmTodayAnswered = true; sale.pinNumber = ""; render();
   }));
+
+  $("pinNext")?.addEventListener("click", () => {
+    const pin = ($("pinNumber").value || "").trim();
+    if (!PIN_RE.test(pin)) return toast("El PIN debe tener 19 digitos numericos");
+    sale.pinNumber = pin;
+    render();
+  });
 
   $("registerBtn")?.addEventListener("click", registerSale);
 }
@@ -589,6 +612,7 @@ async function registerSale() {
       packageCode: sale.packageCode,
       rtmAlreadyPaid: sale.rtmAlreadyPaid,
       rtmToday: sale.rtmToday,
+      pinNumber: sale.pinNumber,
       ally: { name: sale.allyName, type: sale.allyType, discountApplied: sale.discountApplied },
       payments: sale.payments
     };
@@ -601,7 +625,9 @@ async function registerSale() {
 // Consume la provision de una placa ya pagada (no recalcula comision ni valor).
 async function consumeProvisionUI(saleId) {
   try {
-    const r = await api.realizeProvision(saleId, { date: todayIso() });
+    const pinNumber = ($(`provPin_${saleId}`)?.value || "").trim();
+    if (!PIN_RE.test(pinNumber)) return toast("El PIN debe tener 19 digitos numericos");
+    const r = await api.realizeProvision(saleId, { date: todayIso(), pinNumber });
     sale.registered = { sale: r.sale, costs: r.costs };
     toast(`Provision consumida · RTM realizada (${r.sale.saleNumber})`);
     render();

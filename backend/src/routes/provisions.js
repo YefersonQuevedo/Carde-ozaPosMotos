@@ -15,6 +15,7 @@ import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
+const PIN_RE = /^\d{19}$/;
 
 // Saldo de cada caja = ingresos - egresos.
 async function boxesWithBalance() {
@@ -140,6 +141,8 @@ router.post("/:saleId/realize", async (req, res, next) => {
     if (!sale) return res.status(404).json({ error: "No existe la venta" });
     if (sale.status !== "activa") return res.status(400).json({ error: "La venta no esta activa" });
     if (sale.rtmStatus !== "pending") return res.status(400).json({ error: "Esa venta no tiene provision pendiente" });
+    const pinNumber = String(req.body?.pinNumber || "").trim();
+    if (!PIN_RE.test(pinNumber)) return res.status(400).json({ error: "El PIN es obligatorio para realizar la RTM y debe tener 19 digitos numericos" });
 
     const amount = sale.provisionAmount || sale.total;
 
@@ -155,7 +158,7 @@ router.post("/:saleId/realize", async (req, res, next) => {
     const updated = await prisma.$transaction(async (tx) => {
       const s = await tx.sale.update({
         where: { id: saleId },
-        data: { rtmStatus: "done", pinAdquirido: Math.max(1, sale.pinAdquirido), provisionConsumed: true, provisionSourcePlate: sale.plate }
+        data: { rtmStatus: "done", pinAdquirido: Math.max(1, sale.pinAdquirido), pinNumber, provisionConsumed: true, provisionSourcePlate: sale.plate }
       });
       await tx.saleCost.upsert({ where: { saleId }, update: costs, create: { saleId, ...costs } });
       // Egreso de la provision RTM e ingreso a caja menor (regreso del dinero apartado).

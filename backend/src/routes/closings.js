@@ -120,7 +120,7 @@ async function gatherDayAudit(date, gastosManual = 0) {
       valorComision: money(s.deduction),
       rtmEstado: s.rtmStatus,
       rtmRealizada: money(s.pinAdquirido) > 0 ? "Si" : "No",
-      pinRegistrado: money(s.pinAdquirido) > 0 ? "PENDIENTE CAMPO PIN" : "",
+      pinRegistrado: s.pinNumber || (money(s.pinAdquirido) > 0 ? "SIN PIN REGISTRADO" : ""),
       provision: money(s.provisionAmount),
       provisionConsumida: s.provisionConsumed ? "Si" : "No",
       provisionPlaca: s.provisionSourcePlate || "",

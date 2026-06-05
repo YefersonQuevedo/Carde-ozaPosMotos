@@ -8,6 +8,8 @@ import { auth } from "../auth.js";
 const router = Router();
 
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
+const MOTO_PLATE_RE = /^[A-Z]{3}\d{2}[A-Z]$/;
+const PIN_RE = /^\d{19}$/;
 
 function rangeFromModel(year) {
   const y = Number(year) || 0;
@@ -82,6 +84,9 @@ router.post("/", async (req, res, next) => {
     const modelYear = Number(v.modelYear) || null;
     const vehicleType = v.vehicleType || "MOTO";
     const rangeName = v.rangeName || (modelYear ? rangeFromModel(modelYear) : null);
+    if (vehicleType === "MOTO" && plate && !MOTO_PLATE_RE.test(plate)) {
+      return res.status(400).json({ error: "La placa de moto debe tener formato AAA00A (3 letras, 2 numeros y 1 letra)" });
+    }
     if (plate) {
       const existing = await prisma.vehicle.findFirst({ where: { plate, clientDoc: String(c.docNumber) } });
       if (!existing) {
@@ -102,6 +107,10 @@ router.post("/", async (req, res, next) => {
       ? (rtmToday ? "paid_done" : "paid_not_done")
       : (rtmToday ? "done" : "pending");
     const pinAdquirido = rtmToday ? 1 : 0;
+    const pinNumber = String(b.pinNumber || "").trim();
+    if (rtmToday && !PIN_RE.test(pinNumber)) {
+      return res.status(400).json({ error: "El PIN es obligatorio cuando la RTM se realiza hoy y debe tener 19 digitos numericos" });
+    }
 
     // 4) Convenio / comision (DEDUCCIONES CONVENIOS).
     const allyName = b.ally?.name || "USUARIO";
@@ -189,6 +198,7 @@ router.post("/", async (req, res, next) => {
           rtmToday,
           rtmStatus,
           pinAdquirido,
+          pinNumber: rtmToday ? pinNumber : null,
           provisionAmount,
           receivableAmount,
           dianStatus: facturada ? "facturada" : "no_emitida",
@@ -309,7 +319,7 @@ router.get("/export", async (req, res, next) => {
     const rows = items.map((s) => ({
       fecha: s.saleDate, venta: s.saleNumber, cliente: s.clientName, doc: s.clientDoc,
       placa: s.plate || "", tipo: s.allyType, convenio: s.allyName || "", rtm: s.rtmStatus,
-      factura: s.invoiceNumber || "", estado: s.status, total: s.total
+      pin: s.pinNumber || "", factura: s.invoiceNumber || "", estado: s.status, total: s.total
     }));
     const total = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.total, 0);
     const buf = await toWorkbook({
@@ -320,7 +330,7 @@ router.get("/export", async (req, res, next) => {
           { header: "Cliente", key: "cliente", width: 28 }, { header: "Documento", key: "doc", width: 16 },
           { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
           { header: "Convenio", key: "convenio", width: 22 }, { header: "RTM", key: "rtm", width: 14 },
-          { header: "Factura", key: "factura", width: 14 }, { header: "Estado", key: "estado", width: 10 },
+          { header: "PIN", key: "pin", width: 22 }, { header: "Factura", key: "factura", width: 14 }, { header: "Estado", key: "estado", width: 10 },
           { header: "Total", key: "total", width: 14, money: true }
         ],
         rows, totals: { total }
