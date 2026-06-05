@@ -93,6 +93,11 @@ export const api = {
   addCashMovement: (body) => req("/provisions/movements", { method: "POST", body }),
   realizeProvision: (saleId, body) => req(`/provisions/${saleId}/realize`, { method: "POST", body }),
 
+  expenses: (params = {}) => req(`/expenses?${new URLSearchParams(params)}`),
+  addExpense: (body) => req("/expenses", { method: "POST", body }),
+  deleteExpense: (id) => req(`/expenses/${id}`, { method: "DELETE" }),
+  exportExpenses: (params = {}) => reqBlob(`/expenses/export?${new URLSearchParams(params)}`),
+
   findVehicles: (params) => req(`/vehicles?${new URLSearchParams(params)}`),
   saveVehicle: (body) => req("/vehicles", { method: "POST", body }),
   deleteVehicle: (id) => req(`/vehicles/${id}`, { method: "DELETE" }),

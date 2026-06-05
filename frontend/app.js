@@ -651,6 +651,7 @@ async function loadClosing() {
       <div class="amount"><span>Subtotal CM ${money(c.subtotalCM)} − Provision ${money(c.provision)}</span><b>JASPER ${money(c.jasper)}</b></div>
       <div class="amount"><span>Efectivo ${money(c.efectivo)} − Fideliz. ${money(c.fidelizacion)} − Gastos ${money(c.gastos)} − Referidos ${money(c.referidos)}</span><b>Efectivo a entregar ${money(c.efectivoEntregar)}</b></div>
       <div class="amount total"><span>JASPER ${money(c.jasper)} − Efectivo entregado ${money(c.efectivoEntregar)}</span><b>Diferencia ${money(c.diferenciaJasper)} (≈ comisiones)</b></div>
+      <p class="hint">Gastos: ${money(c.gastosRegistrados || 0)} registrados (modulo Gastos)${(c.gastosManual || 0) > 0 ? ` + ${money(c.gastosManual)} extra` : ""} = ${money(c.gastos)}.</p>
       <h3>Detalle del dia</h3>
       <table class="data"><thead><tr><th>Venta</th><th>Cliente</th><th>Placa</th><th>RTM</th><th class="r">Total</th></tr></thead><tbody>${rows || '<tr><td class="hint" colspan="5">Sin ventas</td></tr>'}</tbody></table>`;
   } catch (e) { toast(e.message); }
@@ -1160,7 +1161,7 @@ const VIEW_TITLES = {
   dashboard: "Dashboard", venta: "Venta", cierre: "Cierre diario", provisiones: "Provisiones",
   consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
   llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
-  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios"
+  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos"
 };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
@@ -1177,9 +1178,82 @@ function switchView(view) {
   // Modulos nuevos (revision 2026-06-04). Cada uno monta en su root.
   if (view === "dashboard") renderDashboard($("dashboardRoot"));
   if (view === "provisiones") renderProvisiones($("provisionesRoot"));
+  if (view === "gastos") renderGastos($("gastosRoot"));
   if (view === "llamadas") renderLlamadas($("llamadasRoot"));
   if (view === "facturaelec") renderFacturaElec($("facturaelecRoot"));
   if (view === "proveedores") renderProveedores($("proveedoresRoot"));
+}
+
+// ---------- Gastos (Claude) ----------
+let gastosBoxes = [];
+async function renderGastos(c) {
+  if (!c) return;
+  const today = todayIso();
+  try { const r = await api.cashBoxes(); gastosBoxes = r.boxes || []; } catch { gastosBoxes = []; }
+  const boxOpts = gastosBoxes.map((b) => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join("");
+  c.innerHTML = `<div class="card">
+    <div class="card-head"><h2>Registrar gasto</h2></div>
+    <div class="form-grid">
+      <label class="fld">Fecha<input type="date" id="gxDate" value="${today}" /></label>
+      <label class="fld">Concepto *<input id="gxConcept" placeholder="Ej: papeleria, almuerzo, transporte" /></label>
+      <label class="fld">Categoria<input id="gxCategory" placeholder="Opcional" /></label>
+      <label class="fld">Caja${`<select id="gxBox">${boxOpts}</select>`}</label>
+      <label class="fld">Monto *<input id="gxAmount" inputmode="numeric" placeholder="$" /></label>
+      <label class="fld">Nota<input id="gxNote" placeholder="Opcional" /></label>
+    </div>
+    <div class="row form-actions"><button class="btn success" id="gxSave">Registrar gasto</button></div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Gastos</h2>
+      <div class="row">
+        <label class="rng">Desde <input type="date" id="gxFrom" value="${today.slice(0, 8)}01" /></label>
+        <label class="rng">Hasta <input type="date" id="gxTo" value="${today}" /></label>
+        <button class="btn primary" id="gxLoad">Ver</button>
+        <button class="btn ghost" id="gxExport">Exportar Excel</button>
+      </div>
+    </div>
+    <div id="gxTotal" class="pill warn"></div>
+    <div id="gxBody"></div>
+  </div>`;
+  $("gxSave").addEventListener("click", addGastoUI);
+  $("gxLoad").addEventListener("click", loadGastos);
+  $("gxExport").addEventListener("click", exportGastosUI);
+  loadGastos();
+}
+async function loadGastos() {
+  try {
+    const from = $("gxFrom").value, to = $("gxTo").value;
+    const { items, total, count } = await api.expenses({ from, to });
+    $("gxTotal").textContent = `${count} gasto(s) · ${money(total)}`;
+    $("gxBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Concepto</th><th>Categoria</th><th>Caja</th><th>Nota</th><th class="r">Monto</th><th></th></tr></thead><tbody>${
+      items.map((e) => `<tr><td>${esc(e.date)}</td><td>${esc(e.concept)}</td><td>${esc(e.category || "")}</td><td>${esc(e.boxCode)}</td><td class="hint">${esc(e.note || "")}</td><td class="r">${money(e.amount)}</td><td><button class="link" data-delgasto="${e.id}">anular</button></td></tr>`).join("") || '<tr><td class="hint" colspan="7">Sin gastos en el rango</td></tr>'
+    }</tbody></table>`;
+    $("gxBody").querySelectorAll("[data-delgasto]").forEach((b) => b.addEventListener("click", () => delGastoUI(Number(b.dataset.delgasto))));
+  } catch (e) { toast(e.message); }
+}
+async function addGastoUI() {
+  const concept = $("gxConcept").value.trim();
+  const amount = readCop("gxAmount");
+  if (!concept) return toast("El concepto es obligatorio");
+  if (amount <= 0) return toast("Ingresa un monto");
+  try {
+    await api.addExpense({ date: $("gxDate").value || todayIso(), concept, category: $("gxCategory").value.trim(), boxCode: $("gxBox").value, amount, note: $("gxNote").value.trim() });
+    toast("Gasto registrado");
+    $("gxConcept").value = ""; $("gxAmount").value = ""; $("gxCategory").value = ""; $("gxNote").value = "";
+    loadGastos();
+  } catch (e) { toast(e.message); }
+}
+async function delGastoUI(id) {
+  if (!confirm("¿Anular este gasto? Se devuelve el dinero a la caja.")) return;
+  try { await api.deleteExpense(id); toast("Gasto anulado"); loadGastos(); }
+  catch (e) { toast(e.message); }
+}
+async function exportGastosUI() {
+  try {
+    const blob = await api.exportExpenses({ from: $("gxFrom").value, to: $("gxTo").value });
+    await downloadBlob(blob, `gastos-${$("gxFrom").value}_${$("gxTo").value}.xlsx`);
+  } catch (e) { toast(e.message); }
 }
 
 // ---------- Modulos nuevos (puntos de montaje de la revision 2026-06-04) ----------
@@ -1292,16 +1366,25 @@ async function renderProvisiones(c) {
     </div>`;
   await loadProvisiones();
 }
+let provBoxesList = [];
 async function loadProvisiones() {
   try {
     const { items, total, boxes } = await api.provisions();
+    provBoxesList = boxes || [];
     $("provTotal").textContent = `Pendiente: ${money(total)}`;
     $("provBoxes").innerHTML = `<div class="card">
-      <div class="card-head"><h2>Cajas</h2><button class="btn ghost" id="provAddBox">+ caja</button></div>
-      <div class="kpis">${(boxes || []).map((b) => `<div class="kpi"><span>${esc(b.name)}</span><b>${money(b.balance)}</b></div>`).join("") || '<span class="hint">Sin cajas</span>'}</div>
+      <div class="card-head"><h2>Cajas de ahorro</h2>
+        <div class="row">
+          <button class="btn ghost" id="provMove">Depositar / retirar</button>
+          <button class="btn ghost" id="provAddBox">+ caja</button>
+        </div>
+      </div>
+      <p class="hint">Cada caja funciona como una caja de ahorros: acumula su saldo (caja menor, provision RTM, provision convenios, IVA…).</p>
+      <div class="kpis">${provBoxesList.map((b) => `<div class="kpi"><span>${esc(b.name)}</span><b>${money(b.balance)}</b></div>`).join("") || '<span class="hint">Sin cajas</span>'}</div>
       <div id="provBoxForm"></div>
     </div>`;
     $("provAddBox").addEventListener("click", renderBoxForm);
+    $("provMove").addEventListener("click", renderMoveForm);
     $("provBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Venta</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th class="r">Monto</th><th></th></tr></thead><tbody>${
       items.map((p) => `<tr><td>${esc(p.saleDate)}</td><td>${esc(p.saleNumber)}</td><td>${esc(p.clientName)}</td><td><b>${esc(p.plate || "")}</b></td><td>${esc(p.allyType)}${p.allyName && p.allyType === "referido" ? " · " + esc(p.allyName) : ""}</td><td class="r">${money(p.amount)}</td><td><button class="btn success sm" data-realize="${p.saleId}">RTM realizada</button></td></tr>`).join("") || '<tr><td class="hint" colspan="7">Sin provisiones pendientes</td></tr>'
     }</tbody></table>`;
@@ -1326,6 +1409,25 @@ function renderBoxForm() {
     const code = name.toUpperCase().replace(/\s+/g, "_").slice(0, 20);
     try { await api.addCashBox({ code, name, kind: $("boxKind").value }); toast("Caja creada"); loadProvisiones(); }
     catch (e) { toast(e.message); }
+  });
+}
+function renderMoveForm() {
+  const opts = provBoxesList.map((b) => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join("");
+  $("provBoxForm").innerHTML = `<div class="row" style="margin-top:10px">
+    <select id="mvBox">${opts}</select>
+    <select id="mvType"><option value="ingreso">Depositar (ingreso)</option><option value="egreso">Retirar (egreso)</option></select>
+    <input id="mvAmount" inputmode="numeric" placeholder="Monto $" />
+    <input id="mvNote" placeholder="Nota (ej: retiro del banco)" />
+    <button class="btn success" id="mvSave">Aplicar</button>
+  </div>`;
+  $("mvSave").addEventListener("click", async () => {
+    const amount = readCop("mvAmount");
+    if (amount <= 0) return toast("Ingresa un monto");
+    try {
+      await api.addCashMovement({ boxCode: $("mvBox").value, type: $("mvType").value, amount, note: $("mvNote").value.trim(), date: todayIso() });
+      toast("Movimiento aplicado");
+      loadProvisiones();
+    } catch (e) { toast(e.message); }
   });
 }
 async function realizeProvisionUI(saleId) {

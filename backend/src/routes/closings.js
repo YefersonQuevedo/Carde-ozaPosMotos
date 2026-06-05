@@ -5,13 +5,18 @@ import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 
-async function gatherDay(date, gastos = 0) {
+async function gatherDay(date, gastosManual = 0) {
   const sales = await prisma.sale.findMany({ where: { saleDate: date, status: "activa" } });
   const ids = sales.map((s) => s.id);
   const payments = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
   const receivables = ids.length ? await prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [];
-  const closing = computeClosing({ sales, payments, receivables, gastos });
-  return { sales, payments, receivables, closing };
+  // Gastos registrados del dia (modulo de gastos) + gastos manuales del cierre.
+  const dayExpenses = await prisma.expense.findMany({ where: { date, status: "activa" } });
+  const gastosRegistrados = dayExpenses.reduce((a, e) => a + e.amount, 0);
+  const closing = computeClosing({ sales, payments, receivables, gastos: gastosRegistrados + Number(gastosManual || 0) });
+  closing.gastosRegistrados = gastosRegistrados;
+  closing.gastosManual = Number(gastosManual || 0);
+  return { sales, payments, receivables, closing, expenses: dayExpenses };
 }
 
 // GET /api/closings?date=YYYY-MM-DD  -> calcula el cierre al vuelo.

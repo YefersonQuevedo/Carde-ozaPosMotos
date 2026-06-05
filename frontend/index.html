@@ -51,6 +51,7 @@
           <button class="tab active" data-view="venta"><span class="ico">🧾</span> Venta</button>
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre diario</button>
           <button class="tab" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
+          <button class="tab" data-view="gastos"><span class="ico">🧾</span> Gastos</button>
           <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
           <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera</button>
           <button class="tab" data-view="pagoconv"><span class="ico">💸</span> Pagos conv.</button>
@@ -95,7 +96,7 @@
               <h2>Cierre diario</h2>
               <div class="row">
                 <input type="date" id="closingDate" />
-                <input type="number" id="closingGastos" placeholder="Gastos" min="0" />
+                <input type="number" id="closingGastos" placeholder="Gastos extra (no registrados)" min="0" title="Los gastos del modulo de Gastos ya se suman solos; aqui solo gastos adicionales" />
                 <button class="btn primary" id="loadClosing">Calcular</button>
                 <button class="btn ghost" id="exportClosing">Exportar Excel</button>
                 <button class="btn ghost" id="freezeClosing">Cierre del día</button>
@@ -206,6 +207,11 @@
         <!-- PROVISIONES (Claude · P1–P4) -->
         <section class="view" id="view-provisiones">
           <div id="provisionesRoot"></div>
+        </section>
+
+        <!-- GASTOS (Claude) -->
+        <section class="view" id="view-gastos">
+          <div id="gastosRoot"></div>
         </section>
 
         <!-- LLAMADAS / VENCIMIENTOS RTM (Claude · C6) -->
