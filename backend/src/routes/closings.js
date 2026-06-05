@@ -150,6 +150,43 @@ router.get("/report", async (req, res, next) => {
   }
 });
 
+// GET /api/closings/report/export?from=&to=  -> consolidado por dia en Excel.
+router.get("/report/export", async (req, res, next) => {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const from = String(req.query.from || `${month}-01`);
+    const to = String(req.query.to || `${month}-31`);
+    const sales = await prisma.sale.findMany({ where: { saleDate: { gte: from, lte: to }, status: "activa" }, orderBy: { saleDate: "asc" } });
+    const ids = sales.map((s) => s.id);
+    const payments = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
+    const receivables = ids.length ? await prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [];
+    const byDay = {};
+    for (const s of sales) (byDay[s.saleDate] ||= []).push(s);
+    const rows = Object.keys(byDay).sort().map((date) => {
+      const daySales = byDay[date];
+      const dayIds = new Set(daySales.map((s) => s.id));
+      const c = computeClosing({ sales: daySales, payments: payments.filter((p) => dayIds.has(p.saleId)), receivables: receivables.filter((r) => dayIds.has(r.saleId)) });
+      return { fecha: date, ventas: c.salesTotal, jasper: c.jasper, provision: c.provision, deducciones: c.deducciones, efectivo: c.efectivoEntregar, rtm: `${c.rtmRealizadas}/${c.rtmFacturadas}` };
+    });
+    const t = computeClosing({ sales, payments, receivables });
+    const buf = await toWorkbook({
+      sheets: [{
+        name: "Consolidado", title: `Consolidado ${from} a ${to}`,
+        columns: [
+          { header: "Dia", key: "fecha", width: 12 }, { header: "Ventas", key: "ventas", width: 14, money: true },
+          { header: "Jasper", key: "jasper", width: 14, money: true }, { header: "Provision", key: "provision", width: 14, money: true },
+          { header: "Deducciones", key: "deducciones", width: 14, money: true }, { header: "Efectivo", key: "efectivo", width: 14, money: true },
+          { header: "RTM", key: "rtm", width: 10 }
+        ],
+        rows, totals: { ventas: t.salesTotal, jasper: t.jasper, provision: t.provision, deducciones: t.deducciones, efectivo: t.efectivoEntregar }
+      }]
+    });
+    sendXlsx(res, buf, `consolidado-${from}_${to}.xlsx`);
+  } catch (e) {
+    next(e);
+  }
+});
+
 // GET /api/closings/consolidado?from=&to=  -> suma de cierres congelados.
 router.get("/consolidado", async (req, res, next) => {
   try {

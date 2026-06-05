@@ -98,10 +98,12 @@ export const api = {
   findAllies: (q = "") => req(`/allies?q=${encodeURIComponent(q)}`),
   saveAlly: (body) => req("/allies", { method: "POST", body }),
   updateAlly: (id, body) => req(`/allies/${id}`, { method: "PUT", body }),
+  applyAlliesCommission: (commission) => req("/allies/commission-all", { method: "PUT", body: { commission } }),
   deleteAlly: (id) => req(`/allies/${id}`, { method: "DELETE" }),
 
   createSale: (body) => req("/sales", { method: "POST", body }),
   listSales: (params = {}) => req(`/sales?${new URLSearchParams(params)}`),
+  exportSales: (params = {}) => reqBlob(`/sales/export?${new URLSearchParams(params)}`),
   getSale: (id) => req(`/sales/${id}`),
   invoice: (id) => req(`/sales/${id}/invoice`, { method: "POST" }),
   voidSale: (id, body) => req(`/sales/${id}/void`, { method: "POST", body }),
@@ -111,6 +113,7 @@ export const api = {
   saveClosing: (body) => req("/closings", { method: "POST", body }),
   consolidado: (from, to) => req(`/closings/consolidado?from=${from}&to=${to}`),
   report: (from, to) => req(`/closings/report?from=${from}&to=${to}`),
+  exportConsolidado: (from, to) => reqBlob(`/closings/report/export?from=${from}&to=${to}`),
 
   receivables: (params = {}) => req(`/receivables?${new URLSearchParams(params)}`),
   payReceivable: (id) => req(`/receivables/${id}/pay`, { method: "POST" }),

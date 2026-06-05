@@ -5,8 +5,24 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const readCop = (id) => Math.round(Number(String($(id)?.value || "").replace(/[^\d]/g, "")) || 0);
-// Descarga un Blob (export a Excel) con un nombre de archivo.
-function downloadBlob(blob, filename) {
+// Descarga un Blob (export a Excel). Si el navegador lo soporta (Chrome/Edge),
+// abre el dialogo "Guardar como" para elegir la carpeta; si no, descarga normal.
+async function downloadBlob(blob, filename) {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
+      });
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // el usuario cancelo el dialogo
+      // Otro error (p.ej. gesto expirado): cae a la descarga clasica.
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename;
@@ -644,7 +660,22 @@ async function exportClosingUI() {
     const date = $("closingDate").value || todayIso();
     const gastos = Number($("closingGastos").value) || 0;
     const blob = await api.exportClosing(date, gastos);
-    downloadBlob(blob, `cierre-${date}.xlsx`);
+    await downloadBlob(blob, `cierre-${date}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+async function exportReportUI() {
+  try {
+    const from = $("repFrom").value, to = $("repTo").value;
+    if (!from || !to) return toast("Elige el rango de fechas");
+    const blob = await api.exportConsolidado(from, to);
+    await downloadBlob(blob, `consolidado-${from}_${to}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+async function exportVentasUI() {
+  try {
+    const date = $("ventasDate").value;
+    const blob = await api.exportSales(date ? { date } : {});
+    await downloadBlob(blob, `ventas${date ? "-" + date : ""}.xlsx`);
   } catch (e) { toast(e.message); }
 }
 async function freezeClosing() {
@@ -688,6 +719,7 @@ async function loadPagoConv() {
   } catch (e) { toast(e.message); }
 }
 let currentAlly = { name: null, id: null };
+let currentAllyDetail = null;
 async function loadPagoConvDetail(name, allyId = null) {
   currentAlly = { name, id: allyId ? Number(allyId) : null };
   try {
@@ -864,11 +896,7 @@ async function addReceivablePayment(id) {
 async function exportCartera() {
   try {
     const blob = await api.exportReceivables(carteraParams());
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `cartera-${todayIso()}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    await downloadBlob(blob, `cartera-${todayIso()}.xlsx`);
   } catch (e) { toast(e.message); }
 }
 
@@ -1381,9 +1409,11 @@ async function startApp() {
   $("repFrom").value = monthStart;
   $("repTo").value = todayIso();
   $("loadReport").addEventListener("click", loadReport);
+  $("exportReport").addEventListener("click", exportReportUI);
   $("ventasDate").addEventListener("change", loadVentas);
   $("ventasSearch").addEventListener("input", loadVentas);
   $("ventasAll").addEventListener("click", () => { $("ventasDate").value = ""; loadVentas(); });
+  $("exportVentas").addEventListener("click", exportVentasUI);
   $("allySearch").addEventListener("input", (e) => loadConvenios(e.target.value));
   $("allyNew").addEventListener("click", () => renderAllyForm(null));
   $("clientListSearch").addEventListener("input", (e) => loadClientes(e.target.value));

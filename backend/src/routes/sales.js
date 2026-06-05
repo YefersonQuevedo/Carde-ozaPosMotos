@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/costs.js";
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
+import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { auth } from "../auth.js";
 
 const router = Router();
@@ -289,6 +290,43 @@ router.get("/", async (req, res, next) => {
     if (range) where.rangeName = String(range);
     const items = await prisma.sale.findMany({ where, orderBy: { id: "desc" }, take: 500 });
     res.json(items);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/sales/export?date=&clientDoc=&plate=&range=  -> descarga las ventas en Excel.
+// (Debe ir ANTES de /:id para no chocar con la ruta por id.)
+router.get("/export", async (req, res, next) => {
+  try {
+    const { date, clientDoc, plate, range } = req.query;
+    const where = {};
+    if (date) where.saleDate = String(date);
+    if (clientDoc) where.clientDoc = String(clientDoc);
+    if (plate) where.plate = normalizePlate(plate);
+    if (range) where.rangeName = String(range);
+    const items = await prisma.sale.findMany({ where, orderBy: { id: "desc" }, take: 5000 });
+    const rows = items.map((s) => ({
+      fecha: s.saleDate, venta: s.saleNumber, cliente: s.clientName, doc: s.clientDoc,
+      placa: s.plate || "", tipo: s.allyType, convenio: s.allyName || "", rtm: s.rtmStatus,
+      factura: s.invoiceNumber || "", estado: s.status, total: s.total
+    }));
+    const total = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.total, 0);
+    const buf = await toWorkbook({
+      sheets: [{
+        name: "Ventas", title: `Ventas${date ? " " + date : ""}`,
+        columns: [
+          { header: "Fecha", key: "fecha", width: 12 }, { header: "Venta", key: "venta", width: 14 },
+          { header: "Cliente", key: "cliente", width: 28 }, { header: "Documento", key: "doc", width: 16 },
+          { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
+          { header: "Convenio", key: "convenio", width: 22 }, { header: "RTM", key: "rtm", width: 14 },
+          { header: "Factura", key: "factura", width: 14 }, { header: "Estado", key: "estado", width: 10 },
+          { header: "Total", key: "total", width: 14, money: true }
+        ],
+        rows, totals: { total }
+      }]
+    });
+    sendXlsx(res, buf, `ventas${date ? "-" + date : ""}.xlsx`);
   } catch (e) {
     next(e);
   }
