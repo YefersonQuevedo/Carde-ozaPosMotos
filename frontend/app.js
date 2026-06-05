@@ -37,6 +37,7 @@ function blankSale() {
     rtmToday: true,
     provisionChecked: false, // ya se busco provision para esta placa
     provisionMatches: [],    // provisiones abiertas encontradas para la placa
+    provisionContinue: false, // el usuario decidio seguir sin provision
     registered: null // respuesta del backend
   };
 }
@@ -96,7 +97,10 @@ function paymentState() {
 function stepOrder() {
   const o = ["cliente", "moto", "rtmPaid"];
   if (sale.rtmAlreadyPaid === true) {
-    o.push("tipoCliente", "resumen");
+    // Siempre se verifica si la placa ya tiene una provision (pago previo).
+    o.push("provisionCheck");
+    // Solo si el usuario decide seguir sin provision se pide tipo de cliente.
+    if (sale.provisionContinue) o.push("tipoCliente", "resumen");
   } else if (sale.rtmAlreadyPaid === false) {
     o.push("credito");
     if (sale.needsCredit === true) o.push("creditoProveedor");
@@ -115,6 +119,7 @@ function isDone(key) {
     case "pago": return sale.paymentConfirmed;
     case "tipoCliente": return sale.allyAnswered;
     case "rtmHoy": return sale.rtmTodayAnswered;
+    case "provisionCheck": return sale.provisionContinue || !!sale.registered;
     case "resumen": return !!sale.registered;
     default: return false;
   }
@@ -125,7 +130,7 @@ function resetFrom(key) {
   const fields = {
     cliente: () => { sale.client = null; },
     moto: () => { sale.vehicle = { plate: "", modelYear: null, rangeName: "" }; sale.packageCode = ""; },
-    rtmPaid: () => { sale.rtmAlreadyPaid = null; sale.needsCredit = null; sale.creditProvider = null; sale.payments = []; sale.paymentConfirmed = false; },
+    rtmPaid: () => { sale.rtmAlreadyPaid = null; sale.needsCredit = null; sale.creditProvider = null; sale.payments = []; sale.paymentConfirmed = false; sale.provisionChecked = false; sale.provisionMatches = []; sale.provisionContinue = false; },
     credito: () => { sale.needsCredit = null; sale.creditProvider = null; sale.payments = []; sale.paymentConfirmed = false; },
     creditoProveedor: () => { sale.creditProvider = null; sale.payments = []; },
     pago: () => { sale.payments = []; sale.paymentConfirmed = false; },
@@ -240,6 +245,29 @@ function renderActive(key) {
           <button class="choice" data-today="si">Si, se realiza hoy</button>
           <button class="choice" data-today="no">No, queda pendiente</button>
         </div>`, false);
+    case "provisionCheck": {
+      const search = `
+        <div class="row" style="margin-top:8px">
+          <input id="provSearch" placeholder="Buscar por placa o cedula" value="${esc(sale.vehicle.plate || "")}" style="text-transform:uppercase" />
+          <button class="btn" id="provSearchBtn">Buscar provision</button>
+        </div>`;
+      if (sale.provisionMatches.length) {
+        const rows = sale.provisionMatches.map((p) => `
+          <div class="payrow">
+            <span><b>${esc(p.plate)}</b> · ${esc(p.clientName)} · ${money(p.amount)}${p.allyType === "referido" ? " · ref: " + esc(p.allyName || "") : " · directo"} · ${esc(p.saleDate)}</span>
+            <button class="btn success sm" data-consume="${p.saleId}">Realizar RTM</button>
+          </div>`).join("");
+        return card(key, "Provision encontrada ✓", `
+          <div class="hint">Esta placa ya tiene una RTM pagada (provisionada). Al realizarla NO se recalcula comision ni valor: se consume la provision.</div>
+          <div class="payrows">${rows}</div>
+          ${search}
+          <button class="link" id="provContinue">No es ninguna de estas, continuar sin provision</button>`, false);
+      }
+      return card(key, "Verificar provision", `
+        <div class="warn-msg">No se encontro provision pendiente para la placa <b>${esc(sale.vehicle.plate || "")}</b>. Puedes buscar por otra placa/cedula o continuar normal.</div>
+        ${search}
+        <button class="btn primary" id="provContinue" style="margin-top:8px">Continuar sin provision</button>`, false);
+    }
     case "resumen":
       return card(key, "8 · Resumen y registro", `
         <div class="hint">Revisa el resumen a la derecha.</div>
@@ -260,6 +288,7 @@ function renderDone(key) {
     case "pago": body = sale.payments.map((p) => `${methodByCode[p.methodCode].name}: ${money(p.amount)}`).join(" · "); break;
     case "tipoCliente": body = sale.allyType === "usuario" ? "Usuario directo (fidelizado)" : `Referido: ${esc(sale.allyName)}${sale.discountApplied ? " (con descuento)" : ""}`; break;
     case "rtmHoy": body = sale.rtmToday ? "Se realiza hoy" : "Pendiente"; break;
+    case "provisionCheck": body = sale.registered ? `Provision consumida · ${esc(sale.registered?.sale?.saleNumber || "")}` : "Sin provision (continua normal)"; break;
     case "resumen": body = `Registrada ${esc(sale.registered?.sale?.saleNumber || "")}`; break;
   }
   return card(key, titleFor(key), body, true);
@@ -268,7 +297,7 @@ function titleFor(key) {
   return {
     cliente: "1 · Cliente", moto: "2 · Moto", rtmPaid: "3 · RTM paga", credito: "4 · Credito",
     creditoProveedor: "4b · Financiacion", pago: "5 · Pago", tipoCliente: "6 · Tipo cliente",
-    rtmHoy: "7 · RTM hoy", resumen: "8 · Resumen"
+    rtmHoy: "7 · RTM hoy", provisionCheck: "Provision", resumen: "8 · Resumen"
   }[key];
 }
 
@@ -355,11 +384,29 @@ function wireWizard() {
     });
   }
 
-  document.querySelectorAll("[data-rtmpaid]").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-rtmpaid]").forEach((b) => b.addEventListener("click", async () => {
     sale.rtmAlreadyPaid = b.dataset.rtmpaid === "si";
-    if (sale.rtmAlreadyPaid) { sale.rtmToday = true; sale.rtmTodayAnswered = true; }
+    if (sale.rtmAlreadyPaid) {
+      sale.rtmToday = true; sale.rtmTodayAnswered = true;
+      // Buscar si la placa ya tiene una provision (pago previo) para no recalcular comision ni valor.
+      sale.provisionMatches = [];
+      const plate = sale.vehicle.plate;
+      if (plate) {
+        try { const r = await api.provisions({ plate }); sale.provisionMatches = r.items || []; } catch {}
+      }
+      sale.provisionChecked = true;
+    }
     render();
   }));
+  document.querySelectorAll("[data-consume]").forEach((b) => b.addEventListener("click", () => consumeProvisionUI(Number(b.dataset.consume))));
+  $("provSearchBtn")?.addEventListener("click", async () => {
+    const q = ($("provSearch").value || "").trim().toUpperCase();
+    if (!q) return;
+    const params = /^\d+$/.test(q) ? { clientDoc: q } : { plate: q };
+    try { const r = await api.provisions(params); sale.provisionMatches = r.items || []; if (!sale.provisionMatches.length) toast("Sin provision para ese criterio"); render(); }
+    catch (e) { toast(e.message); }
+  });
+  $("provContinue")?.addEventListener("click", () => { sale.provisionContinue = true; render(); });
   document.querySelectorAll("[data-credit]").forEach((b) => b.addEventListener("click", () => {
     sale.needsCredit = b.dataset.credit === "si"; render();
   }));
@@ -527,6 +574,15 @@ async function registerSale() {
     const reg = await api.createSale(body);
     sale.registered = reg;
     toast(`Venta ${reg.sale.saleNumber} registrada`);
+    render();
+  } catch (e) { toast(e.message); }
+}
+// Consume la provision de una placa ya pagada (no recalcula comision ni valor).
+async function consumeProvisionUI(saleId) {
+  try {
+    const r = await api.realizeProvision(saleId, { date: todayIso() });
+    sale.registered = { sale: r.sale, costs: r.costs };
+    toast(`Provision consumida · RTM realizada (${r.sale.saleNumber})`);
     render();
   } catch (e) { toast(e.message); }
 }

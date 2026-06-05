@@ -197,6 +197,21 @@ montaje (`renderXxx(container)`) que Codex rellena. Así no hay conflictos en `i
 ## 5. Reparto del trabajo
 
 ### Lo que desarrolla **Claude** (núcleo financiero + clientes)
+
+> ✅ **ENTREGADO (2026-06-04).** Módulos 1–5 implementados y probados por API:
+> - **Clientes/historial**: tipo de documento (select CC/NIT/CE/TI/PAS), multi-teléfono (principal + adicionales),
+>   búsqueda por placa, `ClientHistory` (bitácora directo/referido/rtm por año), reporte **Directo→Referido**.
+>   Endpoints: `GET /api/clients?q=` (incluye placa), `GET /api/clients/reports/directo-referido`,
+>   `GET /api/clients/:doc` (trae `history`). Fix: la venta ya **no pisa** tel/email/dirección del cliente.
+> - **Llamadas/vencimientos**: `GET /api/calls?from=&to=` (última RTM + 1 año por placa) → pestaña **Llamadas**.
+> - **Cierre diario**: `GET /api/closings/export` (Excel con formato vía `excel.js`), botón **"Cierre del día"**,
+>   **desglose** de Jasper/Diferencia.
+> - **Provisiones**: pestaña con cajas (saldo) + RTM pendientes; **placa provisionada** en la venta
+>   (paso "RTM ya está paga" → busca provisión por placa y la **consume sin recalcular comisión ni valor**);
+>   `CashMovement` egreso/ingreso (caja menor ↔ provisión RTM); cajas configurables (`POST /api/provisions/boxes`).
+>   Endpoints: `GET /api/provisions[?plate=]`, `/boxes`, `POST /:saleId/realize`, `/movements`.
+>   **P3 (ventas brutas netas)**: la realización **no crea venta nueva** → no hay doble conteo por diseño.
+
 Núcleo acoplado (provisión ↔ cierre ↔ ventas brutas) y datos maestros de clientes.
 
 1. **Fase 0** completa (sección 4): esquema, migración, `excel.js`, uploads, pestañas y montajes.
