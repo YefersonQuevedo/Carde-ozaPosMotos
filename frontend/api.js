@@ -86,8 +86,17 @@ export const api = {
   directoReferido: () => req("/clients/reports/directo-referido"),
 
   calls: (from = "", to = "") => req(`/calls?from=${from}&to=${to}`),
+  exportCalls: (from = "", to = "") => reqBlob(`/calls/export?from=${from}&to=${to}`),
+  exportDirectoReferido: () => reqBlob("/clients/reports/directo-referido/export"),
+
+  fupa: (from, to) => req(`/fupa?${new URLSearchParams({ from, to })}`),
+  fupaSummary: () => req("/fupa/summary"),
+  fupaPurchase: (body) => req("/fupa/purchase", { method: "POST", body }),
+  fupaCount: (body) => req("/fupa/count", { method: "POST", body }),
+  exportFupa: (from, to) => reqBlob(`/fupa/export?${new URLSearchParams({ from, to })}`),
 
   provisions: (params = {}) => req(`/provisions?${new URLSearchParams(params)}`),
+  exportProvisions: () => reqBlob("/provisions/export"),
   cashBoxes: () => req("/provisions/boxes"),
   addCashBox: (body) => req("/provisions/boxes", { method: "POST", body }),
   addCashMovement: (body) => req("/provisions/movements", { method: "POST", body }),

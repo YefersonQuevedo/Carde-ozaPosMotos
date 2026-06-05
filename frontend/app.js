@@ -1161,7 +1161,7 @@ const VIEW_TITLES = {
   dashboard: "Dashboard", venta: "Venta", cierre: "Cierre diario", provisiones: "Provisiones",
   consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
   llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
-  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos"
+  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA"
 };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
@@ -1179,6 +1179,7 @@ function switchView(view) {
   if (view === "dashboard") renderDashboard($("dashboardRoot"));
   if (view === "provisiones") renderProvisiones($("provisionesRoot"));
   if (view === "gastos") renderGastos($("gastosRoot"));
+  if (view === "fupa") renderFupa($("fupaRoot"));
   if (view === "llamadas") renderLlamadas($("llamadasRoot"));
   if (view === "facturaelec") renderFacturaElec($("facturaelecRoot"));
   if (view === "proveedores") renderProveedores($("proveedoresRoot"));
@@ -1253,6 +1254,86 @@ async function exportGastosUI() {
   try {
     const blob = await api.exportExpenses({ from: $("gxFrom").value, to: $("gxTo").value });
     await downloadBlob(blob, `gastos-${$("gxFrom").value}_${$("gxTo").value}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+
+// ---------- Pines / FUPA (Claude · T2) ----------
+async function renderFupa(c) {
+  if (!c) return;
+  const today = todayIso();
+  c.innerHTML = `<div id="fupaSummary"></div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head"><h2>Comprar pines</h2></div>
+        <div class="row"><input id="fpQty" inputmode="numeric" placeholder="Cantidad" />
+          <input id="fpCost" inputmode="numeric" placeholder="Costo unitario $ (opcional)" />
+          <input type="date" id="fpDate" value="${today}" /></div>
+        <div class="row" style="margin-top:8px"><input id="fpNote" placeholder="Nota (opcional)" />
+          <button class="btn success" id="fpBuy">Registrar compra</button></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Conteo fisico</h2></div>
+        <p class="hint">Cuenta los pines reales que tienes. Si no cuadra con el teorico, se registra la diferencia (pines quemados sin registro).</p>
+        <div class="row"><input id="fpCount" inputmode="numeric" placeholder="Pines reales contados" />
+          <button class="btn" id="fpCountBtn">Registrar conteo</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Movimiento por dia</h2>
+        <div class="row">
+          <label class="rng">Desde <input type="date" id="fpFrom" value="${today.slice(0, 8)}01" /></label>
+          <label class="rng">Hasta <input type="date" id="fpTo" value="${today}" /></label>
+          <button class="btn primary" id="fpLoad">Ver</button>
+          <button class="btn ghost" id="fpExport">Exportar Excel</button>
+        </div>
+      </div>
+      <div id="fpBody"></div>
+    </div>`;
+  $("fpBuy").addEventListener("click", fupaBuyUI);
+  $("fpCountBtn").addEventListener("click", fupaCountUI);
+  $("fpLoad").addEventListener("click", loadFupa);
+  $("fpExport").addEventListener("click", exportFupaUI);
+  await loadFupa();
+}
+async function loadFupa() {
+  try {
+    const from = $("fpFrom").value, to = $("fpTo").value;
+    const d = await api.fupa(from, to);
+    $("fupaSummary").innerHTML = `<div class="kpis">
+      <div class="kpi"><span>Stock teorico (pines)</span><b>${d.stock}</b></div>
+      <div class="kpi"><span>Comprados</span><b>${d.totalComprado}</b></div>
+      <div class="kpi"><span>RTM realizadas (consumo)</span><b>${d.totalRtm}</b></div>
+      <div class="kpi"><span>Ajustes</span><b>${d.totalAjustes}</b></div>
+    </div>`;
+    $("fpBody").innerHTML = `<table class="data"><thead><tr><th>Dia</th><th class="r">Inicio</th><th class="r">Compras</th><th class="r">Ajustes</th><th class="r">Consumo RTM</th><th class="r">Fin</th></tr></thead><tbody>${
+      d.rows.map((r) => `<tr><td>${esc(r.date)}</td><td class="r">${r.inicio}</td><td class="r">${r.compras}</td><td class="r">${r.ajustes}</td><td class="r">${r.consumo}</td><td class="r"><b>${r.fin}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="6">Sin movimientos en el rango</td></tr>'
+    }</tbody></table>`;
+  } catch (e) { toast(e.message); }
+}
+async function fupaBuyUI() {
+  const quantity = readCop("fpQty");
+  if (quantity <= 0) return toast("Ingresa la cantidad de pines");
+  try {
+    await api.fupaPurchase({ quantity, unitCost: readCop("fpCost"), date: $("fpDate").value || todayIso(), note: $("fpNote").value.trim() });
+    toast("Compra registrada");
+    $("fpQty").value = ""; $("fpCost").value = ""; $("fpNote").value = "";
+    loadFupa();
+  } catch (e) { toast(e.message); }
+}
+async function fupaCountUI() {
+  const physicalCount = readCop("fpCount");
+  if ($("fpCount").value.trim() === "") return toast("Ingresa los pines contados");
+  try {
+    const r = await api.fupaCount({ physicalCount });
+    toast(`Conteo: real ${r.fisico}, teorico ${r.teorico}, diferencia ${r.diferencia}`);
+    $("fpCount").value = "";
+    loadFupa();
+  } catch (e) { toast(e.message); }
+}
+async function exportFupaUI() {
+  try {
+    const blob = await api.exportFupa($("fpFrom").value, $("fpTo").value);
+    await downloadBlob(blob, `pines-${$("fpFrom").value}_${$("fpTo").value}.xlsx`);
   } catch (e) { toast(e.message); }
 }
 
@@ -1360,10 +1441,16 @@ async function renderProvisiones(c) {
   if (!c) return;
   c.innerHTML = `<div id="provBoxes"></div>
     <div class="card">
-      <div class="card-head"><h2>Provisiones (RTM pendientes)</h2><div id="provTotal" class="pill warn"></div></div>
+      <div class="card-head"><h2>Provisiones (RTM pendientes)</h2>
+        <div class="row"><div id="provTotal" class="pill warn"></div><button class="btn ghost" id="provExport">Exportar Excel</button></div>
+      </div>
       <p class="hint">Dinero apartado de quienes pagaron pero aun no hacen la RTM. Al hacerla se consume (sin recalcular comision ni valor).</p>
       <div id="provBody"></div>
     </div>`;
+  $("provExport").addEventListener("click", async () => {
+    try { const blob = await api.exportProvisions(); await downloadBlob(blob, `provisiones-${todayIso()}.xlsx`); }
+    catch (e) { toast(e.message); }
+  });
   await loadProvisiones();
 }
 let provBoxesList = [];
@@ -1453,12 +1540,17 @@ function renderLlamadas(c) {
         <label class="rng">Desde <input type="date" id="llFrom" value="${today}" /></label>
         <label class="rng">Hasta <input type="date" id="llTo" value="${addMonthsIso(today, 1)}" /></label>
         <button class="btn primary" id="llLoad">Buscar</button>
+        <button class="btn ghost" id="llExport">Exportar Excel</button>
       </div>
     </div>
     <p class="hint">Placas cuya RTM vence en el rango (ultima RTM + 1 año). Util para llamar antes de que se venza.</p>
     <div id="llBody"></div>
   </div>`;
   $("llLoad").addEventListener("click", loadLlamadas);
+  $("llExport").addEventListener("click", async () => {
+    try { const blob = await api.exportCalls($("llFrom").value, $("llTo").value); await downloadBlob(blob, `llamadas-${$("llFrom").value}_${$("llTo").value}.xlsx`); }
+    catch (e) { toast(e.message); }
+  });
   loadLlamadas();
 }
 async function loadLlamadas() {
@@ -1476,10 +1568,17 @@ async function loadLlamadas() {
 async function loadDirectoReferido() {
   try {
     const { items } = await api.directoReferido();
-    $("clientesBody").innerHTML = `<div class="detail-meta">${items.length} cliente(s) que pasaron de directo a referido</div>
+    $("clientesBody").innerHTML = `<div class="row" style="justify-content:space-between;align-items:center">
+        <div class="detail-meta">${items.length} cliente(s) que pasaron de directo a referido</div>
+        <button class="btn ghost" id="dirRefExport">Exportar Excel</button>
+      </div>
       <table class="data"><thead><tr><th>Cliente</th><th>Directo</th><th>Referido</th><th>Lo refirio</th><th>Placa</th></tr></thead><tbody>${
         items.map((i) => `<tr class="clickable" data-doc="${esc(i.docNumber)}"><td>${esc(i.name)}</td><td>${i.directoYear}</td><td><span class="pill warn">${i.referidoYear}</span></td><td>${esc(i.referidoBy || "")}</td><td>${esc(i.plate || "")}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin casos: nadie paso de directo a referido</td></tr>'
       }</tbody></table>`;
+    $("dirRefExport").addEventListener("click", async () => {
+      try { const blob = await api.exportDirectoReferido(); await downloadBlob(blob, "directo-referido.xlsx"); }
+      catch (e) { toast(e.message); }
+    });
     $("clientesBody").querySelectorAll("[data-doc]").forEach((tr) => tr.addEventListener("click", () => loadClientDetail(tr.dataset.doc)));
   } catch (e) { toast(e.message); }
 }

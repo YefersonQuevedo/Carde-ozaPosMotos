@@ -401,6 +401,23 @@ model CashMovement {
   @@map("cash_movements")
 }
 
+/// Control de FUPA/PIN (inventario de pines prepagados de Supergiros).
+/// type: compra (+cantidad) | ajuste (delta +/- por conteo fisico).
+/// El CONSUMO no se guarda aqui: se deriva de las RTM realizadas (sale.pinAdquirido>0),
+/// asi se puede comparar stock teorico vs conteo real (detectar pines "quemados").
+model FupaMovement {
+  id        Int      @id @default(autoincrement())
+  date      String   // YYYY-MM-DD
+  type      String   // compra | ajuste
+  quantity  Int      // compra: + ; ajuste: delta (+/-)
+  unitCost  Int      @default(0)
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([date])
+  @@map("fupa_movements")
+}
+
 /// Gastos del negocio. Cada gasto sale de una caja (genera CashMovement egreso).
 /// Alimenta el "gastos" del cierre diario.
 model Expense {

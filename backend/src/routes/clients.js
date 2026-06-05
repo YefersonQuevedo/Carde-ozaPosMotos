@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 
@@ -41,35 +42,56 @@ router.get("/", async (req, res, next) => {
 
 // Reporte: clientes que llegaron como directos y luego pasaron a referidos (posible abuso).
 // GET /api/clients/reports/directo-referido
+async function computeDirectoReferido() {
+  const rows = await prisma.clientHistory.findMany({
+    where: { eventType: { in: ["directo", "referido"] } },
+    orderBy: [{ clientDoc: "asc" }, { year: "asc" }, { id: "asc" }]
+  });
+  const byDoc = {};
+  for (const r of rows) (byDoc[r.clientDoc] ||= []).push(r);
+
+  const result = [];
+  for (const [doc, events] of Object.entries(byDoc)) {
+    const firstDirecto = events.find((e) => e.eventType === "directo");
+    if (!firstDirecto) continue;
+    const laterReferido = events.find(
+      (e) => e.eventType === "referido" && (e.year > firstDirecto.year || (e.year === firstDirecto.year && e.id > firstDirecto.id))
+    );
+    if (!laterReferido) continue;
+    const client = await prisma.client.findUnique({ where: { docNumber: doc } });
+    result.push({
+      docNumber: doc, name: client?.name || doc,
+      directoYear: firstDirecto.year, referidoYear: laterReferido.year,
+      referidoBy: laterReferido.allyName || null,
+      plate: laterReferido.plate || firstDirecto.plate || null
+    });
+  }
+  return result;
+}
+
 router.get("/reports/directo-referido", async (_req, res, next) => {
   try {
-    const rows = await prisma.clientHistory.findMany({
-      where: { eventType: { in: ["directo", "referido"] } },
-      orderBy: [{ clientDoc: "asc" }, { year: "asc" }, { id: "asc" }]
-    });
-    const byDoc = {};
-    for (const r of rows) (byDoc[r.clientDoc] ||= []).push(r);
+    res.json({ items: await computeDirectoReferido() });
+  } catch (e) {
+    next(e);
+  }
+});
 
-    const result = [];
-    for (const [doc, events] of Object.entries(byDoc)) {
-      const firstDirecto = events.find((e) => e.eventType === "directo");
-      if (!firstDirecto) continue;
-      // referido posterior (en anio mayor o mas adelante en el log) al primer directo
-      const laterReferido = events.find(
-        (e) => e.eventType === "referido" && (e.year > firstDirecto.year || (e.year === firstDirecto.year && e.id > firstDirecto.id))
-      );
-      if (!laterReferido) continue;
-      const client = await prisma.client.findUnique({ where: { docNumber: doc } });
-      result.push({
-        docNumber: doc,
-        name: client?.name || doc,
-        directoYear: firstDirecto.year,
-        referidoYear: laterReferido.year,
-        referidoBy: laterReferido.allyName || null,
-        plate: laterReferido.plate || firstDirecto.plate || null
-      });
-    }
-    res.json({ items: result });
+router.get("/reports/directo-referido/export", async (_req, res, next) => {
+  try {
+    const items = await computeDirectoReferido();
+    const buf = await toWorkbook({
+      sheets: [{
+        name: "Directo-Referido", title: "Clientes que pasaron de directo a referido",
+        columns: [
+          { header: "Cliente", key: "name", width: 28 }, { header: "Documento", key: "docNumber", width: 16 },
+          { header: "Año directo", key: "directoYear", width: 12, number: true }, { header: "Año referido", key: "referidoYear", width: 12, number: true },
+          { header: "Lo refirio", key: "referidoBy", width: 22 }, { header: "Placa", key: "plate", width: 10 }
+        ],
+        rows: items
+      }]
+    });
+    sendXlsx(res, buf, "directo-referido.xlsx");
   } catch (e) {
     next(e);
   }

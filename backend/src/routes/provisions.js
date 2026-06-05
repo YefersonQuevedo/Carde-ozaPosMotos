@@ -11,6 +11,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { buildTariffLookup, computeSaleCosts } from "../services/costs.js";
+import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
@@ -49,6 +50,34 @@ router.get("/", async (req, res, next) => {
     // Las cajas solo se devuelven en la vista general (sin filtro), para no recargar la venta.
     const boxes = req.query.plate || req.query.clientDoc ? undefined : await boxesWithBalance();
     res.json({ items, total, count: items.length, boxes });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/provisions/export -> provisiones pendientes en Excel
+router.get("/export", async (_req, res, next) => {
+  try {
+    const sales = await prisma.sale.findMany({ where: { status: "activa", rtmStatus: "pending" }, orderBy: { saleDate: "asc" } });
+    const rows = sales.map((s) => ({
+      fecha: s.saleDate, venta: s.saleNumber, cliente: s.clientName, doc: s.clientDoc,
+      placa: s.plate || "", tipo: s.allyType, convenio: s.allyName || "",
+      monto: s.provisionAmount || s.total
+    }));
+    const total = rows.reduce((a, r) => a + r.monto, 0);
+    const buf = await toWorkbook({
+      sheets: [{
+        name: "Provisiones", title: "Provisiones pendientes (RTM pagadas no realizadas)",
+        columns: [
+          { header: "Fecha", key: "fecha", width: 12 }, { header: "Venta", key: "venta", width: 14 },
+          { header: "Cliente", key: "cliente", width: 28 }, { header: "Documento", key: "doc", width: 16 },
+          { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
+          { header: "Convenio", key: "convenio", width: 22 }, { header: "Monto", key: "monto", width: 14, money: true }
+        ],
+        rows, totals: { monto: total }
+      }]
+    });
+    sendXlsx(res, buf, "provisiones.xlsx");
   } catch (e) {
     next(e);
   }

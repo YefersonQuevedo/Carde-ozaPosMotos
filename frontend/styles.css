@@ -32,10 +32,10 @@ h3 { margin: 14px 0 8px; font-size: 14px; font-weight: 700; }
 .sidebar {
   background: #132033;
   color: #f6f9ff;
-  padding: 22px 16px;
+  padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 14px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -47,11 +47,15 @@ h3 { margin: 14px 0 8px; font-size: 14px; font-weight: 700; }
   width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center;
   background: linear-gradient(135deg, #1bb760, #2457c5); color: #fff; font-weight: 900; font-size: 20px;
 }
-.nav { display: grid; gap: 6px; }
+/* nav ocupa el espacio disponible y hace scroll si hay muchas pestañas;
+   asi el pie (usuario / cerrar sesion) queda siempre abajo sin huecos raros. */
+.nav { display: grid; gap: 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
+.nav::-webkit-scrollbar { width: 6px; }
+.nav::-webkit-scrollbar-thumb { background: #2a3d5a; border-radius: 3px; }
 .tab {
   display: flex; align-items: center; gap: 10px;
   text-align: left; color: #cfdbeb; background: transparent; border: 0;
-  padding: 11px 12px; border-radius: 8px; cursor: pointer; font-weight: 600;
+  padding: 9px 12px; border-radius: 8px; cursor: pointer; font-weight: 600;
   border-left: 4px solid transparent; transition: background 0.15s;
 }
 .tab .ico { font-size: 15px; filter: grayscale(0.2); }
