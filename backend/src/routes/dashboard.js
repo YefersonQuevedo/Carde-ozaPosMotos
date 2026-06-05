@@ -1,0 +1,194 @@
+import { Router } from "express";
+import { prisma } from "../db.js";
+import { computeClosing } from "../services/closing.js";
+import { sendXlsx, toWorkbook } from "../services/excel.js";
+
+const router = Router();
+
+const iso = (d) => d.toISOString().slice(0, 10);
+const monthStart = () => iso(new Date()).slice(0, 8) + "01";
+const monthEnd = () => {
+  const now = new Date();
+  return iso(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+};
+const money = (v) => Math.round(Number(v) || 0);
+
+function shiftYear(date, delta) {
+  const d = new Date(`${date}T00:00:00`);
+  d.setFullYear(d.getFullYear() + delta);
+  return iso(d);
+}
+
+function groupSales(sales, keyFn) {
+  const map = {};
+  for (const sale of sales) {
+    const key = keyFn(sale) || "Sin clasificar";
+    const row = (map[key] ||= { key, count: 0, total: 0, realized: 0, pending: 0 });
+    row.count += 1;
+    row.total += money(sale.total);
+    if (money(sale.pinAdquirido) > 0) row.realized += 1;
+    else row.pending += 1;
+  }
+  return Object.values(map).sort((a, b) => b.count - a.count);
+}
+
+async function rangeReport(from, to) {
+  const sales = await prisma.sale.findMany({
+    where: { status: "activa", saleDate: { gte: from, lte: to } },
+    orderBy: [{ saleDate: "asc" }, { id: "asc" }]
+  });
+  const ids = sales.map((s) => s.id);
+  const [payments, receivables, costs] = await Promise.all([
+    ids.length ? prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [],
+    ids.length ? prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [],
+    ids.length ? prisma.saleCost.findMany({ where: { saleId: { in: ids } } }) : []
+  ]);
+
+  const closing = computeClosing({ sales, payments, receivables });
+  const costsTotal = costs.reduce((s, c) => s + money(c.costosTotal), 0);
+  const transactionCosts = costs.reduce((s, c) => s + money(c.costeTransaccion), 0);
+  const ivaFacturacion = costs.reduce((s, c) => s + money(c.ivaFact), 0);
+  const ivaVentas = sales
+    .filter((s) => s.dianStatus === "facturada")
+    .reduce((sum, s) => sum + money(s.totalIva), 0);
+  const directSales = sales.filter((s) => (s.allyType || "usuario") === "usuario").length;
+  const referredSales = sales.length - directSales;
+  const ticketPromedio = sales.length ? Math.round(closing.salesTotal / sales.length) : 0;
+  const utilidadBruta = closing.salesTotal - costsTotal - closing.deducciones;
+
+  const byDay = {};
+  for (const s of sales) {
+    const row = (byDay[s.saleDate] ||= { date: s.saleDate, count: 0, total: 0, realized: 0, pending: 0 });
+    row.count += 1;
+    row.total += money(s.total);
+    if (money(s.pinAdquirido) > 0) row.realized += 1;
+    else row.pending += 1;
+  }
+
+  return {
+    from,
+    to,
+    kpis: {
+      salesCount: sales.length,
+      salesTotal: closing.salesTotal,
+      ticketPromedio,
+      rtmRealizadas: closing.rtmRealizadas,
+      rtmFacturadas: closing.rtmFacturadas,
+      rtmPendientes: closing.rtmPendientes,
+      directSales,
+      referredSales,
+      directPct: sales.length ? Math.round((directSales / sales.length) * 100) : 0,
+      referredPct: sales.length ? Math.round((referredSales / sales.length) * 100) : 0,
+      jasper: closing.jasper,
+      provision: closing.provision,
+      descuentosUsuarios: closing.fidelizacion,
+      comisionesReferidos: closing.referidos,
+      deducciones: closing.deducciones,
+      receivableOpen: closing.receivableOpen,
+      costosOperativos: costsTotal,
+      costosTransaccion: transactionCosts,
+      ivaFacturacion,
+      ivaVentas,
+      ivaProvision: ivaVentas + ivaFacturacion,
+      utilidadBruta
+    },
+    byRange: groupSales(sales, (s) => s.rangeName),
+    byVehicleType: groupSales(sales, (s) => s.vehicleType),
+    byAllyType: groupSales(sales, (s) => s.allyType),
+    byDay: Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date)),
+    byMethod: Object.entries(closing.byMethod).map(([method, value]) => ({
+      method,
+      count: closing.countByMethod?.[method] || 0,
+      value
+    }))
+  };
+}
+
+async function dashboardPayload(query = {}) {
+  const from = String(query.from || monthStart());
+  const to = String(query.to || monthEnd());
+  const previousFrom = shiftYear(from, -1);
+  const previousTo = shiftYear(to, -1);
+  const [current, previous] = await Promise.all([
+    rangeReport(from, to),
+    rangeReport(previousFrom, previousTo)
+  ]);
+  return { current, previous };
+}
+
+router.get("/", async (req, res, next) => {
+  try {
+    res.json(await dashboardPayload(req.query));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get("/export", async (req, res, next) => {
+  try {
+    const { current, previous } = await dashboardPayload(req.query);
+    const k = current.kpis;
+    const p = previous.kpis;
+    const rows = [
+      { metric: "RTM facturadas", actual: k.rtmFacturadas, anterior: p.rtmFacturadas, diff: k.rtmFacturadas - p.rtmFacturadas },
+      { metric: "RTM realizadas", actual: k.rtmRealizadas, anterior: p.rtmRealizadas, diff: k.rtmRealizadas - p.rtmRealizadas },
+      { metric: "Ventas brutas", actual: k.salesTotal, anterior: p.salesTotal, diff: k.salesTotal - p.salesTotal },
+      { metric: "Ticket promedio", actual: k.ticketPromedio, anterior: p.ticketPromedio, diff: k.ticketPromedio - p.ticketPromedio },
+      { metric: "Jasper estimado", actual: k.jasper, anterior: p.jasper, diff: k.jasper - p.jasper },
+      { metric: "Deducciones", actual: k.deducciones, anterior: p.deducciones, diff: k.deducciones - p.deducciones },
+      { metric: "IVA provisionado", actual: k.ivaProvision, anterior: p.ivaProvision, diff: k.ivaProvision - p.ivaProvision },
+      { metric: "Utilidad bruta aprox.", actual: k.utilidadBruta, anterior: p.utilidadBruta, diff: k.utilidadBruta - p.utilidadBruta }
+    ];
+    const buffer = await toWorkbook({
+      sheets: [
+        {
+          name: "KPIs",
+          title: `Dashboard ${current.from} a ${current.to}`,
+          columns: [
+            { header: "Metrica", key: "metric", width: 28 },
+            { header: "Actual", key: "actual", width: 16, money: true },
+            { header: "Año anterior", key: "anterior", width: 16, money: true },
+            { header: "Diferencia", key: "diff", width: 16, money: true }
+          ],
+          rows
+        },
+        {
+          name: "Motos",
+          columns: [
+            { header: "Rango", key: "key", width: 28 },
+            { header: "Cantidad", key: "count", width: 12, number: true },
+            { header: "Realizadas", key: "realized", width: 12, number: true },
+            { header: "Pendientes", key: "pending", width: 12, number: true },
+            { header: "Ventas", key: "total", width: 16, money: true }
+          ],
+          rows: current.byRange
+        },
+        {
+          name: "Dias",
+          columns: [
+            { header: "Dia", key: "date", width: 12 },
+            { header: "Cantidad", key: "count", width: 12, number: true },
+            { header: "Realizadas", key: "realized", width: 12, number: true },
+            { header: "Pendientes", key: "pending", width: 12, number: true },
+            { header: "Ventas", key: "total", width: 16, money: true }
+          ],
+          rows: current.byDay
+        },
+        {
+          name: "Metodos",
+          columns: [
+            { header: "Metodo", key: "method", width: 28 },
+            { header: "Cantidad", key: "count", width: 12, number: true },
+            { header: "Valor", key: "value", width: 16, money: true }
+          ],
+          rows: current.byMethod
+        }
+      ]
+    });
+    sendXlsx(res, buffer, `dashboard-${current.from}_${current.to}.xlsx`);
+  } catch (e) {
+    next(e);
+  }
+});
+
+export default router;

@@ -76,6 +76,8 @@ export const api = {
 
   catalog: () => req("/catalog"),
   uploadFile,
+  dashboard: (from, to) => req(`/dashboard?${new URLSearchParams({ from, to })}`),
+  exportDashboard: (from, to) => reqBlob(`/dashboard/export?${new URLSearchParams({ from, to })}`),
 
   findClients: (q) => req(`/clients?q=${encodeURIComponent(q)}`),
   getClient: (doc) => req(`/clients/${encodeURIComponent(doc)}`),

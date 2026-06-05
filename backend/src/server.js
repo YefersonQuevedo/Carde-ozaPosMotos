@@ -16,6 +16,7 @@ import users from "./routes/users.js";
 import uploads, { UPLOADS_DIR } from "./routes/uploads.js";
 import calls from "./routes/calls.js";
 import provisions from "./routes/provisions.js";
+import dashboard from "./routes/dashboard.js";
 import { auth } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ app.use("/api/users", users);
 app.use("/api/uploads", uploads);
 app.use("/api/calls", calls);
 app.use("/api/provisions", provisions);
+app.use("/api/dashboard", dashboard);
 
 // Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).
 app.use("/uploads", express.static(UPLOADS_DIR));

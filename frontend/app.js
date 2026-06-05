@@ -1197,6 +1197,91 @@ function renderDashboard(c) {
   moduleStub(c, { title: "Dashboard / KPIs", owner: "Codex · K1–K4",
     items: ["Indice de reportes generales", "KPIs mensuales + comparacion ano anterior", "Provision de IVA (bimestral)", "Resumen de motos entre fechas + exportar Excel"] });
 }
+renderDashboard = function (c) {
+  if (!c) return;
+  const from = $("dashFrom")?.value || todayIso().slice(0, 8) + "01";
+  const to = $("dashTo")?.value || todayIso();
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <h2>Dashboard / KPIs</h2>
+        <div class="row filters">
+          <input id="dashFrom" type="date" value="${esc(from)}" />
+          <input id="dashTo" type="date" value="${esc(to)}" />
+          <button class="btn primary" id="dashLoad">Actualizar</button>
+          <button class="btn" id="dashExport">Excel</button>
+        </div>
+      </div>
+      <div id="dashBody"><p class="hint">Cargando indicadores...</p></div>
+    </div>`;
+  $("dashLoad").addEventListener("click", loadDashboard);
+  $("dashExport").addEventListener("click", exportDashboardUI);
+  loadDashboard();
+};
+
+function dashCompareRow(label, actual, previous, isMoney = true) {
+  const diff = (Number(actual) || 0) - (Number(previous) || 0);
+  const fmt = isMoney ? money : (n) => String(Math.round(Number(n) || 0));
+  return `<tr><td>${esc(label)}</td><td class="r">${fmt(actual)}</td><td class="r">${fmt(previous)}</td><td class="r"><b>${fmt(diff)}</b></td></tr>`;
+}
+
+async function loadDashboard() {
+  try {
+    const from = $("dashFrom").value;
+    const to = $("dashTo").value;
+    const { current, previous } = await api.dashboard(from, to);
+    const k = current.kpis;
+    const p = previous.kpis;
+    const compare = [
+      dashCompareRow("RTM facturadas", k.rtmFacturadas, p.rtmFacturadas, false),
+      dashCompareRow("RTM realizadas", k.rtmRealizadas, p.rtmRealizadas, false),
+      dashCompareRow("Ventas brutas", k.salesTotal, p.salesTotal),
+      dashCompareRow("Ticket promedio", k.ticketPromedio, p.ticketPromedio),
+      dashCompareRow("Jasper estimado", k.jasper, p.jasper),
+      dashCompareRow("Deducciones", k.deducciones, p.deducciones),
+      dashCompareRow("IVA provisionado", k.ivaProvision, p.ivaProvision),
+      dashCompareRow("Utilidad bruta aprox.", k.utilidadBruta, p.utilidadBruta)
+    ].join("");
+    const ranges = current.byRange.map((r) => `<tr><td>${esc(r.key)}</td><td class="r">${r.count}</td><td class="r">${r.realized}</td><td class="r">${r.pending}</td><td class="r">${money(r.total)}</td></tr>`).join("");
+    const methods = current.byMethod.map((m) => `<tr><td>${esc(m.method)}</td><td class="r">${m.count}</td><td class="r">${money(m.value)}</td></tr>`).join("");
+    const days = current.byDay.map((d) => `<tr><td>${esc(d.date)}</td><td class="r">${d.count}</td><td class="r">${d.realized}</td><td class="r">${d.pending}</td><td class="r">${money(d.total)}</td></tr>`).join("");
+    $("dashBody").innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><span>Ventas brutas</span><b>${money(k.salesTotal)}</b></div>
+        <div class="kpi"><span>RTM realizadas</span><b>${k.rtmRealizadas}/${k.rtmFacturadas}</b></div>
+        <div class="kpi"><span>Ticket promedio</span><b>${money(k.ticketPromedio)}</b></div>
+        <div class="kpi"><span>Directo / referido</span><b>${k.directPct}% / ${k.referredPct}%</b></div>
+        <div class="kpi"><span>Jasper estimado</span><b>${money(k.jasper)}</b></div>
+        <div class="kpi"><span>Deducciones</span><b>${money(k.deducciones)}</b></div>
+        <div class="kpi"><span>IVA provisionado</span><b>${money(k.ivaProvision)}</b></div>
+        <div class="kpi"><span>Utilidad bruta aprox.</span><b>${money(k.utilidadBruta)}</b></div>
+      </div>
+      <div class="split">
+        <div>
+          <h3>Comparacion contra año anterior</h3>
+          <table class="data"><thead><tr><th>Indicador</th><th class="r">Actual</th><th class="r">Año anterior</th><th class="r">Diferencia</th></tr></thead><tbody>${compare}</tbody></table>
+          <h3>Resumen de motos por rango</h3>
+          <table class="data"><thead><tr><th>Rango</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">Ventas</th></tr></thead><tbody>${ranges || '<tr><td class="hint" colspan="5">Sin motos en el rango</td></tr>'}</tbody></table>
+        </div>
+        <div>
+          <h3>Metodos de pago</h3>
+          <table class="data"><thead><tr><th>Metodo</th><th class="r">Cant.</th><th class="r">Valor</th></tr></thead><tbody>${methods || '<tr><td class="hint" colspan="3">Sin pagos</td></tr>'}</tbody></table>
+          <h3>Dias</h3>
+          <table class="data"><thead><tr><th>Dia</th><th class="r">RTM</th><th class="r">Hechas</th><th class="r">Pend.</th><th class="r">Ventas</th></tr></thead><tbody>${days || '<tr><td class="hint" colspan="5">Sin dias</td></tr>'}</tbody></table>
+        </div>
+      </div>`;
+  } catch (e) { toast(e.message); }
+}
+
+async function exportDashboardUI() {
+  try {
+    const from = $("dashFrom").value;
+    const to = $("dashTo").value;
+    const blob = await api.exportDashboard(from, to);
+    await downloadBlob(blob, `dashboard-${from}_${to}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+
 async function renderProvisiones(c) {
   if (!c) return;
   c.innerHTML = `<div id="provBoxes"></div>
