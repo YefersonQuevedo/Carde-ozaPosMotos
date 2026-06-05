@@ -155,6 +155,10 @@ export const api = {
   addAllyPayment: (body) => req("/ally-payments", { method: "POST", body }),
   deleteAllyPayment: (id) => req(`/ally-payments/${id}`, { method: "DELETE" }),
 
+  notifConfig: () => req("/settings/notifications"),
+  saveNotifConfig: (body) => req("/settings/notifications", { method: "PUT", body }),
+  testNotif: (channel, to) => req("/settings/notifications/test", { method: "POST", body: { channel, to } }),
+
   dianConfig: () => req("/dian/config"),
   saveDianConfig: (body) => req("/dian/config", { method: "PUT", body }),
   dianInvoices: (params = {}) => req(`/dian/invoices?${new URLSearchParams(params)}`),

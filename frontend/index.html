@@ -63,6 +63,7 @@
           <button class="tab" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas</button>
           <button class="tab admin-only" data-view="dian"><span class="ico">🏛️</span> DIAN</button>
+          <button class="tab admin-only" data-view="config"><span class="ico">⚙️</span> Configuracion</button>
           <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
         </nav>
 
@@ -221,9 +222,14 @@
           <div id="fupaRoot"></div>
         </section>
 
-        <!-- FACTURACION DIAN (config apidian + trazabilidad) -->
+        <!-- FACTURACION DIAN (trazabilidad de envios) -->
         <section class="view" id="view-dian">
           <div id="dianRoot"></div>
+        </section>
+
+        <!-- CONFIGURACION (DIAN + correos + Telegram + WhatsApp) -->
+        <section class="view" id="view-config">
+          <div id="configRoot"></div>
         </section>
 
         <!-- LLAMADAS / VENCIMIENTOS RTM (Claude · C6) -->

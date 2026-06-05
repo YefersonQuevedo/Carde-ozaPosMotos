@@ -340,6 +340,26 @@ model Invoice {
   @@map("invoices")
 }
 
+/// Configuracion de notificaciones (correo, Telegram, WhatsApp). Fila unica (id=1).
+/// Email y Telegram replican las claves de easyerpweb (EmailApiUrl, TelegramBotToken,
+/// TelegramHabilitado); WhatsApp se agrega para envios por la API de WhatsApp.
+model NotificationConfig {
+  id               Int      @id @default(1)
+  emailEnabled     Boolean  @default(false)
+  emailApiUrl      String?  // endpoint que envia el correo (POST { to, subject, message })
+  emailFrom        String?
+  telegramEnabled  Boolean  @default(false)
+  telegramBotToken String?
+  telegramChatId   String?
+  whatsappEnabled  Boolean  @default(false)
+  whatsappApiUrl   String?
+  whatsappToken    String?
+  whatsappPhoneId  String?
+  updatedAt        DateTime @updatedAt
+
+  @@map("notification_config")
+}
+
 /// Configuracion de la API DIAN (apidian). Fila unica (singleton, id=1).
 /// Espejo de las claves del programa C#: NIT, token, URL apidian, set de pruebas, software.
 model DianConfig {
