@@ -24,6 +24,7 @@ model Client {
   commercialName String?
   email          String?
   phone          String?
+  phones         Json? // telefonos adicionales (lista); `phone` sigue siendo el principal
   address        String?
   status         String   @default("ACTIVO")
   createdAt      DateTime @default(now())
@@ -78,13 +79,13 @@ model Ally {
 /// Componentes fiscales internos (servicio, RUNT, SICOV, recaudo, ANSV).
 /// unitPrice es IVA-incluido (precio final); taxRate es el % embebido.
 model Product {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
+  id          Int     @id @default(autoincrement())
+  code        String  @unique
   name        String
   unitPrice   Int
-  taxRate     Int      @default(0)
-  vehicleType String   @default("MOTO")
-  active      Boolean  @default(true)
+  taxRate     Int     @default(0)
+  vehicleType String  @default("MOTO")
+  active      Boolean @default(true)
 
   @@map("products")
 }
@@ -109,22 +110,22 @@ model Tariff {
 
 /// Combos RTM visibles para la venta (uno por rango de modelo).
 model Package {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
+  id          Int     @id @default(autoincrement())
+  code        String  @unique
   name        String
   rangeName   String
-  vehicleType String   @default("MOTO")
-  active      Boolean  @default(true)
+  vehicleType String  @default("MOTO")
+  active      Boolean @default(true)
 
   @@map("packages")
 }
 
 /// Relacion paquete -> componentes (por valor de codigo, sin FK).
 model PackageComponent {
-  id           Int    @id @default(autoincrement())
-  packageCode  String
-  productCode  String
-  quantity     Int    @default(1)
+  id            Int    @id @default(autoincrement())
+  packageCode   String
+  productCode   String
+  quantity      Int    @default(1)
   priceOverride Int?
 
   @@index([packageCode])
@@ -135,58 +136,60 @@ model PackageComponent {
 /// groupCode: SG (Supergiros) | CM (Certimotos/empresa) | CREDITO
 /// costType: none | percent | fixed | percent_plus_tax
 model PaymentMethod {
-  id                 Int      @id @default(autoincrement())
-  code               String   @unique
-  name               String
-  groupCode          String
-  isCredit           Boolean  @default(false)
+  id                  Int     @id @default(autoincrement())
+  code                String  @unique
+  name                String
+  groupCode           String
+  isCredit            Boolean @default(false)
   generatesReceivable Boolean @default(false)
-  facturaDian        Boolean  @default(false)
-  costType           String   @default("none")
-  costRate           Float    @default(0)
-  costAmount         Int      @default(0)
-  costTaxRate        Float    @default(0)
-  active             Boolean  @default(true)
+  facturaDian         Boolean @default(false)
+  costType            String  @default("none")
+  costRate            Float   @default(0)
+  costAmount          Int     @default(0)
+  costTaxRate         Float   @default(0)
+  active              Boolean @default(true)
 
   @@map("payment_methods")
 }
 
 /// Cabecera de venta/servicio. Columnas planas indexadas para buscar/cuadrar.
 model Sale {
-  id             Int      @id @default(autoincrement())
-  saleNumber     String   @unique
-  saleDate       String   // YYYY-MM-DD (dia operativo del cierre)
-  saleTime       String?
-  clientDoc      String
-  clientName     String
-  plate          String?
-  modelYear      Int?
-  rangeName      String?
-  vehicleType    String   @default("MOTO")
-  packageCode    String?
-  allyId         Int?
-  allyName       String?
-  allyType       String   @default("usuario") // usuario | referido
-  discountApplied Boolean @default(true)
-  deduction      Int      @default(0)         // DEDUCCIONES CONVENIOS
-  totalBase      Int      @default(0)
-  totalIva       Int      @default(0)
-  total          Int      @default(0)
-  paidAmount     Int      @default(0)
-  changeAmount   Int      @default(0)
-  rtmAlreadyPaid Boolean  @default(false)
-  rtmToday       Boolean  @default(true)
-  rtmStatus      String   @default("done")    // done | pending | paid_not_done
-  pinAdquirido   Int      @default(0)          // >0 => RTM realizada
-  provisionAmount Int     @default(0)
-  receivableAmount Int    @default(0)
-  dianStatus     String   @default("no_emitida") // no_emitida | facturada
-  invoiceNumber  String?
-  cufe           String?
-  status         String   @default("activa") // activa | anulada
-  responsable    String?
-  observaciones  String?  @db.Text
-  createdAt      DateTime @default(now())
+  id                   Int      @id @default(autoincrement())
+  saleNumber           String   @unique
+  saleDate             String // YYYY-MM-DD (dia operativo del cierre)
+  saleTime             String?
+  clientDoc            String
+  clientName           String
+  plate                String?
+  modelYear            Int?
+  rangeName            String?
+  vehicleType          String   @default("MOTO")
+  packageCode          String?
+  allyId               Int?
+  allyName             String?
+  allyType             String   @default("usuario") // usuario | referido
+  discountApplied      Boolean  @default(true)
+  deduction            Int      @default(0) // DEDUCCIONES CONVENIOS
+  totalBase            Int      @default(0)
+  totalIva             Int      @default(0)
+  total                Int      @default(0)
+  paidAmount           Int      @default(0)
+  changeAmount         Int      @default(0)
+  rtmAlreadyPaid       Boolean  @default(false)
+  rtmToday             Boolean  @default(true)
+  rtmStatus            String   @default("done") // done | pending | paid_not_done
+  pinAdquirido         Int      @default(0) // >0 => RTM realizada
+  provisionAmount      Int      @default(0)
+  provisionConsumed    Boolean  @default(false) // esta venta consumio una provision previa (no doble comision/ventas brutas)
+  provisionSourcePlate String? // placa provisionada cuya provision se consumio
+  receivableAmount     Int      @default(0)
+  dianStatus           String   @default("no_emitida") // no_emitida | facturada
+  invoiceNumber        String?
+  cufe                 String?
+  status               String   @default("activa") // activa | anulada
+  responsable          String?
+  observaciones        String?  @db.Text
+  createdAt            DateTime @default(now())
 
   @@index([saleDate])
   @@index([clientDoc])
@@ -249,21 +252,44 @@ model SaleCost {
 
 /// Cartera: ADDI, GORA o credito propio. Saldo pendiente por venta.
 model Receivable {
-  id        Int       @id @default(autoincrement())
-  saleId    Int
-  provider  String
-  clientDoc String
-  plate     String?
-  amount    Int
-  pending   Int
-  status    String    @default("abierta") // abierta | pagada
-  dueFrom   String
-  paidAt    DateTime?
-  createdAt DateTime  @default(now())
+  id            Int       @id @default(autoincrement())
+  saleId        Int
+  provider      String
+  clientDoc     String
+  plate         String?
+  amount        Int
+  pending       Int
+  status        String    @default("abierta") // abierta | pagada
+  dueFrom       String
+  invoiceNumber String? // # de factura con que se facturo esta placa (Gora/Addi)
+  ica           Int       @default(0) // ICA descontado por el proveedor (acumulado de abonos)
+  retefuente    Int       @default(0) // retencion en la fuente descontada (acumulado de abonos)
+  paymentRef    String? // referencia/numero de credito del proveedor
+  paidAt        DateTime?
+  createdAt     DateTime  @default(now())
 
   @@index([provider])
   @@index([status])
+  @@index([invoiceNumber])
   @@map("receivables")
+}
+
+/// Abonos de cartera por factura (Gora/Addi pagan por # de factura, con ICA y retefuente).
+model ReceivablePayment {
+  id            Int      @id @default(autoincrement())
+  receivableId  Int
+  provider      String
+  invoiceNumber String?
+  amount        Int // valor abonado (neto recibido)
+  ica           Int      @default(0)
+  retefuente    Int      @default(0)
+  paidDate      String // YYYY-MM-DD
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([receivableId])
+  @@index([provider])
+  @@map("receivable_payments")
 }
 
 /// Usuarios del sistema. role: admin | vendedor
@@ -310,16 +336,156 @@ model Reversal {
 
 /// Pagos hechos a los convenios/referidos (control de comisiones liquidadas).
 model AllyPayment {
-  id        Int      @id @default(autoincrement())
-  allyId    Int?
-  allyName  String
-  amount    Int
-  paidDate  String   // YYYY-MM-DD
-  note      String?
-  createdAt DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  allyId        Int?
+  allyName      String
+  amount        Int
+  paidDate      String // YYYY-MM-DD
+  note          String?
+  voucherPath   String? // comprobante de pago subido (imagen/escaneo firmado)
+  invoiceNumber String? // factura emitida a la cedula por el dinero de convenios
+  plates        Json? // placas cubiertas por este pago
+  convenioCount Int      @default(0) // cantidad de convenios/placas liquidados
+  createdAt     DateTime @default(now())
 
   @@index([allyName])
   @@map("ally_payments")
+}
+
+/// Historial / log del cliente (append-only): como llego cada anio (directo|referido) y que hizo.
+/// No es parte del perfil; se consulta como una bitacora. Sirve para detectar directo->referido.
+model ClientHistory {
+  id        Int      @id @default(autoincrement())
+  clientDoc String
+  saleId    Int?
+  plate     String?
+  year      Int
+  eventType String // directo | referido | rtm | no_rtm
+  allyId    Int?
+  allyName  String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([clientDoc])
+  @@index([year])
+  @@map("client_history")
+}
+
+/// Cajas del negocio (caja menor, provisiones, IVA, etc.). Se pueden agregar mas.
+/// kind: caja_menor | provision_rtm | provision_convenio | iva | otra
+model CashBox {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  kind      String   @default("otra")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("cash_boxes")
+}
+
+/// Movimientos de caja (ingreso/egreso). Egreso+ingreso de provision al hacer RTM, dinero de convenios, etc.
+model CashMovement {
+  id        Int      @id @default(autoincrement())
+  boxCode   String
+  type      String // ingreso | egreso
+  amount    Int
+  refType   String? // sale | ally_payment | closing | manual ...
+  refId     Int?
+  date      String // YYYY-MM-DD
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([boxCode])
+  @@index([date])
+  @@map("cash_movements")
+}
+
+/// Proveedores (para ordenes de compra). Distintos de convenios/aliados.
+model Supplier {
+  id            Int      @id @default(autoincrement())
+  docType       String   @default("NIT")
+  docNumber     String   @unique
+  name          String
+  email         String?
+  phone         String?
+  address       String?
+  paymentMethod String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([name])
+  @@map("suppliers")
+}
+
+/// Orden de compra a un proveedor (cabecera). Lineas en PurchaseOrderLine.
+model PurchaseOrder {
+  id           Int      @id @default(autoincrement())
+  number       String   @unique
+  supplierId   Int?
+  supplierName String
+  date         String // YYYY-MM-DD
+  concept      String?
+  base         Int      @default(0)
+  iva          Int      @default(0)
+  total        Int      @default(0)
+  status       String   @default("emitida") // emitida | anulada
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id          Int    @id @default(autoincrement())
+  orderId     Int
+  description String
+  quantity    Int    @default(1)
+  unitPrice   Int    @default(0)
+  taxRate     Int    @default(0)
+  base        Int    @default(0)
+  tax         Int    @default(0)
+  total       Int    @default(0)
+
+  @@index([orderId])
+  @@map("purchase_order_lines")
+}
+
+/// Factura electronica manual tipo POS (no la venta diaria de RTM): cualquier item.
+model ManualInvoice {
+  id         Int      @id @default(autoincrement())
+  number     String   @unique
+  clientDoc  String
+  clientName String
+  date       String // YYYY-MM-DD
+  concept    String?
+  base       Int      @default(0)
+  iva        Int      @default(0)
+  total      Int      @default(0)
+  cufe       String?
+  dianStatus String   @default("emitida_local") // emitida_local | aceptada | rechazada
+  source     String? // origen: convenio | venta_equipo | otro
+  status     String   @default("activa") // activa | anulada
+  createdAt  DateTime @default(now())
+
+  @@index([clientDoc])
+  @@map("manual_invoices")
+}
+
+model ManualInvoiceLine {
+  id          Int    @id @default(autoincrement())
+  invoiceId   Int
+  description String
+  quantity    Int    @default(1)
+  unitPrice   Int    @default(0)
+  taxRate     Int    @default(0)
+  base        Int    @default(0)
+  tax         Int    @default(0)
+  total       Int    @default(0)
+
+  @@index([invoiceId])
+  @@map("manual_invoice_lines")
 }
 
 /// Snapshot congelado del cierre diario (alimenta el consolidado).

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { computeClosing } from "../services/closing.js";
+import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 
@@ -20,6 +21,60 @@ router.get("/", async (req, res, next) => {
     const gastos = Number(req.query.gastos) || 0;
     const { sales, closing } = await gatherDay(date, gastos);
     res.json({ date, closing, detail: sales });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/closings/export?date=&gastos=  -> descarga el cierre del dia en Excel (formato del cliente).
+router.get("/export", async (req, res, next) => {
+  try {
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+    const gastos = Number(req.query.gastos) || 0;
+    const { sales, closing: c } = await gatherDay(date, gastos);
+
+    const resumen = [
+      { concepto: "Ventas del dia", valor: c.salesTotal },
+      { concepto: "Ingresos totales", valor: c.ingresosTotal },
+      { concepto: "Subtotal Supergiros (SG)", valor: c.subtotalSG },
+      { concepto: "Subtotal Certimotos (CM)", valor: c.subtotalCM },
+      { concepto: "Provision (RTM pendientes)", valor: c.provision },
+      { concepto: "JASPER (gira Supergiros)", valor: c.jasper },
+      { concepto: "Fidelizacion (descuentos usuarios)", valor: c.fidelizacion },
+      { concepto: "Referidos", valor: c.referidos },
+      { concepto: "Gastos", valor: c.gastos },
+      { concepto: "Efectivo recibido", valor: c.efectivo },
+      { concepto: "Efectivo a entregar", valor: c.efectivoEntregar },
+      { concepto: "DIFERENCIA JASPER (= comisiones)", valor: c.diferenciaJasper },
+      { concepto: "Cartera abierta", valor: c.receivableOpen },
+      { concepto: "RTM realizadas", valor: c.rtmRealizadas },
+      { concepto: "RTM facturadas", valor: c.rtmFacturadas }
+    ];
+    const ingresos = Object.entries(c.byMethod).map(([metodo, valor]) => ({ metodo, valor }));
+    const detalle = sales.map((s) => ({
+      venta: s.saleNumber, cliente: s.clientName, placa: s.plate || "", tipo: s.allyType,
+      rtm: s.rtmStatus, factura: s.invoiceNumber || "", total: s.total
+    }));
+
+    const buf = await toWorkbook({
+      sheets: [
+        { name: "Resumen", title: `Cierre del dia ${date}`,
+          columns: [{ header: "Concepto", key: "concepto", width: 38 }, { header: "Valor", key: "valor", width: 16, money: true }],
+          rows: resumen },
+        { name: "Ingresos por metodo",
+          columns: [{ header: "Metodo", key: "metodo", width: 28 }, { header: "Valor", key: "valor", width: 16, money: true }],
+          rows: ingresos, totals: { valor: c.ingresosTotal } },
+        { name: "Detalle",
+          columns: [
+            { header: "Venta", key: "venta", width: 14 }, { header: "Cliente", key: "cliente", width: 28 },
+            { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
+            { header: "RTM", key: "rtm", width: 14 }, { header: "Factura", key: "factura", width: 14 },
+            { header: "Total", key: "total", width: 14, money: true }
+          ],
+          rows: detalle, totals: { total: c.salesTotal } }
+      ]
+    });
+    sendXlsx(res, buf, `cierre-${date}.xlsx`);
   } catch (e) {
     next(e);
   }

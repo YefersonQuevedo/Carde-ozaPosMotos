@@ -10,6 +10,9 @@ cartera (ADDI/GORA/credito), provision por RTM pendiente y convenios/referidos.
 
 Detalle del modelo y formulas: ver [`MODELO_DATOS.md`](MODELO_DATOS.md).
 
+> **En desarrollo (revisión 2026-06-04):** backlog del cliente y reparto de trabajo
+> Claude/Codex en [`PLAN-REVISION-2026-06-04.md`](PLAN-REVISION-2026-06-04.md).
+
 ## Estructura
 
 ```

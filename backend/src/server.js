@@ -13,6 +13,9 @@ import receivables from "./routes/receivables.js";
 import allyPayments from "./routes/allyPayments.js";
 import authRoutes from "./routes/auth.js";
 import users from "./routes/users.js";
+import uploads, { UPLOADS_DIR } from "./routes/uploads.js";
+import calls from "./routes/calls.js";
+import provisions from "./routes/provisions.js";
 import { auth } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +38,12 @@ app.use("/api/closings", closings);
 app.use("/api/receivables", receivables);
 app.use("/api/ally-payments", allyPayments);
 app.use("/api/users", users);
+app.use("/api/uploads", uploads);
+app.use("/api/calls", calls);
+app.use("/api/provisions", provisions);
+
+// Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 // Sirve el frontend estatico (../frontend).
 app.use(express.static(join(__dirname, "..", "..", "frontend")));

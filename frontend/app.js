@@ -4,6 +4,15 @@ const money = (n) => new Intl.NumberFormat("es-CO", { style: "currency", currenc
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const readCop = (id) => Math.round(Number(String($(id)?.value || "").replace(/[^\d]/g, "")) || 0);
+// Descarga un Blob (export a Excel) con un nombre de archivo.
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 let catalog = { products: [], packages: [], componentsByPackage: {}, paymentMethods: [] };
 const productByCode = {};
@@ -26,6 +35,8 @@ function blankSale() {
     discountApplied: true,
     rtmTodayAnswered: false,
     rtmToday: true,
+    provisionChecked: false, // ya se busco provision para esta placa
+    provisionMatches: [],    // provisiones abiertas encontradas para la placa
     registered: null // respuesta del backend
   };
 }
@@ -559,14 +570,26 @@ async function loadClosing() {
           <div class="amount"><span>ADDI</span><b>${money(c.egresos.addi)}</b></div>
           <div class="amount total"><span>Diferencia Jasper</span><b>${money(c.diferenciaJasper)}</b></div></div>
       </div>
+      <h3>Desglose (de donde sale cada numero)</h3>
+      <div class="amount"><span>Subtotal CM ${money(c.subtotalCM)} − Provision ${money(c.provision)}</span><b>JASPER ${money(c.jasper)}</b></div>
+      <div class="amount"><span>Efectivo ${money(c.efectivo)} − Fideliz. ${money(c.fidelizacion)} − Gastos ${money(c.gastos)} − Referidos ${money(c.referidos)}</span><b>Efectivo a entregar ${money(c.efectivoEntregar)}</b></div>
+      <div class="amount total"><span>JASPER ${money(c.jasper)} − Efectivo entregado ${money(c.efectivoEntregar)}</span><b>Diferencia ${money(c.diferenciaJasper)} (≈ comisiones)</b></div>
       <h3>Detalle del dia</h3>
       <table class="data"><thead><tr><th>Venta</th><th>Cliente</th><th>Placa</th><th>RTM</th><th class="r">Total</th></tr></thead><tbody>${rows || '<tr><td class="hint" colspan="5">Sin ventas</td></tr>'}</tbody></table>`;
+  } catch (e) { toast(e.message); }
+}
+async function exportClosingUI() {
+  try {
+    const date = $("closingDate").value || todayIso();
+    const gastos = Number($("closingGastos").value) || 0;
+    const blob = await api.exportClosing(date, gastos);
+    downloadBlob(blob, `cierre-${date}.xlsx`);
   } catch (e) { toast(e.message); }
 }
 async function freezeClosing() {
   try {
     await api.saveClosing({ date: $("closingDate").value || todayIso(), gastos: Number($("closingGastos").value) || 0 });
-    toast("Cierre congelado");
+    toast("Cierre del día guardado");
   } catch (e) { toast(e.message); }
 }
 
@@ -649,15 +672,142 @@ async function delPagoConv(id, name) {
 }
 
 async function loadCartera() {
+  const prev = {
+    provider: $("carteraProvider")?.value || "TODOS",
+    status: $("carteraStatus")?.value || "abierta",
+    from: $("carteraFrom")?.value || "",
+    to: $("carteraTo")?.value || "",
+    clientDoc: $("carteraClientDoc")?.value || "",
+    invoiceNumber: $("carteraInvoice")?.value || ""
+  };
+  const params = Object.fromEntries(Object.entries(prev).filter(([, v]) => v !== ""));
   try {
-    const { items, open } = await api.receivables({ status: "abierta" });
-    $("carteraOpen").textContent = `Abierto: ${money(open)}`;
-    $("carteraBody").innerHTML = `<table class="data"><thead><tr><th>Proveedor</th><th>Cliente</th><th>Placa</th><th>Desde</th><th class="r">Pendiente</th><th></th></tr></thead><tbody>${
-      items.map((r) => `<tr><td>${esc(r.provider)}</td><td>${esc(r.clientDoc)}</td><td>${esc(r.plate || "")}</td><td>${esc(r.dueFrom)}</td><td class="r">${money(r.pending)}</td><td><button class="link" data-pay="${r.id}">marcar pagada</button></td></tr>`).join("") || '<tr><td class="hint" colspan="6">Sin cartera abierta</td></tr>'
-    }</tbody></table>`;
-    document.querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", async () => {
-      await api.payReceivable(Number(b.dataset.pay)); loadCartera();
-    }));
+    const { items = [], grouped = [], totals = {}, open = 0 } = await api.receivables(params);
+    $("carteraOpen").textContent = `Pendiente: ${money(open)}`;
+    $("carteraBody").innerHTML = `
+      <div class="row filters">
+        <select id="carteraProvider">
+          <option value="TODOS" ${prev.provider === "TODOS" ? "selected" : ""}>Todos</option>
+          <option value="GORA" ${prev.provider === "GORA" ? "selected" : ""}>GORA</option>
+          <option value="ADDI" ${prev.provider === "ADDI" ? "selected" : ""}>ADDI</option>
+          <option value="Credito propio" ${prev.provider === "Credito propio" ? "selected" : ""}>Credito propio</option>
+        </select>
+        <select id="carteraStatus">
+          <option value="abierta" ${prev.status === "abierta" ? "selected" : ""}>Abierta</option>
+          <option value="pagada" ${prev.status === "pagada" ? "selected" : ""}>Pagada</option>
+          <option value="todas" ${prev.status === "todas" ? "selected" : ""}>Todas</option>
+        </select>
+        <input id="carteraFrom" type="date" value="${esc(prev.from)}" />
+        <input id="carteraTo" type="date" value="${esc(prev.to)}" />
+        <input id="carteraClientDoc" placeholder="Cedula/NIT" value="${esc(prev.clientDoc)}" />
+        <input id="carteraInvoice" placeholder="# factura" value="${esc(prev.invoiceNumber)}" />
+        <button class="btn primary" id="carteraFilter">Filtrar</button>
+        <button class="btn" id="carteraExport">Excel</button>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span>Facturado</span><b>${money(totals.amount)}</b></div>
+        <div class="kpi"><span>Abonado neto</span><b>${money(totals.paidNet)}</b></div>
+        <div class="kpi"><span>ICA + retencion</span><b>${money((totals.ica || 0) + (totals.retefuente || 0))}</b></div>
+        <div class="kpi"><span>Pendiente</span><b>${money(totals.pending)}</b></div>
+      </div>
+      <div class="split">
+        <div>
+          <h3>Facturas</h3>
+          <table class="data">
+            <thead><tr><th>Proveedor</th><th># factura</th><th>Cliente</th><th>Doc</th><th>Placa</th><th>Fecha</th><th class="r">Monto</th><th class="r">Pendiente</th><th></th></tr></thead>
+            <tbody>${
+              items.map((r) => `<tr>
+                <td>${esc(r.provider)}</td><td>${esc(r.invoiceNumber || "-")}</td><td>${esc(r.clientName || "")}</td><td>${esc(r.clientDoc)}</td>
+                <td>${esc(r.plate || "")}</td><td>${esc(r.dueFrom)}</td><td class="r">${money(r.amount)}</td><td class="r"><b>${money(r.pending)}</b></td>
+                <td><button class="link" data-recv="${r.id}">abonar</button></td>
+              </tr>`).join("") || '<tr><td class="hint" colspan="9">Sin cartera con esos filtros</td></tr>'
+            }</tbody>
+          </table>
+          <h3>Resumen por proveedor</h3>
+          <table class="data">
+            <thead><tr><th>Proveedor</th><th class="r">Facturas</th><th class="r">Facturado</th><th class="r">Costo real</th><th class="r">Pendiente</th></tr></thead>
+            <tbody>${
+              grouped.map((g) => `<tr><td>${esc(g.provider)}</td><td class="r">${g.count}</td><td class="r">${money(g.amount)}</td><td class="r">${money(g.realCost)}</td><td class="r">${money(g.pending)}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin resumen</td></tr>'
+            }</tbody>
+          </table>
+        </div>
+        <div class="detail-panel" id="carteraPayPanel"><p class="hint">Selecciona una factura para registrar el pago de Gora/Addi con ICA y retencion.</p></div>
+      </div>`;
+    $("carteraFilter").addEventListener("click", loadCartera);
+    $("carteraExport").addEventListener("click", exportCartera);
+    $("carteraBody").querySelectorAll("[data-recv]").forEach((b) => b.addEventListener("click", () => renderReceivablePayment(items.find((r) => r.id === Number(b.dataset.recv)))));
+  } catch (e) { toast(e.message); }
+}
+
+function carteraParams() {
+  return Object.fromEntries(Object.entries({
+    provider: $("carteraProvider")?.value || "TODOS",
+    status: $("carteraStatus")?.value || "abierta",
+    from: $("carteraFrom")?.value || "",
+    to: $("carteraTo")?.value || "",
+    clientDoc: $("carteraClientDoc")?.value || "",
+    invoiceNumber: $("carteraInvoice")?.value || ""
+  }).filter(([, v]) => v !== ""));
+}
+
+function renderReceivablePayment(r) {
+  if (!r) return;
+  const history = (r.payments || []).map((p) => `<tr><td>${esc(p.paidDate)}</td><td class="r">${money(p.amount)}</td><td class="r">${money(p.ica)}</td><td class="r">${money(p.retefuente)}</td><td>${esc(p.note || "")}</td></tr>`).join("");
+  $("carteraPayPanel").innerHTML = `
+    <h3>${esc(r.provider)} ${esc(r.invoiceNumber || "")}</h3>
+    <p class="hint">${esc(r.clientName || r.clientDoc)} · ${esc(r.plate || "sin placa")} · pendiente ${money(r.pending)}</p>
+    <div class="form-grid">
+      <label class="fld"># factura<input id="recv_invoice" value="${esc(r.invoiceNumber || "")}" /></label>
+      <label class="fld">Referencia credito<input id="recv_ref" value="${esc(r.paymentRef || "")}" /></label>
+      <label class="fld">Fecha pago<input id="recv_date" type="date" value="${todayIso()}" /></label>
+      <label class="fld">Abono neto<input id="recv_amount" inputmode="numeric" value="${Math.max(0, r.pending || 0)}" /></label>
+      <label class="fld">ICA<input id="recv_ica" inputmode="numeric" value="0" /></label>
+      <label class="fld">Retencion<input id="recv_rete" inputmode="numeric" value="0" /></label>
+    </div>
+    <label class="fld">Nota<input id="recv_note" placeholder="Comprobante, observacion o ajuste" /></label>
+    <div class="row form-actions">
+      <button class="btn success" id="recv_save">Registrar abono</button>
+      <button class="btn" id="recv_full">Marcar pagada manual</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><span>Costo transaccion</span><b>${money(r.transactionCost)}</b></div>
+      <div class="kpi"><span>Costo real</span><b>${money(r.realCost)}</b></div>
+      <div class="kpi"><span>Neto despues costos</span><b>${money(r.netAfterCosts)}</b></div>
+    </div>
+    <h3>Abonos</h3>
+    <table class="data"><thead><tr><th>Fecha</th><th class="r">Neto</th><th class="r">ICA</th><th class="r">Retencion</th><th>Nota</th></tr></thead><tbody>${history || '<tr><td class="hint" colspan="5">Sin abonos registrados</td></tr>'}</tbody></table>`;
+  $("recv_save").addEventListener("click", () => addReceivablePayment(r.id));
+  $("recv_full").addEventListener("click", async () => {
+    if (!confirm("Marcar esta cartera como pagada sin detalle de abono?")) return;
+    try { await api.payReceivable(r.id); toast("Cartera marcada como pagada"); loadCartera(); }
+    catch (e) { toast(e.message); }
+  });
+}
+
+async function addReceivablePayment(id) {
+  try {
+    await api.addReceivablePayment(id, {
+      invoiceNumber: $("recv_invoice").value.trim(),
+      paymentRef: $("recv_ref").value.trim(),
+      paidDate: $("recv_date").value || todayIso(),
+      amount: readCop("recv_amount"),
+      ica: readCop("recv_ica"),
+      retefuente: readCop("recv_rete"),
+      note: $("recv_note").value.trim()
+    });
+    toast("Abono registrado");
+    loadCartera();
+  } catch (e) { toast(e.message); }
+}
+
+async function exportCartera() {
+  try {
+    const blob = await api.exportReceivables(carteraParams());
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `cartera-${todayIso()}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   } catch (e) { toast(e.message); }
 }
 
@@ -777,7 +927,12 @@ async function voidSaleUI(id) {
 }
 
 // ---------- Navegacion ----------
-const VIEW_TITLES = { venta: "Venta", cierre: "Cierre diario", consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes", convenios: "Convenios", ventas: "Ventas", usuarios: "Usuarios" };
+const VIEW_TITLES = {
+  dashboard: "Dashboard", venta: "Venta", cierre: "Cierre diario", provisiones: "Provisiones",
+  consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
+  llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
+  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios"
+};
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
@@ -790,6 +945,135 @@ function switchView(view) {
   if (view === "convenios") loadConvenios();
   if (view === "ventas") loadVentas();
   if (view === "usuarios") loadUsuarios();
+  // Modulos nuevos (revision 2026-06-04). Cada uno monta en su root.
+  if (view === "dashboard") renderDashboard($("dashboardRoot"));
+  if (view === "provisiones") renderProvisiones($("provisionesRoot"));
+  if (view === "llamadas") renderLlamadas($("llamadasRoot"));
+  if (view === "facturaelec") renderFacturaElec($("facturaelecRoot"));
+  if (view === "proveedores") renderProveedores($("proveedoresRoot"));
+}
+
+// ---------- Modulos nuevos (puntos de montaje de la revision 2026-06-04) ----------
+// Cada funcion recibe su contenedor raiz y lo rellena. Reemplazar el stub por la
+// implementacion real. Ver PLAN-REVISION-2026-06-04.md para el reparto Claude/Codex.
+function moduleStub(container, { title, owner, items }) {
+  if (!container) return;
+  container.innerHTML = `<div class="card">
+    <div class="card-head"><h2>${esc(title)}</h2><div class="pill">${esc(owner)}</div></div>
+    <p class="hint">Modulo en construccion. Pendientes:</p>
+    <ul class="hint">${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+  </div>`;
+}
+function renderDashboard(c) {
+  moduleStub(c, { title: "Dashboard / KPIs", owner: "Codex · K1–K4",
+    items: ["Indice de reportes generales", "KPIs mensuales + comparacion ano anterior", "Provision de IVA (bimestral)", "Resumen de motos entre fechas + exportar Excel"] });
+}
+async function renderProvisiones(c) {
+  if (!c) return;
+  c.innerHTML = `<div id="provBoxes"></div>
+    <div class="card">
+      <div class="card-head"><h2>Provisiones (RTM pendientes)</h2><div id="provTotal" class="pill warn"></div></div>
+      <p class="hint">Dinero apartado de quienes pagaron pero aun no hacen la RTM. Al hacerla se consume (sin recalcular comision ni valor).</p>
+      <div id="provBody"></div>
+    </div>`;
+  await loadProvisiones();
+}
+async function loadProvisiones() {
+  try {
+    const { items, total, boxes } = await api.provisions();
+    $("provTotal").textContent = `Pendiente: ${money(total)}`;
+    $("provBoxes").innerHTML = `<div class="card">
+      <div class="card-head"><h2>Cajas</h2><button class="btn ghost" id="provAddBox">+ caja</button></div>
+      <div class="kpis">${(boxes || []).map((b) => `<div class="kpi"><span>${esc(b.name)}</span><b>${money(b.balance)}</b></div>`).join("") || '<span class="hint">Sin cajas</span>'}</div>
+      <div id="provBoxForm"></div>
+    </div>`;
+    $("provAddBox").addEventListener("click", renderBoxForm);
+    $("provBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Venta</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th class="r">Monto</th><th></th></tr></thead><tbody>${
+      items.map((p) => `<tr><td>${esc(p.saleDate)}</td><td>${esc(p.saleNumber)}</td><td>${esc(p.clientName)}</td><td><b>${esc(p.plate || "")}</b></td><td>${esc(p.allyType)}${p.allyName && p.allyType === "referido" ? " · " + esc(p.allyName) : ""}</td><td class="r">${money(p.amount)}</td><td><button class="btn success sm" data-realize="${p.saleId}">RTM realizada</button></td></tr>`).join("") || '<tr><td class="hint" colspan="7">Sin provisiones pendientes</td></tr>'
+    }</tbody></table>`;
+    $("provBody").querySelectorAll("[data-realize]").forEach((b) => b.addEventListener("click", () => realizeProvisionUI(Number(b.dataset.realize))));
+  } catch (e) { toast(e.message); }
+}
+function renderBoxForm() {
+  $("provBoxForm").innerHTML = `<div class="row" style="margin-top:10px">
+    <input id="boxName" placeholder="Nombre de la caja" />
+    <select id="boxKind">
+      <option value="otra">Otra</option>
+      <option value="caja_menor">Caja menor</option>
+      <option value="provision_rtm">Provision RTM</option>
+      <option value="provision_convenio">Provision convenios</option>
+      <option value="iva">IVA</option>
+    </select>
+    <button class="btn success" id="boxSave">Crear caja</button>
+  </div>`;
+  $("boxSave").addEventListener("click", async () => {
+    const name = $("boxName").value.trim();
+    if (!name) return toast("Nombre de la caja obligatorio");
+    const code = name.toUpperCase().replace(/\s+/g, "_").slice(0, 20);
+    try { await api.addCashBox({ code, name, kind: $("boxKind").value }); toast("Caja creada"); loadProvisiones(); }
+    catch (e) { toast(e.message); }
+  });
+}
+async function realizeProvisionUI(saleId) {
+  if (!confirm("¿Marcar la RTM como realizada y consumir la provision? No se recalcula comision ni valor.")) return;
+  try {
+    await api.realizeProvision(saleId, { date: todayIso() });
+    toast("Provision consumida · RTM realizada");
+    loadProvisiones();
+  } catch (e) { toast(e.message); }
+}
+function addMonthsIso(iso, months) {
+  const d = new Date(iso + "T00:00:00");
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+function renderLlamadas(c) {
+  if (!c) return;
+  const today = todayIso();
+  c.innerHTML = `<div class="card">
+    <div class="card-head">
+      <h2>Llamadas · vencimientos de RTM</h2>
+      <div class="row">
+        <label class="rng">Desde <input type="date" id="llFrom" value="${today}" /></label>
+        <label class="rng">Hasta <input type="date" id="llTo" value="${addMonthsIso(today, 1)}" /></label>
+        <button class="btn primary" id="llLoad">Buscar</button>
+      </div>
+    </div>
+    <p class="hint">Placas cuya RTM vence en el rango (ultima RTM + 1 año). Util para llamar antes de que se venza.</p>
+    <div id="llBody"></div>
+  </div>`;
+  $("llLoad").addEventListener("click", loadLlamadas);
+  loadLlamadas();
+}
+async function loadLlamadas() {
+  try {
+    const from = $("llFrom").value || todayIso();
+    const to = $("llTo").value || addMonthsIso(from, 1);
+    const { items, count } = await api.calls(from, to);
+    $("llBody").innerHTML = `<div class="detail-meta">${count} vencimiento(s) entre ${from} y ${to}</div>
+      <table class="data"><thead><tr><th>Vence</th><th>Placa</th><th>Cliente</th><th>Telefono</th><th>Ultima RTM</th><th>Año/Rango</th></tr></thead><tbody>${
+        items.map((i) => `<tr><td><b>${esc(i.dueDate)}</b></td><td>${esc(i.plate)}</td><td class="clickable" data-doc="${esc(i.clientDoc)}">${esc(i.clientName)}</td><td>${esc(i.phone || "-")}</td><td>${esc(i.lastRtm)}</td><td class="hint">${i.modelYear || ""} ${esc(i.rangeName || "")}</td></tr>`).join("") || '<tr><td class="hint" colspan="6">Sin vencimientos en el rango</td></tr>'
+      }</tbody></table>`;
+    $("llBody").querySelectorAll("[data-doc]").forEach((td) => td.addEventListener("click", () => { switchView("clientes"); setTimeout(() => loadClientDetail(td.dataset.doc), 50); }));
+  } catch (e) { toast(e.message); }
+}
+async function loadDirectoReferido() {
+  try {
+    const { items } = await api.directoReferido();
+    $("clientesBody").innerHTML = `<div class="detail-meta">${items.length} cliente(s) que pasaron de directo a referido</div>
+      <table class="data"><thead><tr><th>Cliente</th><th>Directo</th><th>Referido</th><th>Lo refirio</th><th>Placa</th></tr></thead><tbody>${
+        items.map((i) => `<tr class="clickable" data-doc="${esc(i.docNumber)}"><td>${esc(i.name)}</td><td>${i.directoYear}</td><td><span class="pill warn">${i.referidoYear}</span></td><td>${esc(i.referidoBy || "")}</td><td>${esc(i.plate || "")}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin casos: nadie paso de directo a referido</td></tr>'
+      }</tbody></table>`;
+    $("clientesBody").querySelectorAll("[data-doc]").forEach((tr) => tr.addEventListener("click", () => loadClientDetail(tr.dataset.doc)));
+  } catch (e) { toast(e.message); }
+}
+function renderFacturaElec(c) {
+  moduleStub(c, { title: "Factura electronica manual", owner: "Codex · F1/F3",
+    items: ["Factura tipo POS para cualquier item (ej. equipos de pista)", "Conceptos de pago configurables", "ManualInvoice + ManualInvoiceLine"] });
+}
+function renderProveedores(c) {
+  moduleStub(c, { title: "Proveedores / ordenes de compra", owner: "Codex · F2",
+    items: ["CRUD de proveedores (Supplier)", "Emitir orden de compra (PurchaseOrder)", "Distinto de convenios/aliados"] });
 }
 
 // ---------- Usuarios (admin) ----------
@@ -861,15 +1145,56 @@ async function loadClientes(q = "") {
     $("clientesBody").querySelectorAll("[data-doc]").forEach((tr) => tr.addEventListener("click", () => loadClientDetail(tr.dataset.doc)));
   } catch (e) { toast(e.message); }
 }
+const DOC_TYPES = ["CC", "NIT", "CE", "TI", "PAS"];
+function docTypeSelect(id, val) {
+  return `<select id="${id}">${DOC_TYPES.map((t) => `<option value="${t}" ${t === (val || "CC") ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+}
+// Editor de telefonos: principal (obligatorio) + adicionales dinamicos.
+function phonesEditorHtml(phone, phones) {
+  const extra = Array.isArray(phones) ? phones : [];
+  return `
+    <label class="fld">Telefono principal *<input id="cl_phone" value="${esc(phone || "")}" placeholder="Obligatorio" /></label>
+    <label class="fld">Telefonos adicionales
+      <div id="cl_phones">${extra.map((p) => phoneRowHtml(p)).join("")}</div>
+      <button class="link" id="cl_addphone" type="button">+ agregar telefono</button>
+    </label>`;
+}
+function phoneRowHtml(val = "") {
+  return `<div class="payrow"><input class="cl-extra-phone" value="${esc(val)}" placeholder="Telefono adicional" /><button class="link" type="button" data-delphone>quitar</button></div>`;
+}
+function wirePhonesEditor() {
+  $("cl_addphone")?.addEventListener("click", () => {
+    const box = $("cl_phones");
+    box.insertAdjacentHTML("beforeend", phoneRowHtml(""));
+    box.lastElementChild.querySelector("[data-delphone]").addEventListener("click", (e) => e.target.closest(".payrow").remove());
+    box.lastElementChild.querySelector("input").focus();
+  });
+  $("cl_phones")?.querySelectorAll("[data-delphone]").forEach((b) => b.addEventListener("click", (e) => e.target.closest(".payrow").remove()));
+}
+function readPhones() {
+  const phone = $("cl_phone").value.trim();
+  const phones = [...document.querySelectorAll(".cl-extra-phone")].map((i) => i.value.trim()).filter(Boolean);
+  return { phone, phones };
+}
+const HIST_LABEL = { directo: "Directo", referido: "Referido", rtm: "RTM", no_rtm: "Sin RTM" };
+function historyTableHtml(history = []) {
+  if (!history.length) return '<p class="hint">Sin historial todavia.</p>';
+  return `<table class="data"><thead><tr><th>Año</th><th>Como llego</th><th>Placa</th><th>Convenio</th><th>Nota</th></tr></thead><tbody>${
+    history.map((h) => `<tr><td>${h.year}</td><td><span class="pill ${h.eventType === "referido" ? "warn" : ""}">${esc(HIST_LABEL[h.eventType] || h.eventType)}</span></td><td>${esc(h.plate || "")}</td><td>${esc(h.allyName || "")}</td><td class="hint">${esc(h.note || "")}</td></tr>`).join("")
+  }</tbody></table>`;
+}
+
 async function loadClientDetail(doc) {
   try {
     const c = await api.getClient(doc);
     $("clientDetailName").textContent = c.name;
     const veh = c.vehicles || [];
+    const hist = c.history || [];
     $("clientDetailBody").innerHTML = `
       <div class="form-grid">
+        <label class="fld">Tipo documento${docTypeSelect("cl_docType", c.docType)}</label>
         <label class="fld">Nombre<input id="cl_name" value="${esc(c.name)}" /></label>
-        <label class="fld">Telefono<input id="cl_phone" value="${esc(c.phone || "")}" /></label>
+        ${phonesEditorHtml(c.phone, c.phones)}
         <label class="fld">Email<input id="cl_email" value="${esc(c.email || "")}" /></label>
         <label class="fld">Direccion<input id="cl_address" value="${esc(c.address || "")}" /></label>
       </div>
@@ -886,7 +1211,10 @@ async function loadClientDetail(doc) {
         <input id="cl_newplate" placeholder="Nueva placa" style="text-transform:uppercase" />
         <input id="cl_newyear" type="number" placeholder="Año" min="1980" max="2035" />
         <button class="btn" id="clAddVeh">Agregar moto</button>
-      </div>`;
+      </div>
+      <h3>Historial del cliente (${hist.length})</h3>
+      ${historyTableHtml(hist)}`;
+    wirePhonesEditor();
     $("clSave").addEventListener("click", () => saveClientEdit(c.docNumber));
     $("clDelete").addEventListener("click", () => deleteClientUI(c.docNumber, c.name));
     $("clAddVeh").addEventListener("click", () => addVehicleUI(c.docNumber));
@@ -894,8 +1222,10 @@ async function loadClientDetail(doc) {
   } catch (e) { toast(e.message); }
 }
 async function saveClientEdit(doc) {
+  const { phone, phones } = readPhones();
+  if (!phone) return toast("El telefono principal es obligatorio");
   try {
-    await api.saveClient({ docNumber: doc, name: $("cl_name").value.trim(), phone: $("cl_phone").value.trim(), email: $("cl_email").value.trim(), address: $("cl_address").value.trim() });
+    await api.saveClient({ docNumber: doc, docType: $("cl_docType").value, name: $("cl_name").value.trim(), phone, phones, email: $("cl_email").value.trim(), address: $("cl_address").value.trim() });
     toast("Cliente guardado");
     loadClientes($("clientListSearch").value || "");
     loadClientDetail(doc);
@@ -927,21 +1257,25 @@ function renderNewClientForm() {
   $("clientDetailName").textContent = "Nuevo cliente";
   $("clientDetailBody").innerHTML = `
     <div class="form-grid">
-      <label class="fld">Documento<input id="cl_newdoc" /></label>
-      <label class="fld">Nombre<input id="cl_name" /></label>
-      <label class="fld">Telefono<input id="cl_phone" /></label>
+      <label class="fld">Tipo documento${docTypeSelect("cl_docType", "CC")}</label>
+      <label class="fld">Documento *<input id="cl_newdoc" /></label>
+      <label class="fld">Nombre *<input id="cl_name" /></label>
+      ${phonesEditorHtml("", [])}
       <label class="fld">Email<input id="cl_email" /></label>
       <label class="fld">Direccion<input id="cl_address" /></label>
     </div>
     <div class="row form-actions"><button class="btn success" id="clCreate">Crear cliente</button></div>`;
+  wirePhonesEditor();
   $("clCreate").addEventListener("click", createClientUI);
 }
 async function createClientUI() {
   const docNumber = $("cl_newdoc").value.trim();
   const name = $("cl_name").value.trim();
+  const { phone, phones } = readPhones();
   if (!docNumber || !name) return toast("Documento y nombre obligatorios");
+  if (!phone) return toast("El telefono principal es obligatorio");
   try {
-    await api.saveClient({ docNumber, name, phone: $("cl_phone").value.trim(), email: $("cl_email").value.trim(), address: $("cl_address").value.trim(), docType: /^\d{6,10}$/.test(docNumber) ? "CC" : "NIT" });
+    await api.saveClient({ docNumber, name, phone, phones, email: $("cl_email").value.trim(), address: $("cl_address").value.trim(), docType: $("cl_docType").value });
     toast("Cliente creado");
     loadClientes();
     loadClientDetail(docNumber);
@@ -980,6 +1314,7 @@ async function startApp() {
   $("topbarMeta").textContent = new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   $("tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab"); if (t?.dataset.view) switchView(t.dataset.view); });
   $("loadClosing").addEventListener("click", loadClosing);
+  $("exportClosing").addEventListener("click", exportClosingUI);
   $("freezeClosing").addEventListener("click", freezeClosing);
   const monthStart = todayIso().slice(0, 8) + "01";
   $("repFrom").value = monthStart;
@@ -991,6 +1326,7 @@ async function startApp() {
   $("allySearch").addEventListener("input", (e) => loadConvenios(e.target.value));
   $("allyNew").addEventListener("click", () => renderAllyForm(null));
   $("clientListSearch").addEventListener("input", (e) => loadClientes(e.target.value));
+  $("clientDirRef").addEventListener("click", loadDirectoReferido);
   $("clientNew").addEventListener("click", renderNewClientForm);
   $("userNew").addEventListener("click", () => renderUserForm(null));
   try {

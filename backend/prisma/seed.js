@@ -61,10 +61,21 @@ const tariffs = [
   { vehicleType: "MOTO", concept: "ANSV", value: 8800, yearFrom: 0, yearTo: 2009 }
 ];
 
+// Cajas del negocio (caja menor, provisiones, IVA). Se pueden agregar mas desde la app.
+const cashBoxes = [
+  { code: "CAJA_MENOR", name: "Caja menor", kind: "caja_menor" },
+  { code: "PROV_RTM", name: "Provision RTM pendientes", kind: "provision_rtm" },
+  { code: "PROV_CONV", name: "Provision convenios", kind: "provision_convenio" },
+  { code: "IVA", name: "Provision IVA", kind: "iva" }
+];
+
 async function main() {
   // Catalogos (idempotente por code)
   for (const p of products) {
     await prisma.product.upsert({ where: { code: p.code }, update: p, create: p });
+  }
+  for (const b of cashBoxes) {
+    await prisma.cashBox.upsert({ where: { code: b.code }, update: { name: b.name, kind: b.kind }, create: b });
   }
   for (const p of packages) {
     await prisma.package.upsert({ where: { code: p.code }, update: p, create: p });

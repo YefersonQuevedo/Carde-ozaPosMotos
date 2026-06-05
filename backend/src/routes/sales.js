@@ -62,10 +62,19 @@ router.post("/", async (req, res, next) => {
     if (!c.docNumber || !c.name) return res.status(400).json({ error: "Cliente (docNumber, name) obligatorio" });
 
     // 1) Cliente y moto (upsert / find-or-create, sin FK).
+    // En update solo se tocan los campos que vienen en la venta: no se pisan
+    // telefono/email/direccion existentes con null si la venta no los reenvia.
+    const clientDoc = String(c.docNumber).trim();
     await prisma.client.upsert({
-      where: { docNumber: String(c.docNumber).trim() },
-      update: { name: c.name, phone: c.phone || null, email: c.email || null, address: c.address || null, docType: c.docType || "CC" },
-      create: { docType: c.docType || "CC", docNumber: String(c.docNumber).trim(), name: c.name, phone: c.phone || null, email: c.email || null, address: c.address || null }
+      where: { docNumber: clientDoc },
+      update: {
+        name: c.name,
+        ...(c.phone ? { phone: c.phone } : {}),
+        ...(c.email ? { email: c.email } : {}),
+        ...(c.address ? { address: c.address } : {}),
+        ...(c.docType ? { docType: c.docType } : {})
+      },
+      create: { docType: c.docType || "CC", docNumber: clientDoc, name: c.name, phone: c.phone || null, email: c.email || null, address: c.address || null }
     });
 
     const plate = normalizePlate(v.plate);
@@ -198,11 +207,31 @@ router.post("/", async (req, res, next) => {
       }
       await tx.saleCost.create({ data: { saleId: created.id, ...costs } });
 
+      // Historial del cliente (bitacora): como llego (directo|referido) y si hizo RTM.
+      await tx.clientHistory.create({
+        data: {
+          clientDoc: String(c.docNumber),
+          saleId: created.id,
+          plate: plate || null,
+          year: Number(saleDate.slice(0, 4)) || new Date().getFullYear(),
+          eventType: allyType === "usuario" ? "directo" : "referido",
+          allyId: ally?.id ?? null,
+          allyName,
+          note: pinAdquirido > 0 ? "RTM realizada" : (rtmStatus === "pending" ? "RTM pendiente" : null)
+        }
+      });
+
       if (facturada) {
         const tax = discriminateTax(lines);
         await tx.invoice.create({
           data: { saleId: created.id, number: invoiceNumber, base: tax.base, iva: tax.iva, total: tax.total }
         });
+      }
+
+      // Provision: si la RTM queda pendiente, el dinero se aparta (caja menor -> provision RTM).
+      if (rtmStatus === "pending" && provisionAmount > 0) {
+        await tx.cashMovement.create({ data: { boxCode: "CAJA_MENOR", type: "egreso", amount: provisionAmount, refType: "sale", refId: created.id, date: saleDate, note: `Provision RTM ${plate || ""}`.trim() } });
+        await tx.cashMovement.create({ data: { boxCode: "PROV_RTM", type: "ingreso", amount: provisionAmount, refType: "sale", refId: created.id, date: saleDate, note: `Provision RTM ${plate || ""}`.trim() } });
       }
 
       for (const p of receivablePayments) {

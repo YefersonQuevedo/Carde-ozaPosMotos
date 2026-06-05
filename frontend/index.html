@@ -47,13 +47,18 @@
         </div>
 
         <nav class="nav" id="tabs">
+          <button class="tab" data-view="dashboard"><span class="ico">📋</span> Dashboard</button>
           <button class="tab active" data-view="venta"><span class="ico">🧾</span> Venta</button>
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre diario</button>
+          <button class="tab" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
           <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
           <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera</button>
           <button class="tab" data-view="pagoconv"><span class="ico">💸</span> Pagos conv.</button>
           <button class="tab" data-view="clientes"><span class="ico">👤</span> Clientes</button>
+          <button class="tab" data-view="llamadas"><span class="ico">📞</span> Llamadas</button>
           <button class="tab" data-view="convenios"><span class="ico">🤝</span> Convenios</button>
+          <button class="tab" data-view="facturaelec"><span class="ico">🧮</span> Factura elec.</button>
+          <button class="tab" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas</button>
           <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
         </nav>
@@ -92,7 +97,8 @@
                 <input type="date" id="closingDate" />
                 <input type="number" id="closingGastos" placeholder="Gastos" min="0" />
                 <button class="btn primary" id="loadClosing">Calcular</button>
-                <button class="btn ghost" id="freezeClosing">Congelar</button>
+                <button class="btn ghost" id="exportClosing">Exportar Excel</button>
+                <button class="btn ghost" id="freezeClosing">Cierre del día</button>
               </div>
             </div>
             <div id="closingBody"></div>
@@ -143,7 +149,8 @@
               <div class="card-head">
                 <h2>Clientes</h2>
                 <div class="row">
-                  <input type="search" id="clientListSearch" placeholder="Buscar cliente…" />
+                  <input type="search" id="clientListSearch" placeholder="Nombre, documento o placa…" />
+                  <button class="btn ghost" id="clientDirRef" title="Clientes que pasaron de directo a referido">Directo→Referido</button>
                   <button class="btn primary" id="clientNew">Nuevo</button>
                 </div>
               </div>
@@ -188,6 +195,31 @@
               <div id="allyForm"><p class="hint">Selecciona un convenio o crea uno nuevo.</p></div>
             </div>
           </div>
+        </section>
+
+        <!-- DASHBOARD (Codex · K1–K4) -->
+        <section class="view" id="view-dashboard">
+          <div id="dashboardRoot"></div>
+        </section>
+
+        <!-- PROVISIONES (Claude · P1–P4) -->
+        <section class="view" id="view-provisiones">
+          <div id="provisionesRoot"></div>
+        </section>
+
+        <!-- LLAMADAS / VENCIMIENTOS RTM (Claude · C6) -->
+        <section class="view" id="view-llamadas">
+          <div id="llamadasRoot"></div>
+        </section>
+
+        <!-- FACTURA ELECTRONICA MANUAL (Codex · F1/F3) -->
+        <section class="view" id="view-facturaelec">
+          <div id="facturaelecRoot"></div>
+        </section>
+
+        <!-- PROVEEDORES / ORDENES DE COMPRA (Codex · F2) -->
+        <section class="view" id="view-proveedores">
+          <div id="proveedoresRoot"></div>
         </section>
 
         <!-- VENTAS -->
