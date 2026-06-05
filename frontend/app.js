@@ -1492,6 +1492,179 @@ function renderProveedores(c) {
     items: ["CRUD de proveedores (Supplier)", "Emitir orden de compra (PurchaseOrder)", "Distinto de convenios/aliados"] });
 }
 
+function lineRowHtml(kind, row = {}) {
+  return `<div class="payrow ${kind}-line">
+    <input class="${kind}-desc" placeholder="Descripcion" value="${esc(row.description || "")}" />
+    <input class="${kind}-qty" type="number" min="1" value="${row.quantity || 1}" />
+    <input class="${kind}-price" inputmode="numeric" placeholder="Valor unitario" value="${row.unitPrice || ""}" />
+    <select class="${kind}-tax"><option value="0" ${(row.taxRate || 0) === 0 ? "selected" : ""}>0%</option><option value="19" ${(row.taxRate || 0) === 19 ? "selected" : ""}>19%</option></select>
+    <button class="link" type="button" data-delline>quitar</button>
+  </div>`;
+}
+function wireLineBox(boxId, kind) {
+  $(boxId).querySelectorAll("[data-delline]").forEach((b) => b.addEventListener("click", (e) => e.target.closest(".payrow").remove()));
+  $(`${kind}AddLine`).onclick = () => {
+    $(boxId).insertAdjacentHTML("beforeend", lineRowHtml(kind));
+    wireLineBox(boxId, kind);
+  };
+}
+function readLineBox(kind) {
+  return [...document.querySelectorAll(`.${kind}-line`)].map((row) => ({
+    description: row.querySelector(`.${kind}-desc`).value.trim(),
+    quantity: Number(row.querySelector(`.${kind}-qty`).value) || 1,
+    unitPrice: Number(String(row.querySelector(`.${kind}-price`).value).replace(/[^\d]/g, "")) || 0,
+    taxRate: Number(row.querySelector(`.${kind}-tax`).value) || 0
+  })).filter((l) => l.description && l.unitPrice > 0);
+}
+
+renderFacturaElec = function (c) {
+  if (!c) return;
+  const from = $("miFrom")?.value || todayIso().slice(0, 8) + "01";
+  const to = $("miTo")?.value || todayIso();
+  c.innerHTML = `<div class="master-detail">
+    <div class="card">
+      <div class="card-head"><h2>Factura electronica manual</h2><button class="btn" id="miExport">Excel</button></div>
+      <div class="row filters"><input id="miFrom" type="date" value="${esc(from)}" /><input id="miTo" type="date" value="${esc(to)}" /><input id="miDocFilter" placeholder="Documento" /><button class="btn primary" id="miLoad">Buscar</button></div>
+      <div id="miList"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Nueva factura manual</h2></div>
+      <div class="form-grid">
+        <label class="fld">Documento cliente<input id="miClientDoc" /></label>
+        <label class="fld">Nombre cliente<input id="miClientName" /></label>
+        <label class="fld">Fecha<input id="miDate" type="date" value="${todayIso()}" /></label>
+        <label class="fld">Origen<select id="miSource"><option value="manual">Manual</option><option value="venta_equipo">Venta equipo</option><option value="convenio">Convenio</option><option value="otro">Otro</option></select></label>
+      </div>
+      <label class="fld">Concepto<input id="miConcept" placeholder="Ej. venta de equipos de pista" /></label>
+      <div id="miLines">${lineRowHtml("mi")}</div>
+      <button class="link" id="miAddLine" type="button">+ agregar linea</button>
+      <div class="row form-actions"><button class="btn success" id="miSave">Emitir local</button></div>
+    </div>
+  </div>`;
+  wireLineBox("miLines", "mi");
+  $("miLoad").addEventListener("click", loadManualInvoices);
+  $("miExport").addEventListener("click", exportManualInvoicesUI);
+  $("miSave").addEventListener("click", saveManualInvoiceUI);
+  loadManualInvoices();
+};
+
+async function loadManualInvoices() {
+  try {
+    const params = { from: $("miFrom").value, to: $("miTo").value, clientDoc: $("miDocFilter").value.trim() };
+    const { items } = await api.manualInvoices(params);
+    $("miList").innerHTML = `<table class="data"><thead><tr><th>Numero</th><th>Fecha</th><th>Cliente</th><th>Concepto</th><th class="r">IVA</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead><tbody>${items.map((i) => `<tr><td>${esc(i.number)}</td><td>${esc(i.date)}</td><td>${esc(i.clientName)}<br><span class="hint">${esc(i.clientDoc)}</span></td><td>${esc(i.concept || "")}</td><td class="r">${money(i.iva)}</td><td class="r">${money(i.total)}</td><td>${esc(i.status)}</td><td>${i.status === "activa" ? `<button class="link" data-voidmi="${i.id}">anular</button>` : ""}</td></tr>`).join("") || '<tr><td class="hint" colspan="8">Sin facturas manuales</td></tr>'}</tbody></table>`;
+    $("miList").querySelectorAll("[data-voidmi]").forEach((b) => b.addEventListener("click", () => voidManualInvoiceUI(Number(b.dataset.voidmi))));
+  } catch (e) { toast(e.message); }
+}
+async function saveManualInvoiceUI() {
+  const lines = readLineBox("mi");
+  if (!$("miClientDoc").value.trim() || !$("miClientName").value.trim()) return toast("Cliente obligatorio");
+  if (!lines.length) return toast("Agrega al menos una linea");
+  try {
+    const r = await api.createManualInvoice({ clientDoc: $("miClientDoc").value.trim(), clientName: $("miClientName").value.trim(), date: $("miDate").value || todayIso(), source: $("miSource").value, concept: $("miConcept").value.trim(), lines });
+    toast(`Factura ${r.invoice.number} creada`);
+    renderFacturaElec($("facturaelecRoot"));
+  } catch (e) { toast(e.message); }
+}
+async function voidManualInvoiceUI(id) {
+  if (!confirm("Anular esta factura manual?")) return;
+  try { await api.voidManualInvoice(id); toast("Factura anulada"); loadManualInvoices(); }
+  catch (e) { toast(e.message); }
+}
+async function exportManualInvoicesUI() {
+  try {
+    const blob = await api.exportManualInvoices({ from: $("miFrom").value, to: $("miTo").value, clientDoc: $("miDocFilter").value.trim() });
+    await downloadBlob(blob, `facturas-manuales-${todayIso()}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+
+let selectedSupplier = null;
+renderProveedores = function (c) {
+  if (!c) return;
+  c.innerHTML = `<div class="master-detail">
+    <div class="card">
+      <div class="card-head"><h2>Proveedores</h2><div class="row"><input id="supSearch" placeholder="Buscar proveedor" /><button class="btn primary" id="supNew">Nuevo</button></div></div>
+      <div id="supList"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2 id="supTitle">Proveedor / orden de compra</h2><button class="btn" id="poExport">Excel OC</button></div>
+      <div id="supForm"><p class="hint">Selecciona un proveedor o crea uno nuevo.</p></div>
+      <div id="poBox"></div>
+    </div>
+  </div>`;
+  $("supSearch").addEventListener("input", (e) => loadSuppliers(e.target.value));
+  $("supNew").addEventListener("click", () => renderSupplierForm(null));
+  $("poExport").addEventListener("click", exportPurchaseOrdersUI);
+  loadSuppliers();
+  loadPurchaseOrders();
+};
+
+async function loadSuppliers(q = "") {
+  try {
+    const { items } = await api.suppliers(q);
+    $("supList").innerHTML = `<table class="data"><thead><tr><th>Proveedor</th><th>Doc</th><th>Telefono</th><th>Activo</th></tr></thead><tbody>${items.map((s) => `<tr class="clickable" data-sup="${encodeURIComponent(JSON.stringify(s))}"><td>${esc(s.name)}</td><td>${esc(s.docType)} ${esc(s.docNumber)}</td><td>${esc(s.phone || "")}</td><td>${s.active ? "Si" : "-"}</td></tr>`).join("") || '<tr><td class="hint" colspan="4">Sin proveedores</td></tr>'}</tbody></table>`;
+    $("supList").querySelectorAll("[data-sup]").forEach((tr) => tr.addEventListener("click", () => renderSupplierForm(JSON.parse(decodeURIComponent(tr.dataset.sup)))));
+  } catch (e) { toast(e.message); }
+}
+function renderSupplierForm(s) {
+  selectedSupplier = s;
+  $("supTitle").textContent = s ? `Proveedor: ${s.name}` : "Nuevo proveedor";
+  $("supForm").innerHTML = `<div class="form-grid"><label class="fld">Tipo doc<input id="supDocType" value="${esc(s?.docType || "NIT")}" /></label><label class="fld">Documento<input id="supDoc" value="${esc(s?.docNumber || "")}" /></label><label class="fld">Nombre<input id="supName" value="${esc(s?.name || "")}" /></label><label class="fld">Telefono<input id="supPhone" value="${esc(s?.phone || "")}" /></label><label class="fld">Email<input id="supEmail" value="${esc(s?.email || "")}" /></label><label class="fld">Metodo pago<input id="supPay" value="${esc(s?.paymentMethod || "")}" /></label></div><label class="fld">Direccion<input id="supAddress" value="${esc(s?.address || "")}" /></label><div class="row form-actions"><button class="btn success" id="supSave">Guardar proveedor</button>${s ? '<button class="btn danger" id="supDelete">Desactivar</button>' : ""}</div>`;
+  $("supSave").addEventListener("click", () => saveSupplierUI(s?.id));
+  $("supDelete")?.addEventListener("click", () => deleteSupplierUI(s.id));
+  renderPurchaseOrderForm();
+}
+async function saveSupplierUI(id) {
+  const body = { docType: $("supDocType").value.trim(), docNumber: $("supDoc").value.trim(), name: $("supName").value.trim(), phone: $("supPhone").value.trim(), email: $("supEmail").value.trim(), paymentMethod: $("supPay").value.trim(), address: $("supAddress").value.trim() };
+  if (!body.docNumber || !body.name) return toast("Documento y nombre obligatorios");
+  try {
+    const saved = id ? await api.updateSupplier(id, body) : await api.saveSupplier(body);
+    toast("Proveedor guardado");
+    await loadSuppliers($("supSearch").value || "");
+    renderSupplierForm(saved);
+  } catch (e) { toast(e.message); }
+}
+async function deleteSupplierUI(id) {
+  if (!confirm("Desactivar proveedor?")) return;
+  try { await api.deleteSupplier(id); toast("Proveedor desactivado"); loadSuppliers(); }
+  catch (e) { toast(e.message); }
+}
+function renderPurchaseOrderForm() {
+  if (!selectedSupplier) {
+    $("poBox").innerHTML = `<p class="hint">Guarda o selecciona un proveedor para crear ordenes de compra.</p><div id="poList"></div>`;
+    loadPurchaseOrders();
+    return;
+  }
+  $("poBox").innerHTML = `<h3>Nueva orden de compra</h3><div class="form-grid"><label class="fld">Fecha<input id="poDate" type="date" value="${todayIso()}" /></label><label class="fld">Concepto<input id="poConcept" /></label></div><label class="fld">Nota<input id="poNote" /></label><div id="poLines">${lineRowHtml("po")}</div><button class="link" id="poAddLine" type="button">+ agregar linea</button><div class="row form-actions"><button class="btn success" id="poSave">Emitir OC</button></div><h3>Ordenes recientes</h3><div id="poList"></div>`;
+  wireLineBox("poLines", "po");
+  $("poSave").addEventListener("click", savePurchaseOrderUI);
+  loadPurchaseOrders(selectedSupplier.id);
+}
+async function loadPurchaseOrders(supplierId = selectedSupplier?.id) {
+  try {
+    const { items } = await api.purchaseOrders(supplierId ? { supplierId } : {});
+    const box = $("poList");
+    if (!box) return;
+    box.innerHTML = `<table class="data"><thead><tr><th>Numero</th><th>Fecha</th><th>Proveedor</th><th>Concepto</th><th class="r">IVA</th><th class="r">Total</th><th>Estado</th></tr></thead><tbody>${items.map((o) => `<tr><td>${esc(o.number)}</td><td>${esc(o.date)}</td><td>${esc(o.supplierName)}</td><td>${esc(o.concept || "")}</td><td class="r">${money(o.iva)}</td><td class="r">${money(o.total)}</td><td>${esc(o.status)}</td></tr>`).join("") || '<tr><td class="hint" colspan="7">Sin ordenes</td></tr>'}</tbody></table>`;
+  } catch (e) { toast(e.message); }
+}
+async function savePurchaseOrderUI() {
+  const lines = readLineBox("po");
+  if (!selectedSupplier) return toast("Selecciona proveedor");
+  if (!lines.length) return toast("Agrega al menos una linea");
+  try {
+    const r = await api.createPurchaseOrder({ supplierId: selectedSupplier.id, supplierName: selectedSupplier.name, date: $("poDate").value || todayIso(), concept: $("poConcept").value.trim(), note: $("poNote").value.trim(), lines });
+    toast(`OC ${r.order.number} creada`);
+    renderPurchaseOrderForm();
+  } catch (e) { toast(e.message); }
+}
+async function exportPurchaseOrdersUI() {
+  try {
+    const blob = await api.exportPurchaseOrders({});
+    await downloadBlob(blob, `ordenes-compra-${todayIso()}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+
 // ---------- Usuarios (admin) ----------
 async function loadUsuarios() {
   try {

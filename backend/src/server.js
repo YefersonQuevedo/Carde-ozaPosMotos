@@ -18,6 +18,9 @@ import calls from "./routes/calls.js";
 import provisions from "./routes/provisions.js";
 import dashboard from "./routes/dashboard.js";
 import expenses from "./routes/expenses.js";
+import manualInvoices from "./routes/manualInvoices.js";
+import suppliers from "./routes/suppliers.js";
+import purchaseOrders from "./routes/purchaseOrders.js";
 import { auth } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -45,6 +48,9 @@ app.use("/api/calls", calls);
 app.use("/api/provisions", provisions);
 app.use("/api/dashboard", dashboard);
 app.use("/api/expenses", expenses);
+app.use("/api/manual-invoices", manualInvoices);
+app.use("/api/suppliers", suppliers);
+app.use("/api/purchase-orders", purchaseOrders);
 
 // Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).
 app.use("/uploads", express.static(UPLOADS_DIR));

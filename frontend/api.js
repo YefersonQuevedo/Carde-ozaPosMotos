@@ -127,6 +127,20 @@ export const api = {
   addReceivablePayment: (id, body) => req(`/receivables/${id}/payments`, { method: "POST", body }),
   exportReceivables: (params = {}) => reqBlob(`/receivables/export?${new URLSearchParams(params)}`),
 
+  manualInvoices: (params = {}) => req(`/manual-invoices?${new URLSearchParams(params)}`),
+  createManualInvoice: (body) => req("/manual-invoices", { method: "POST", body }),
+  voidManualInvoice: (id) => req(`/manual-invoices/${id}/void`, { method: "POST" }),
+  exportManualInvoices: (params = {}) => reqBlob(`/manual-invoices/export?${new URLSearchParams(params)}`),
+
+  suppliers: (q = "") => req(`/suppliers?q=${encodeURIComponent(q)}`),
+  saveSupplier: (body) => req("/suppliers", { method: "POST", body }),
+  updateSupplier: (id, body) => req(`/suppliers/${id}`, { method: "PUT", body }),
+  deleteSupplier: (id) => req(`/suppliers/${id}`, { method: "DELETE" }),
+  purchaseOrders: (params = {}) => req(`/purchase-orders?${new URLSearchParams(params)}`),
+  createPurchaseOrder: (body) => req("/purchase-orders", { method: "POST", body }),
+  voidPurchaseOrder: (id) => req(`/purchase-orders/${id}/void`, { method: "POST" }),
+  exportPurchaseOrders: (params = {}) => reqBlob(`/purchase-orders/export?${new URLSearchParams(params)}`),
+
   allyPayments: () => req("/ally-payments"),
   allyPaymentDetail: (name) => req(`/ally-payments/${encodeURIComponent(name)}`),
   addAllyPayment: (body) => req("/ally-payments", { method: "POST", body }),
