@@ -22,6 +22,7 @@ import manualInvoices from "./routes/manualInvoices.js";
 import suppliers from "./routes/suppliers.js";
 import purchaseOrders from "./routes/purchaseOrders.js";
 import fupa from "./routes/fupa.js";
+import dian from "./routes/dian.js";
 import { auth } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +54,7 @@ app.use("/api/manual-invoices", manualInvoices);
 app.use("/api/suppliers", suppliers);
 app.use("/api/purchase-orders", purchaseOrders);
 app.use("/api/fupa", fupa);
+app.use("/api/dian", dian);
 
 // Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).
 app.use("/uploads", express.static(UPLOADS_DIR));

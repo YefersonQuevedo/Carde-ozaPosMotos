@@ -155,6 +155,12 @@ export const api = {
   addAllyPayment: (body) => req("/ally-payments", { method: "POST", body }),
   deleteAllyPayment: (id) => req(`/ally-payments/${id}`, { method: "DELETE" }),
 
+  dianConfig: () => req("/dian/config"),
+  saveDianConfig: (body) => req("/dian/config", { method: "PUT", body }),
+  dianInvoices: (params = {}) => req(`/dian/invoices?${new URLSearchParams(params)}`),
+  sendDianInvoice: (id) => req(`/dian/invoices/${id}/send`, { method: "POST" }),
+  exportDian: () => reqBlob("/dian/export"),
+
   listUsers: () => req("/users"),
   createUser: (body) => req("/users", { method: "POST", body }),
   updateUser: (id, body) => req(`/users/${id}`, { method: "PUT", body }),

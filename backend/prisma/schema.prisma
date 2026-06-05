@@ -318,7 +318,48 @@ model Invoice {
   total      Int      @default(0)
   issuedAt   DateTime @default(now())
 
+  // --- Trazabilidad DIAN (estructura espejo del programa C# + apidian) ---
+  environment  Int?     // 1 = produccion, 2 = pruebas/habilitacion
+  authorization String? // numero de resolucion/autorizacion
+  qrUrl        String?  @db.Text // url del QR DIAN
+  softwareId   String?
+  technicalKey String?
+  xmlName      String?
+  zipName      String?
+  zipPath      String?  @db.Text
+  sendStatus   String   @default("PENDIENTE") // PENDIENTE | ENVIADA | ACEPTADA | RECHAZADA | NO_APLICA
+  dianIsValid  Boolean?
+  dianTrackId  String?
+  dianMessages String?  @db.Text
+  lastSentAt   DateTime?
+  validatedAt  DateTime?
+  retries      Int      @default(0)
+  sourceSystem String?
+
+  @@index([sendStatus])
   @@map("invoices")
+}
+
+/// Configuracion de la API DIAN (apidian). Fila unica (singleton, id=1).
+/// Espejo de las claves del programa C#: NIT, token, URL apidian, set de pruebas, software.
+model DianConfig {
+  id           Int      @id @default(1)
+  companyNit   String?
+  companyDv    String?
+  companyName  String?
+  apidianUrl   String?  // ej: http://host:8085/api/ubl2.1
+  apidianToken String?
+  testSetId    String?  // DianTestId (set de pruebas / habilitacion)
+  softwareId   String?
+  softwarePin  String?
+  environment  Int      @default(2) // 1 = produccion, 2 = pruebas
+  resolution   String?
+  prefix       String?
+  emailApiUrl  String?
+  active       Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+
+  @@map("dian_config")
 }
 
 /// Anulacion de una venta (append-only: la venta no se borra, se reversa).

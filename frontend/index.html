@@ -62,6 +62,7 @@
           <button class="tab" data-view="facturaelec"><span class="ico">🧮</span> Factura elec.</button>
           <button class="tab" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas</button>
+          <button class="tab admin-only" data-view="dian"><span class="ico">🏛️</span> DIAN</button>
           <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
         </nav>
 
@@ -218,6 +219,11 @@
         <!-- PINES / FUPA (Claude · T2) -->
         <section class="view" id="view-fupa">
           <div id="fupaRoot"></div>
+        </section>
+
+        <!-- FACTURACION DIAN (config apidian + trazabilidad) -->
+        <section class="view" id="view-dian">
+          <div id="dianRoot"></div>
         </section>
 
         <!-- LLAMADAS / VENCIMIENTOS RTM (Claude · C6) -->

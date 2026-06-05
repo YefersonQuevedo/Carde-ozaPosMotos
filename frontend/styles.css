@@ -179,6 +179,8 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .pill { padding: 7px 14px; border-radius: 20px; font-weight: 700; background: var(--surface-2); }
 .pill.warn { background: var(--amber-soft); color: var(--amber); }
+.pill.ok { background: #d7f7e4; color: #138a4e; }
+.pill.danger { background: #fbdcdc; color: #c0392b; }
 
 .master-detail { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 900px) { .master-detail { grid-template-columns: 1fr; } }

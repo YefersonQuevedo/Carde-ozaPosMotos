@@ -1161,7 +1161,7 @@ const VIEW_TITLES = {
   dashboard: "Dashboard", venta: "Venta", cierre: "Cierre diario", provisiones: "Provisiones",
   consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
   llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
-  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA"
+  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA", dian: "Facturacion DIAN"
 };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
@@ -1180,6 +1180,7 @@ function switchView(view) {
   if (view === "provisiones") renderProvisiones($("provisionesRoot"));
   if (view === "gastos") renderGastos($("gastosRoot"));
   if (view === "fupa") renderFupa($("fupaRoot"));
+  if (view === "dian") renderDian($("dianRoot"));
   if (view === "llamadas") renderLlamadas($("llamadasRoot"));
   if (view === "facturaelec") renderFacturaElec($("facturaelecRoot"));
   if (view === "proveedores") renderProveedores($("proveedoresRoot"));
@@ -1335,6 +1336,78 @@ async function exportFupaUI() {
     const blob = await api.exportFupa($("fpFrom").value, $("fpTo").value);
     await downloadBlob(blob, `pines-${$("fpFrom").value}_${$("fpTo").value}.xlsx`);
   } catch (e) { toast(e.message); }
+}
+
+// ---------- Facturacion electronica DIAN (config apidian + trazabilidad) ----------
+const DIAN_BADGE = { ACEPTADA: "ok", RECHAZADA: "danger", ENVIADA: "warn", PENDIENTE: "", NO_APLICA: "" };
+const DIAN_CFG_FIELDS = [
+  ["companyNit", "NIT empresa"], ["companyDv", "DV"], ["companyName", "Razon social"],
+  ["apidianUrl", "URL apidian (…/api/ubl2.1)"], ["apidianToken", "Token apidian"],
+  ["testSetId", "Set de pruebas (TestId)"], ["softwareId", "Software ID"], ["softwarePin", "Software PIN"],
+  ["resolution", "Resolucion"], ["prefix", "Prefijo"], ["emailApiUrl", "URL API email (opcional)"]
+];
+async function renderDian(c) {
+  if (!c) return;
+  let cfg = {};
+  try { cfg = await api.dianConfig(); } catch (e) { return toast(e.message); }
+  const fields = DIAN_CFG_FIELDS.map(([k, label]) =>
+    `<label class="fld">${label}<input id="dn_${k}" value="${esc(cfg[k] ?? "")}" /></label>`).join("");
+  c.innerHTML = `<div class="card">
+      <div class="card-head"><h2>Configuracion API DIAN (apidian)</h2>
+        <label class="chk"><input type="checkbox" id="dn_active" ${cfg.active ? "checked" : ""} /> Activa</label>
+      </div>
+      <p class="hint">apidian arma el XML/UBL, calcula el CUFE, firma y envia a la DIAN. Aqui solo se configura la conexion y se envia la factura.</p>
+      <div class="form-grid">
+        ${fields}
+        <label class="fld">Ambiente<select id="dn_environment"><option value="2" ${Number(cfg.environment) === 2 ? "selected" : ""}>Pruebas/Habilitacion</option><option value="1" ${Number(cfg.environment) === 1 ? "selected" : ""}>Produccion</option></select></label>
+      </div>
+      <div class="row form-actions"><button class="btn success" id="dnSave">Guardar configuracion</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Trazabilidad de facturas</h2>
+        <div class="row"><div id="dnSummary" class="detail-meta"></div><button class="btn ghost" id="dnExport">Exportar Excel</button></div>
+      </div>
+      <p class="hint">Estado de cada factura ante la DIAN: ACEPTADA (en la DIAN), RECHAZADA, ENVIADA o PENDIENTE (sin enviar).</p>
+      <div id="dnBody"></div>
+    </div>`;
+  $("dnSave").addEventListener("click", saveDianConfigUI);
+  $("dnExport").addEventListener("click", async () => {
+    try { await downloadBlob(await api.exportDian(), "dian-trazabilidad.xlsx"); } catch (e) { toast(e.message); }
+  });
+  await loadDianInvoices();
+}
+async function saveDianConfigUI() {
+  const body = { environment: $("dn_environment").value, active: $("dn_active").checked };
+  DIAN_CFG_FIELDS.forEach(([k]) => { body[k] = $(`dn_${k}`).value.trim(); });
+  try { await api.saveDianConfig(body); toast("Configuracion DIAN guardada"); }
+  catch (e) { toast(e.message); }
+}
+async function loadDianInvoices() {
+  try {
+    const { items, summary, count } = await api.dianInvoices();
+    $("dnSummary").textContent = `${count} facturas · ` + Object.entries(summary).map(([k, v]) => `${k}: ${v}`).join(" · ");
+    $("dnBody").innerHTML = `<table class="data"><thead><tr><th>Factura</th><th>Cliente</th><th>Estado</th><th>CUFE</th><th>Mensajes</th><th class="r">Total</th><th></th></tr></thead><tbody>${
+      items.map((i) => `<tr>
+        <td>${esc(i.number)}</td>
+        <td>${esc(i.sale?.clientName || "")}</td>
+        <td><span class="pill ${DIAN_BADGE[i.sendStatus] || ""}">${esc(i.sendStatus)}</span></td>
+        <td class="hint" style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${esc(i.cufe || "")}</td>
+        <td class="hint" style="max-width:240px">${esc((i.dianMessages || "").slice(0, 120))}</td>
+        <td class="r">${money(i.total)}</td>
+        <td>${i.sendStatus === "ACEPTADA" ? "✓" : `<button class="btn primary sm" data-send="${i.id}">Enviar DIAN</button>`}</td>
+      </tr>`).join("") || '<tr><td class="hint" colspan="7">Sin facturas</td></tr>'
+    }</tbody></table>`;
+    $("dnBody").querySelectorAll("[data-send]").forEach((b) => b.addEventListener("click", () => sendDianUI(Number(b.dataset.send))));
+  } catch (e) { toast(e.message); }
+}
+async function sendDianUI(id) {
+  if (!confirm("¿Enviar esta factura a la DIAN (apidian)?")) return;
+  toast("Enviando a la DIAN…");
+  try {
+    const r = await api.sendDianInvoice(id);
+    toast(r.ok ? `Enviada · ${r.invoice.sendStatus}` : `Respuesta: ${r.invoice.sendStatus}`);
+    loadDianInvoices();
+  } catch (e) { toast(`DIAN: ${e.message}`); loadDianInvoices(); }
 }
 
 // ---------- Modulos nuevos (puntos de montaje de la revision 2026-06-04) ----------
