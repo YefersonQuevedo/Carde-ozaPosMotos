@@ -210,15 +210,22 @@ Pendiente para Claude si se mantiene una migracion compartida:
 
 ## 5. Tareas inmediatas para Codex
 
-- [ ] Auditar `todo Mayo.xlsx` y los PDFs de dispersion para extraer columnas reales y formulas.
-- [ ] Proponer/implementar "Detalle del dia" exportable con transaccion por transaccion.
-- [ ] Revisar si el Dashboard actual necesita separar esperado de Supergiros por efectivo/bancos.
-- [ ] Ampliar Proveedores con una primera version de facturas recibidas manuales, si Claude confirma esquema.
+- [x] ✅ Codex - Auditar `todo Mayo.xlsx` y los PDFs de dispersion para extraer columnas reales y formulas.
+  - Pendiente de validacion del cliente: confirmar si las columnas de los PDFs de Supergiros son estables para todos los reportes.
+- [x] ✅ Codex - Proponer/implementar "Detalle del dia" exportable con transaccion por transaccion.
+  - Implementado en `GET /api/closings/detail` y `GET /api/closings/detail/export`.
+- [x] ✅ Codex - Revisar si el Dashboard actual necesita separar esperado de Supergiros por efectivo/bancos.
+  - Implementado resumen de dispersion estimada en Dashboard y exportacion.
+- [ ] ⏳ Codex - Ampliar Proveedores con una primera version de facturas recibidas manuales, si Claude confirma esquema.
+  - Pendiente por alcance: requiere confirmar campos minimos de facturas recibidas y flujo de pago/provision.
 
 ## 6. Tareas inmediatas para Claude
 
-- [ ] Agregar/validar PIN de 19 digitos en venta RTM realizada.
-- [ ] Ajustar textos del wizard de venta para eliminar confusion de "RTM paga".
-- [ ] Validar placa de moto `AAA00A`.
+- [x] ✅ Codex - Agregar/validar PIN de 19 digitos en venta RTM realizada.
+  - Tomado por Codex para desbloquear venta/cierre, aunque estaba sugerido para Claude.
+- [x] ✅ Codex - Ajustar textos del wizard de venta para eliminar confusion de "RTM paga".
+  - Tomado por Codex para desbloquear venta/cierre, aunque estaba sugerido para Claude.
+- [x] ✅ Codex - Validar placa de moto `AAA00A`.
+  - Tomado por Codex para desbloquear venta/cierre, aunque estaba sugerido para Claude.
 - [ ] Ampliar Llamadas con seguimiento real y preparar importador Tecmas.
 - [ ] Aclarar campo de factura interna vs factura DIAN/POS.

@@ -1564,11 +1564,15 @@ async function loadDashboard() {
       dashCompareRow("Ticket promedio", k.ticketPromedio, p.ticketPromedio),
       dashCompareRow("Jasper estimado", k.jasper, p.jasper),
       dashCompareRow("Deducciones", k.deducciones, p.deducciones),
+      dashCompareRow("Dispersion neta esperada", k.dispersionNeta, p.dispersionNeta),
+      dashCompareRow("Dispersion efectivo", k.dispersionEfectivoNeto, p.dispersionEfectivoNeto),
+      dashCompareRow("Dispersion bancos/QR/tarjeta", k.dispersionBancosNeto, p.dispersionBancosNeto),
       dashCompareRow("IVA provisionado", k.ivaProvision, p.ivaProvision),
       dashCompareRow("Utilidad bruta aprox.", k.utilidadBruta, p.utilidadBruta)
     ].join("");
     const ranges = current.byRange.map((r) => `<tr><td>${esc(r.key)}</td><td class="r">${r.count}</td><td class="r">${r.realized}</td><td class="r">${r.pending}</td><td class="r">${money(r.total)}</td></tr>`).join("");
     const methods = current.byMethod.map((m) => `<tr><td>${esc(m.method)}</td><td class="r">${m.count}</td><td class="r">${money(m.value)}</td></tr>`).join("");
+    const dispersion = (current.byDispersion || []).map((d) => `<tr><td>${esc(d.grupo)}</td><td class="r">${d.cantidad || 0}</td><td class="r">${money(d.recaudoBruto)}</td><td class="r">${money((d.servicioRecaudo || 0) + (d.ivaServicio || 0) + (d.servicioHomologado || 0) + (d.ivaHomologado || 0) + (d.ansv || 0) + (d.adqTransaccion || 0) + (d.ica || 0))}</td><td class="r"><b>${money(d.netoEstimado)}</b></td></tr>`).join("");
     const days = current.byDay.map((d) => `<tr><td>${esc(d.date)}</td><td class="r">${d.count}</td><td class="r">${d.realized}</td><td class="r">${d.pending}</td><td class="r">${money(d.total)}</td></tr>`).join("");
     $("dashBody").innerHTML = `
       <div class="kpis">
@@ -1577,7 +1581,8 @@ async function loadDashboard() {
         <div class="kpi"><span>Ticket promedio</span><b>${money(k.ticketPromedio)}</b></div>
         <div class="kpi"><span>Directo / referido</span><b>${k.directPct}% / ${k.referredPct}%</b></div>
         <div class="kpi"><span>Jasper estimado</span><b>${money(k.jasper)}</b></div>
-        <div class="kpi"><span>Deducciones</span><b>${money(k.deducciones)}</b></div>
+        <div class="kpi"><span>Dispersion neta</span><b>${money(k.dispersionNeta)}</b></div>
+        <div class="kpi"><span>Efectivo / bancos</span><b>${money(k.dispersionEfectivoNeto)} / ${money(k.dispersionBancosNeto)}</b></div>
         <div class="kpi"><span>IVA provisionado</span><b>${money(k.ivaProvision)}</b></div>
         <div class="kpi"><span>Utilidad bruta aprox.</span><b>${money(k.utilidadBruta)}</b></div>
       </div>
@@ -1589,6 +1594,8 @@ async function loadDashboard() {
           <table class="data"><thead><tr><th>Rango</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">Ventas</th></tr></thead><tbody>${ranges || '<tr><td class="hint" colspan="5">Sin motos en el rango</td></tr>'}</tbody></table>
         </div>
         <div>
+          <h3>Dispersion estimada Supergiros</h3>
+          <table class="data"><thead><tr><th>Grupo</th><th class="r">Cant.</th><th class="r">Bruto</th><th class="r">Deducciones</th><th class="r">Neto</th></tr></thead><tbody>${dispersion || '<tr><td class="hint" colspan="5">Sin dispersion calculada</td></tr>'}</tbody></table>
           <h3>Metodos de pago</h3>
           <table class="data"><thead><tr><th>Metodo</th><th class="r">Cant.</th><th class="r">Valor</th></tr></thead><tbody>${methods || '<tr><td class="hint" colspan="3">Sin pagos</td></tr>'}</tbody></table>
           <h3>Dias</h3>

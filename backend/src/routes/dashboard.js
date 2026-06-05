@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { computeClosing } from "../services/closing.js";
+import { buildDispersionForSales, money, summarizeDispersion } from "../services/dayAudit.js";
 import { sendXlsx, toWorkbook } from "../services/excel.js";
 
 const router = Router();
@@ -11,8 +12,6 @@ const monthEnd = () => {
   const now = new Date();
   return iso(new Date(now.getFullYear(), now.getMonth() + 1, 0));
 };
-const money = (v) => Math.round(Number(v) || 0);
-
 function shiftYear(date, delta) {
   const d = new Date(`${date}T00:00:00`);
   d.setFullYear(d.getFullYear() + delta);
@@ -45,6 +44,17 @@ async function rangeReport(from, to) {
   ]);
 
   const closing = computeClosing({ sales, payments, receivables });
+  const dispersionRows = await buildDispersionForSales(sales, payments, costs);
+  const dispersion = summarizeDispersion(dispersionRows);
+  const dispersionTotals = dispersion.reduce((acc, row) => {
+    acc.recaudoBruto += money(row.recaudoBruto);
+    acc.netoEstimado += money(row.netoEstimado);
+    acc.deducciones += money(row.recaudoBruto) - money(row.netoEstimado);
+    if (row.grupo === "Efectivo") acc.efectivoNeto += money(row.netoEstimado);
+    else if (row.grupo === "Cartera") acc.carteraNeto += money(row.netoEstimado);
+    else acc.bancosNeto += money(row.netoEstimado);
+    return acc;
+  }, { recaudoBruto: 0, netoEstimado: 0, deducciones: 0, efectivoNeto: 0, bancosNeto: 0, carteraNeto: 0 });
   const costsTotal = costs.reduce((s, c) => s + money(c.costosTotal), 0);
   const transactionCosts = costs.reduce((s, c) => s + money(c.costeTransaccion), 0);
   const ivaFacturacion = costs.reduce((s, c) => s + money(c.ivaFact), 0);
@@ -90,6 +100,12 @@ async function rangeReport(from, to) {
       ivaFacturacion,
       ivaVentas,
       ivaProvision: ivaVentas + ivaFacturacion,
+      dispersionBruta: dispersionTotals.recaudoBruto,
+      dispersionNeta: dispersionTotals.netoEstimado,
+      dispersionDeducciones: dispersionTotals.deducciones,
+      dispersionEfectivoNeto: dispersionTotals.efectivoNeto,
+      dispersionBancosNeto: dispersionTotals.bancosNeto,
+      dispersionCarteraNeto: dispersionTotals.carteraNeto,
       utilidadBruta
     },
     byRange: groupSales(sales, (s) => s.rangeName),
@@ -100,7 +116,8 @@ async function rangeReport(from, to) {
       method,
       count: closing.countByMethod?.[method] || 0,
       value
-    }))
+    })),
+    byDispersion: dispersion
   };
 }
 
@@ -136,6 +153,9 @@ router.get("/export", async (req, res, next) => {
       { metric: "Ticket promedio", actual: k.ticketPromedio, anterior: p.ticketPromedio, diff: k.ticketPromedio - p.ticketPromedio },
       { metric: "Jasper estimado", actual: k.jasper, anterior: p.jasper, diff: k.jasper - p.jasper },
       { metric: "Deducciones", actual: k.deducciones, anterior: p.deducciones, diff: k.deducciones - p.deducciones },
+      { metric: "Dispersion neta esperada", actual: k.dispersionNeta, anterior: p.dispersionNeta, diff: k.dispersionNeta - p.dispersionNeta },
+      { metric: "Dispersion efectivo", actual: k.dispersionEfectivoNeto, anterior: p.dispersionEfectivoNeto, diff: k.dispersionEfectivoNeto - p.dispersionEfectivoNeto },
+      { metric: "Dispersion bancos/QR/tarjeta", actual: k.dispersionBancosNeto, anterior: p.dispersionBancosNeto, diff: k.dispersionBancosNeto - p.dispersionBancosNeto },
       { metric: "IVA provisionado", actual: k.ivaProvision, anterior: p.ivaProvision, diff: k.ivaProvision - p.ivaProvision },
       { metric: "Utilidad bruta aprox.", actual: k.utilidadBruta, anterior: p.utilidadBruta, diff: k.utilidadBruta - p.utilidadBruta }
     ];
@@ -182,6 +202,33 @@ router.get("/export", async (req, res, next) => {
             { header: "Valor", key: "value", width: 16, money: true }
           ],
           rows: current.byMethod
+        },
+        {
+          name: "Dispersion",
+          columns: [
+            { header: "Grupo", key: "grupo", width: 18 },
+            { header: "Cantidad", key: "cantidad", width: 12, number: true },
+            { header: "Recaudo bruto", key: "recaudoBruto", width: 16, money: true },
+            { header: "Servicio recaudo", key: "servicioRecaudo", width: 18, money: true },
+            { header: "IVA servicio", key: "ivaServicio", width: 16, money: true },
+            { header: "Servicio homologado", key: "servicioHomologado", width: 20, money: true },
+            { header: "IVA homologado", key: "ivaHomologado", width: 18, money: true },
+            { header: "ANSV/FNSV", key: "ansv", width: 14, money: true },
+            { header: "ADQ/transaccion", key: "adqTransaccion", width: 18, money: true },
+            { header: "Neto estimado", key: "netoEstimado", width: 16, money: true }
+          ],
+          rows: current.byDispersion,
+          totals: {
+            cantidad: current.byDispersion.reduce((a, r) => a + money(r.cantidad), 0),
+            recaudoBruto: current.byDispersion.reduce((a, r) => a + money(r.recaudoBruto), 0),
+            servicioRecaudo: current.byDispersion.reduce((a, r) => a + money(r.servicioRecaudo), 0),
+            ivaServicio: current.byDispersion.reduce((a, r) => a + money(r.ivaServicio), 0),
+            servicioHomologado: current.byDispersion.reduce((a, r) => a + money(r.servicioHomologado), 0),
+            ivaHomologado: current.byDispersion.reduce((a, r) => a + money(r.ivaHomologado), 0),
+            ansv: current.byDispersion.reduce((a, r) => a + money(r.ansv), 0),
+            adqTransaccion: current.byDispersion.reduce((a, r) => a + money(r.adqTransaccion), 0),
+            netoEstimado: current.byDispersion.reduce((a, r) => a + money(r.netoEstimado), 0)
+          }
         }
       ]
     });

@@ -187,6 +187,8 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
 .detail-meta { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
 table.data tr.clickable { cursor: pointer; }
 .split { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr); gap: 18px; align-items: start; }
+#dashboardRoot .split > div { min-width: 0; overflow-x: auto; }
+#dashboardRoot table.data { min-width: 520px; }
 .filters { align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
 .filters input, .filters select { flex: 1 1 140px; min-width: 0; }
 .detail-panel { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; position: sticky; top: 18px; }
