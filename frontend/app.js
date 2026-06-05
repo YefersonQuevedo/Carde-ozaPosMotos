@@ -1356,7 +1356,7 @@ async function renderGastos(c) {
     <div class="form-grid">
       <label class="fld">Fecha<input type="date" id="gxDate" value="${today}" /></label>
       <label class="fld">Concepto *<input id="gxConcept" placeholder="Ej: papeleria, almuerzo, transporte" /></label>
-      <label class="fld">Naturaleza<select id="gxCategory"><option value="">Sin naturaleza</option>${natureOptions()}</select></label>
+      <label class="fld">Naturaleza<span class="row" style="gap:6px"><select id="gxCategory" style="flex:1"><option value="">Sin naturaleza</option>${natureOptions()}</select><button class="btn ghost" id="gxAddNature" type="button" title="Agregar tipo de gasto">+</button></span></label>
       <label class="fld">Caja${`<select id="gxBox">${boxOpts}</select>`}</label>
       <label class="fld">Monto *<input id="gxAmount" inputmode="numeric" placeholder="$" /></label>
       <label class="fld">Nota<input id="gxNote" placeholder="Opcional" /></label>
@@ -1387,7 +1387,22 @@ async function renderGastos(c) {
   $("gxLoad").addEventListener("click", loadGastos);
   $("gxExport").addEventListener("click", exportGastosUI);
   $("gxNatureExport").addEventListener("click", exportNatureReportUI);
+  $("gxAddNature").addEventListener("click", () => addNatureUI(c));
   loadGastos();
+}
+// Agregar un nuevo tipo de gasto/ingreso (naturaleza) al catalogo.
+async function addNatureUI(container) {
+  const name = prompt("Nombre del nuevo tipo (ej: Papeleria, Mora, Cuota canal, Dispersion Supergiros):");
+  if (!name || !name.trim()) return;
+  const kind = (prompt("Tipo: gasto o ingreso", "gasto") || "gasto").trim().toLowerCase() === "ingreso" ? "ingreso" : "gasto";
+  try {
+    const r = await api.saveExpenseNature({ name: name.trim(), kind });
+    expenseNatures = ((await api.expenseNatures()).items) || expenseNatures;
+    toast("Naturaleza agregada");
+    await renderGastos(container); // recarga el desplegable
+    const sel = $("gxCategory");
+    if (sel && r.item) sel.value = r.item.code;
+  } catch (e) { toast(e.message); }
 }
 async function loadGastos() {
   try {
