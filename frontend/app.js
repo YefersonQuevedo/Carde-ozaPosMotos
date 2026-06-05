@@ -2069,16 +2069,19 @@ renderProveedores = function (c) {
       <div id="supList"></div>
     </div>
     <div class="card">
-      <div class="card-head"><h2 id="supTitle">Proveedor / orden de compra</h2><button class="btn" id="poExport">Excel OC</button></div>
+      <div class="card-head"><h2 id="supTitle">Proveedor / documentos</h2><div class="row"><button class="btn" id="poExport">Excel OC</button><button class="btn" id="invExport">Excel recibidas</button></div></div>
       <div id="supForm"><p class="hint">Selecciona un proveedor o crea uno nuevo.</p></div>
       <div id="poBox"></div>
+      <div id="invBox"></div>
     </div>
   </div>`;
   $("supSearch").addEventListener("input", (e) => loadSuppliers(e.target.value));
   $("supNew").addEventListener("click", () => renderSupplierForm(null));
   $("poExport").addEventListener("click", exportPurchaseOrdersUI);
+  $("invExport").addEventListener("click", exportSupplierInvoicesUI);
   loadSuppliers();
   loadPurchaseOrders();
+  renderSupplierInvoiceForm();
 };
 
 async function loadSuppliers(q = "") {
@@ -2095,6 +2098,7 @@ function renderSupplierForm(s) {
   $("supSave").addEventListener("click", () => saveSupplierUI(s?.id));
   $("supDelete")?.addEventListener("click", () => deleteSupplierUI(s.id));
   renderPurchaseOrderForm();
+  renderSupplierInvoiceForm();
 }
 async function saveSupplierUI(id) {
   const body = { docType: $("supDocType").value.trim(), docNumber: $("supDoc").value.trim(), name: $("supName").value.trim(), phone: $("supPhone").value.trim(), email: $("supEmail").value.trim(), paymentMethod: $("supPay").value.trim(), address: $("supAddress").value.trim() };
@@ -2121,6 +2125,119 @@ function renderPurchaseOrderForm() {
   wireLineBox("poLines", "po");
   $("poSave").addEventListener("click", savePurchaseOrderUI);
   loadPurchaseOrders(selectedSupplier.id);
+}
+
+async function renderSupplierInvoiceForm() {
+  if (!$("invBox")) return;
+  if (!expenseNatures.length) {
+    try { expenseNatures = (await api.expenseNatures()).items || []; } catch { expenseNatures = []; }
+  }
+  if (!selectedSupplier) {
+    $("invBox").innerHTML = `<h3>Facturas recibidas</h3><p class="hint">Selecciona un proveedor para registrar una factura recibida. Abajo ves las ultimas facturas de todos los proveedores.</p><div id="invSummary"></div><div id="invList"></div>`;
+    loadSupplierInvoices();
+    return;
+  }
+  $("invBox").innerHTML = `<h3>Factura recibida del proveedor</h3>
+    <div class="form-grid">
+      <label class="fld">Numero factura *<input id="invNumber" /></label>
+      <label class="fld">Fecha<input id="invDate" type="date" value="${todayIso()}" /></label>
+      <label class="fld">Vence<input id="invDueDate" type="date" /></label>
+      <label class="fld">Naturaleza<select id="invNature"><option value="">Sin naturaleza</option>${natureOptions()}</select></label>
+      <label class="fld">Base<input id="invBase" inputmode="numeric" placeholder="$" /></label>
+      <label class="fld">IVA<input id="invIva" inputmode="numeric" placeholder="$" /></label>
+      <label class="fld">Total<input id="invTotal" inputmode="numeric" placeholder="Base + IVA si se deja vacio" /></label>
+      <label class="fld">Origen<select id="invSource"><option value="manual">Manual</option><option value="correo">Correo</option><option value="dian">DIAN</option><option value="xml">XML</option><option value="pdf">PDF</option></select></label>
+    </div>
+    <label class="fld">Concepto<input id="invConcept" placeholder="Ej. contabilidad, papeleria, servicio" /></label>
+    <label class="fld">Nota<input id="invNote" /></label>
+    <div class="row form-checks"><label class="chk"><input type="checkbox" id="invDeductible" checked /> IVA descontable</label></div>
+    <div class="row form-actions"><button class="btn success" id="invSave">Registrar factura recibida</button></div>
+    <h3>Facturas recibidas recientes</h3><div id="invSummary"></div><div id="invList"></div>`;
+  $("invSave").addEventListener("click", saveSupplierInvoiceUI);
+  loadSupplierInvoices(selectedSupplier.id);
+}
+
+async function loadSupplierInvoices(supplierId = selectedSupplier?.id) {
+  try {
+    const params = supplierId ? { supplierId } : {};
+    const { items, summary, count } = await api.supplierInvoices(params);
+    if ($("invSummary")) {
+      $("invSummary").innerHTML = `<div class="kpis">
+        <div class="kpi"><span>Facturas</span><b>${count}</b></div>
+        <div class="kpi"><span>Total recibido</span><b>${money(summary.total)}</b></div>
+        <div class="kpi"><span>Por pagar</span><b>${money(summary.pending)}</b></div>
+        <div class="kpi"><span>IVA descontable</span><b>${money(summary.ivaDeductible)}</b></div>
+      </div>`;
+    }
+    if ($("invList")) {
+      $("invList").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Naturaleza</th><th class="r">IVA</th><th class="r">Total</th><th class="r">Pend.</th><th>Estado</th><th></th></tr></thead><tbody>${
+        items.map((i) => {
+          const pending = Math.max(0, i.total - i.paidAmount);
+          return `<tr><td>${esc(i.date)}</td><td>${esc(i.supplierName)}</td><td>${esc(i.number)}<br><span class="hint">${esc(i.concept || "")}</span></td><td>${esc(i.natureCode || "")}</td><td class="r">${money(i.iva)}</td><td class="r">${money(i.total)}</td><td class="r">${money(pending)}</td><td>${esc(i.status)}</td><td>${i.status !== "anulada" && pending > 0 ? `<button class="link" data-payinv="${i.id}" data-pending="${pending}">pagar</button> ` : ""}${i.status !== "anulada" ? `<button class="link" data-voidinv="${i.id}">anular</button>` : ""}</td></tr>`;
+        }).join("") || '<tr><td class="hint" colspan="9">Sin facturas recibidas</td></tr>'
+      }</tbody></table>`;
+      $("invList").querySelectorAll("[data-payinv]").forEach((b) => b.addEventListener("click", () => paySupplierInvoiceUI(Number(b.dataset.payinv), Number(b.dataset.pending))));
+      $("invList").querySelectorAll("[data-voidinv]").forEach((b) => b.addEventListener("click", () => voidSupplierInvoiceUI(Number(b.dataset.voidinv))));
+    }
+  } catch (e) { toast(e.message); }
+}
+
+async function saveSupplierInvoiceUI() {
+  if (!selectedSupplier) return toast("Selecciona proveedor");
+  const base = readCop("invBase");
+  const iva = readCop("invIva");
+  const total = readCop("invTotal") || base + iva;
+  const body = {
+    supplierId: selectedSupplier.id,
+    supplierName: selectedSupplier.name,
+    supplierDoc: selectedSupplier.docNumber,
+    number: $("invNumber").value.trim(),
+    date: $("invDate").value || todayIso(),
+    dueDate: $("invDueDate").value || null,
+    concept: $("invConcept").value.trim(),
+    natureCode: $("invNature").value,
+    base,
+    iva,
+    total,
+    deductible: $("invDeductible").checked,
+    source: $("invSource").value,
+    note: $("invNote").value.trim()
+  };
+  if (!body.number) return toast("Numero de factura obligatorio");
+  if (body.total <= 0) return toast("Total de factura obligatorio");
+  try {
+    await api.createSupplierInvoice(body);
+    toast("Factura recibida registrada");
+    renderSupplierInvoiceForm();
+  } catch (e) { toast(e.message); }
+}
+
+async function paySupplierInvoiceUI(id, pending) {
+  const value = prompt("Valor pagado:", String(pending || ""));
+  if (value === null) return;
+  const amount = Math.round(Number(String(value).replace(/[^\d]/g, "")) || 0);
+  if (amount <= 0) return toast("Ingresa un valor valido");
+  try {
+    await api.paySupplierInvoice(id, { amount, paidDate: todayIso() });
+    toast("Pago registrado");
+    loadSupplierInvoices(selectedSupplier?.id);
+  } catch (e) { toast(e.message); }
+}
+
+async function voidSupplierInvoiceUI(id) {
+  if (!confirm("Anular esta factura recibida?")) return;
+  try {
+    await api.voidSupplierInvoice(id);
+    toast("Factura recibida anulada");
+    loadSupplierInvoices(selectedSupplier?.id);
+  } catch (e) { toast(e.message); }
+}
+
+async function exportSupplierInvoicesUI() {
+  try {
+    const blob = await api.exportSupplierInvoices({});
+    await downloadBlob(blob, `facturas-recibidas-${todayIso()}.xlsx`);
+  } catch (e) { toast(e.message); }
 }
 async function loadPurchaseOrders(supplierId = selectedSupplier?.id) {
   try {

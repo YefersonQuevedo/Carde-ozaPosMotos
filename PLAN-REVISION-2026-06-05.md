@@ -238,14 +238,17 @@ Pendiente para Claude si se mantiene una migracion compartida:
    DIAN/POS (`invoiceNumber`/CUFE). Etiquetas claras en venta, detalle, cierre y exportes.
 
 ### Codex (no depende del Excel)
-5. **Facturas recibidas de proveedores** — modelo `SupplierInvoice` (proveedor/NIT, número,
+5. ✅ **Codex - Facturas recibidas de proveedores** — modelo `SupplierInvoice` (proveedor/NIT, número,
    fecha, concepto, base, IVA, total, descontable sí/no, archivo/correo origen, estado pago).
    Vista en Proveedores: a quién se le debe, IVA descontable. (Fase posterior: lectura de correo/DIAN.)
-6. **Naturalezas de ingreso/gasto** — catálogo `ExpenseNature` (arriendo, nómina, cesantías,
+   - Implementado: esquema, migracion, API, export Excel y vista en Proveedores.
+6. ✅ **Codex - Naturalezas de ingreso/gasto** — catálogo `ExpenseNature` (arriendo, nómina, cesantías,
    retención, parafiscales, crédito, dispersión ADDI, socios, SOAT, 4×1000, cuota tarjeta…) +
    **reporte ejecutivo por naturaleza** (ingresos/gastos agrupados). Coordinar: el campo
    `Expense.category` ya existe; Codex puede normalizarlo contra el catálogo.
-7. **Mapa de calor de horas pico** — KPI por día/hora (de `sale.saleDate`/`saleTime`) en el Dashboard.
+   - Implementado: catalogo, selector en Gastos, reporte ejecutivo y export Excel.
+7. ✅ **Codex - Mapa de calor de horas pico** — KPI por día/hora (de `sale.saleDate`/`saleTime`) en el Dashboard.
+   - Implementado: API, tabla en Dashboard y hoja `Horas pico` en Excel.
 
 > Contratos de esquema que crea **Claude** (migración compartida): `CallLog`, `Payable`,
 > `PayablePayment`. Codex crea: `SupplierInvoice`, `ExpenseNature`. Cada quien su migración;
