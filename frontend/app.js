@@ -1268,12 +1268,14 @@ const PAY_FREQ = ["unico", "mensual", "bimestral", "cuotas"];
 const PAY_BADGE = { pagado: "ok", parcial: "warn", pendiente: "danger" };
 async function renderPayables(c) {
   if (!c) return;
+  try { expenseNatures = ((await api.expenseNatures()).items) || expenseNatures || []; } catch { expenseNatures = expenseNatures || []; }
+  const natOpts = (expenseNatures || []).map((n) => `<option value="${esc(n.code)}">${esc(n.name)}</option>`).join("");
   c.innerHTML = `<div class="card">
       <div class="card-head"><h2>Nueva obligacion</h2></div>
       <div class="form-grid">
         <label class="fld">Concepto *<input id="pyConcept" placeholder="Ej: Arriendo junio, cuota equipo…" /></label>
         <label class="fld">Acreedor<input id="pyCreditor" placeholder="A quien se le debe" /></label>
-        <label class="fld">Naturaleza<input id="pyCategory" placeholder="arriendo, nomina, cesantias, cuota…" /></label>
+        <label class="fld">Naturaleza<select id="pyCategory"><option value="">Sin naturaleza</option>${natOpts}</select></label>
         <label class="fld">Total *<input id="pyTotal" inputmode="numeric" placeholder="$" /></label>
         <label class="fld">Frecuencia<select id="pyFreq">${PAY_FREQ.map((f) => `<option value="${f}">${f}</option>`).join("")}</select></label>
         <label class="fld">Fecha estimada<input type="date" id="pyDue" /></label>
