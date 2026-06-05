@@ -14,9 +14,12 @@ const SG_CODES = new Set(["DATAFONO SG", "QR SG"]);
 
 export function computeClosing({ sales = [], payments = [], receivables = [], gastos = 0 } = {}) {
   // Ingresos por metodo (soporta pagos mixtos: se agrupa por pago, no por venta).
+  // countByMethod = cuantos pagos (operaciones) se hicieron por cada metodo.
   const byMethod = {};
+  const countByMethod = {};
   for (const p of payments) {
     byMethod[p.methodCode] = (byMethod[p.methodCode] || 0) + (Number(p.amount) || 0);
+    countByMethod[p.methodCode] = (countByMethod[p.methodCode] || 0) + 1;
   }
 
   const salesTotal = sales.reduce((s, v) => s + (Number(v.total) || 0), 0);
@@ -63,6 +66,7 @@ export function computeClosing({ sales = [], payments = [], receivables = [], ga
     salesTotal,
     ingresosTotal,
     byMethod,
+    countByMethod,
     subtotalSG,
     subtotalCM,
     provision,

@@ -625,7 +625,7 @@ async function loadClosing() {
   try {
     const { closing, detail } = await api.closing(date, gastos);
     const c = closing;
-    const methods = Object.entries(c.byMethod).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${money(v)}</td></tr>`).join("");
+    const methods = Object.entries(c.byMethod).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${(c.countByMethod && c.countByMethod[k]) || 0}</td><td class="r">${money(v)}</td></tr>`).join("");
     const rows = detail.map((s) => `<tr><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.rtmStatus)}</td><td class="r">${money(s.total)}</td></tr>`).join("");
     $("closingBody").innerHTML = `
       <div class="kpis">
@@ -637,7 +637,7 @@ async function loadClosing() {
         <div class="kpi"><span>Cartera abierta</span><b>${money(c.receivableOpen)}</b></div>
       </div>
       <div class="grid2">
-        <div><h3>Ingresos por metodo</h3><table class="data"><tbody>${methods || '<tr><td class="hint">Sin pagos</td></tr>'}</tbody></table>
+        <div><h3>Ingresos por metodo</h3><table class="data"><thead><tr><th>Metodo</th><th class="r">Cant.</th><th class="r">Valor</th></tr></thead><tbody>${methods || '<tr><td class="hint" colspan="3">Sin pagos</td></tr>'}</tbody></table>
           <div class="amount"><span>Subtotal SG</span><b>${money(c.subtotalSG)}</b></div>
           <div class="amount"><span>Subtotal CM</span><b>${money(c.subtotalCM)}</b></div></div>
         <div><h3>Deducciones</h3>
@@ -762,6 +762,129 @@ async function delPagoConv(id, name) {
   if (!confirm("¿Eliminar este pago?")) return;
   try { await api.deleteAllyPayment(id); toast("Pago eliminado"); await loadPagoConvDetail(name); loadPagoConv(); }
   catch (e) { toast(e.message); }
+}
+
+// Implementacion extendida de pagos a convenios (revision 2026-06-04).
+loadPagoConv = async function () {
+  try {
+    const { items, totals } = await api.allyPayments();
+    $("pagoconvTotals").textContent = `Devengado ${money(totals.accrued)} · Pagado ${money(totals.paid)} · Pendiente ${money(totals.pending)}`;
+    $("pagoconvBody").innerHTML = `<table class="data"><thead><tr><th>Convenio</th><th class="r">RTM</th><th class="r">Placas</th><th class="r">Devengado</th><th class="r">Pagado</th><th class="r">Pendiente</th></tr></thead><tbody>${
+      items.map((a) => `<tr class="clickable" data-name="${esc(a.allyName)}" data-id="${a.allyId ?? ""}"><td>${esc(a.allyName)}</td><td class="r">${a.convenioCount || a.rtm || 0}</td><td class="r">${a.plateCount || 0}</td><td class="r">${money(a.accrued)}</td><td class="r">${money(a.paid)}</td><td class="r"><b>${money(a.pending)}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="6">Aun no hay comisiones de referidos</td></tr>'
+    }</tbody></table>`;
+    $("pagoconvBody").querySelectorAll("[data-name]").forEach((tr) => tr.addEventListener("click", () => loadPagoConvDetail(tr.dataset.name, tr.dataset.id || null)));
+  } catch (e) { toast(e.message); }
+};
+
+loadPagoConvDetail = async function (name, allyId = null) {
+  currentAlly = { name, id: allyId ? Number(allyId) : null };
+  try {
+    const d = await api.allyPaymentDetail(name);
+    currentAllyDetail = d;
+    $("pagoconvName").textContent = name;
+    const plates = d.plates || [];
+    const allyDoc = d.ally?.docNumber || d.ally?.holderDoc || "";
+    const sales = d.sales.map((s) => `<tr><td>${esc(s.saleDate)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.clientName)}</td><td>${esc(s.invoiceNumber || s.saleNumber || "")}</td><td>${s.pinAdquirido > 0 ? "Si" : "-"}</td><td class="r">${money(s.deduction)}</td></tr>`).join("");
+    const pays = d.payments.map((p) => {
+      const payPlates = Array.isArray(p.plates) ? p.plates : [];
+      const voucher = p.voucherPath ? `<a class="link" href="${esc(p.voucherPath)}" target="_blank">ver</a>` : "-";
+      return `<tr><td>${esc(p.paidDate)}</td><td>${esc(p.invoiceNumber || "-")}</td><td>${voucher}</td><td class="r">${p.convenioCount || payPlates.length || 0}</td><td class="r">${money(p.amount)}</td><td>${esc(p.note || "")}</td><td><button class="link" data-printpay="${p.id}">imprimir</button> <button class="link" data-delpay="${p.id}">eliminar</button></td></tr>`;
+    }).join("");
+    $("pagoconvDetail").innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><span>Devengado</span><b>${money(d.accrued)}</b></div>
+        <div class="kpi"><span>Pagado</span><b>${money(d.paid)}</b></div>
+        <div class="kpi"><span>Pendiente</span><b>${money(d.pending)}</b></div>
+        <div class="kpi"><span>RTM / placas</span><b>${d.convenioCount || 0} / ${plates.length}</b></div>
+      </div>
+      <h3>Registrar pago</h3>
+      <div class="form-grid">
+        <label class="fld">Valor a pagar<input id="pc_amount" type="text" inputmode="numeric" value="${Math.max(0, d.pending || 0)}" /></label>
+        <label class="fld">Fecha<input id="pc_date" type="date" value="${todayIso()}" /></label>
+        <label class="fld">Factura / soporte externo<input id="pc_invoice" placeholder="Opcional" /></label>
+        <label class="fld">Documento para facturar<input id="pc_invoice_doc" value="${esc(allyDoc)}" /></label>
+        <label class="fld">Comprobante<input id="pc_voucher" type="file" accept="image/*,.pdf" /></label>
+        <label class="fld">Nota<input id="pc_note" placeholder="Nota (opcional)" /></label>
+      </div>
+      <div class="row form-checks">
+        <label class="chk"><input type="checkbox" id="pc_manual_invoice" /> Facturar a la cedula/NIT</label>
+        <label class="chk"><input type="checkbox" id="pc_send_prov" checked /> Enviar a PROV_CONV</label>
+      </div>
+      <div class="row form-actions">
+        <button class="btn success" id="pc_save">Pagar</button>
+        <button class="btn" id="pc_print_pending">Imprimir soporte</button>
+      </div>
+      <p class="hint">Placas incluidas: ${plates.map(esc).join(", ") || "sin placas"}</p>
+      <h3>Historial de pagos</h3>
+      <table class="data"><thead><tr><th>Fecha</th><th>Factura</th><th>Comprobante</th><th class="r">RTM</th><th class="r">Valor</th><th>Nota</th><th></th></tr></thead><tbody>${pays || '<tr><td class="hint" colspan="7">Sin pagos registrados</td></tr>'}</tbody></table>
+      <h3>Comisiones devengadas (${d.sales.length})</h3>
+      <table class="data"><thead><tr><th>Fecha</th><th>Placa</th><th>Cliente</th><th>Factura</th><th>RTM</th><th class="r">Comision</th></tr></thead><tbody>${sales || '<tr><td class="hint" colspan="6">Sin comisiones</td></tr>'}</tbody></table>`;
+    $("pc_save").addEventListener("click", () => addPagoConv(name));
+    $("pc_print_pending").addEventListener("click", () => printPagoConvProof(d));
+    $("pagoconvDetail").querySelectorAll("[data-delpay]").forEach((b) => b.addEventListener("click", () => delPagoConv(Number(b.dataset.delpay), name)));
+    $("pagoconvDetail").querySelectorAll("[data-printpay]").forEach((b) => b.addEventListener("click", () => {
+      const payment = d.payments.find((p) => p.id === Number(b.dataset.printpay));
+      printPagoConvProof(d, payment);
+    }));
+  } catch (e) { toast(e.message); }
+};
+
+addPagoConv = async function (name) {
+  const amount = readCop("pc_amount");
+  if (amount <= 0) return toast("Ingresa un valor");
+  try {
+    let voucherPath = null;
+    const file = $("pc_voucher")?.files?.[0];
+    if (file) {
+      const uploaded = await api.uploadFile(file);
+      voucherPath = uploaded.url || uploaded.path;
+    }
+    const detail = currentAllyDetail || {};
+    await api.addAllyPayment({
+      allyName: name,
+      allyId: currentAlly.id,
+      amount,
+      paidDate: $("pc_date").value || todayIso(),
+      note: $("pc_note").value.trim(),
+      voucherPath,
+      invoiceNumber: $("pc_invoice").value.trim(),
+      manualInvoice: $("pc_manual_invoice").checked,
+      invoiceDoc: $("pc_invoice_doc").value.trim(),
+      invoiceName: detail.ally?.name || name,
+      plates: detail.plates || [],
+      convenioCount: detail.convenioCount || 0,
+      sendToProvision: $("pc_send_prov").checked
+    });
+    toast("Pago registrado");
+    await loadPagoConvDetail(name);
+    loadPagoConv();
+  } catch (e) { toast(e.message); }
+};
+
+function printPagoConvProof(detail, payment = null) {
+  const amount = payment?.amount ?? readCop("pc_amount") ?? detail.pending ?? 0;
+  const invoice = payment?.invoiceNumber || $("pc_invoice")?.value || "-";
+  const plates = payment?.plates?.length ? payment.plates : (detail.plates || []);
+  const rows = (detail.sales || [])
+    .filter((s) => !plates.length || plates.includes(s.plate))
+    .map((s) => `<tr><td>${esc(s.plate || "")}</td><td>${esc(s.clientName)}</td><td>${esc(s.invoiceNumber || s.saleNumber || "")}</td><td style="text-align:right">${money(s.deduction)}</td></tr>`)
+    .join("");
+  const html = `<!doctype html><html><head><title>Comprobante convenio</title>
+    <style>body{font-family:Arial,sans-serif;padding:28px;color:#111}h1{font-size:18px;margin:0 0 4px}.muted{color:#555;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:18px}th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}th{font-size:11px;text-transform:uppercase}.total{font-size:18px;font-weight:700;text-align:right;margin-top:16px}.sign{margin-top:70px;border-top:1px solid #111;width:280px;text-align:center;padding-top:8px}</style>
+    </head><body>
+    <h1>Comprobante de pago a convenio</h1>
+    <div class="muted">Fecha: ${esc(payment?.paidDate || $("pc_date")?.value || todayIso())}</div>
+    <p><b>Convenio:</b> ${esc(detail.allyName)}<br><b>Factura/soporte:</b> ${esc(invoice)}<br><b>Placas:</b> ${plates.map(esc).join(", ") || "-"}</p>
+    <table><thead><tr><th>Placa</th><th>Cliente</th><th>Factura</th><th>Comision</th></tr></thead><tbody>${rows || "<tr><td colspan='4'>Sin detalle de placas</td></tr>"}</tbody></table>
+    <div class="total">Valor pagado: ${money(amount)}</div>
+    <div class="sign">Firma recibido</div>
+    </body></html>`;
+  const w = window.open("", "_blank", "width=760,height=900");
+  if (!w) return toast("El navegador bloqueo la ventana de impresion");
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.print();
 }
 
 async function loadCartera() {
@@ -903,10 +1026,27 @@ async function exportCartera() {
 async function loadConvenios(q = "") {
   try {
     const items = await api.findAllies(q);
-    $("conveniosBody").innerHTML = `<table class="data"><thead><tr><th>Nombre</th><th>Contacto</th><th>Empresa</th><th class="r">Comision</th><th>Inscrito</th></tr></thead><tbody>${
+    $("conveniosBody").innerHTML = `
+      <div class="row filters">
+        <input id="allyBulkCommission" type="text" inputmode="numeric" placeholder="Nueva comision para todos" />
+        <button class="btn" id="allyBulkApply">Aplicar a todos</button>
+      </div>
+      <table class="data"><thead><tr><th>Nombre</th><th>Contacto</th><th>Empresa</th><th class="r">Comision</th><th>Inscrito</th></tr></thead><tbody>${
       items.map((a) => `<tr class="clickable" data-ally='${esc(JSON.stringify(a))}'><td>${esc(a.name)}</td><td>${esc(a.contactPhone || "")}</td><td>${esc(a.company || "")}</td><td class="r">${money(a.commission)}</td><td>${a.enrolled ? "Si" : "-"}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin convenios</td></tr>'
     }</tbody></table>`;
+    $("allyBulkApply").addEventListener("click", applyAlliesCommissionUI);
     $("conveniosBody").querySelectorAll("[data-ally]").forEach((tr) => tr.addEventListener("click", () => renderAllyForm(JSON.parse(tr.dataset.ally))));
+  } catch (e) { toast(e.message); }
+}
+
+async function applyAlliesCommissionUI() {
+  const commission = readCop("allyBulkCommission");
+  if (commission <= 0) return toast("Ingresa la nueva comision");
+  if (!confirm(`Aplicar ${money(commission)} a todos los convenios activos?`)) return;
+  try {
+    const r = await api.applyAlliesCommission(commission);
+    toast(`Comision aplicada a ${r.count} convenios`);
+    await loadConvenios($("allySearch").value || "");
   } catch (e) { toast(e.message); }
 }
 const ALLY_FIELDS = [

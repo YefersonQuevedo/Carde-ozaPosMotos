@@ -50,7 +50,7 @@ router.get("/export", async (req, res, next) => {
       { concepto: "RTM realizadas", valor: c.rtmRealizadas },
       { concepto: "RTM facturadas", valor: c.rtmFacturadas }
     ];
-    const ingresos = Object.entries(c.byMethod).map(([metodo, valor]) => ({ metodo, valor }));
+    const ingresos = Object.entries(c.byMethod).map(([metodo, valor]) => ({ metodo, cantidad: c.countByMethod?.[metodo] || 0, valor }));
     const detalle = sales.map((s) => ({
       venta: s.saleNumber, cliente: s.clientName, placa: s.plate || "", tipo: s.allyType,
       rtm: s.rtmStatus, factura: s.invoiceNumber || "", total: s.total
@@ -62,7 +62,7 @@ router.get("/export", async (req, res, next) => {
           columns: [{ header: "Concepto", key: "concepto", width: 38 }, { header: "Valor", key: "valor", width: 16, money: true }],
           rows: resumen },
         { name: "Ingresos por metodo",
-          columns: [{ header: "Metodo", key: "metodo", width: 28 }, { header: "Valor", key: "valor", width: 16, money: true }],
+          columns: [{ header: "Metodo", key: "metodo", width: 28 }, { header: "Cant.", key: "cantidad", width: 8, number: true }, { header: "Valor", key: "valor", width: 16, money: true }],
           rows: ingresos, totals: { valor: c.ingresosTotal } },
         { name: "Detalle",
           columns: [
