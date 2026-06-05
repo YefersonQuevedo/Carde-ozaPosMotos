@@ -192,14 +192,14 @@ function renderActive(key) {
         </div>`, false);
     case "moto":
       return card(key, "2 · Moto", `
-        <div class="grid2">
-          <div class="lookup">
+        <div class="row" style="align-items:flex-start">
+          <div class="lookup" style="flex:2 1 200px">
             <input id="vPlate" autocomplete="off" placeholder="Placa" maxlength="8" style="text-transform:uppercase" />
             <div id="vehicleSuggest" class="suggest hidden"></div>
           </div>
-          <input id="vYear" type="number" placeholder="Año modelo" min="1980" max="2035" />
+          <input id="vYear" type="number" placeholder="Año modelo" min="1980" max="2035" style="flex:1 1 120px" />
         </div>
-        <div id="vRange" class="hint"></div>
+        <div id="vRange" class="hint">Ingresa el año del modelo para cargar el paquete RTM.</div>
         <button class="btn primary" id="vNext">Continuar</button>`, false);
     case "rtmPaid":
       return card(key, "3 · ¿La RTM ya esta paga?", `
@@ -395,13 +395,40 @@ function wireWizard() {
   if ($("vPlate")) {
     const upd = () => {
       const year = Number($("vYear").value) || null;
-      const range = year ? rangeFromModel(year) : "";
-      $("vRange").textContent = range ? `Rango: ${range} · Paquete ${packageForRange(range)?.code || "?"}` : "";
+      if (!year) { $("vRange").textContent = "Ingresa el año del modelo para cargar el paquete RTM."; return; }
+      const range = rangeFromModel(year);
+      const pkg = packageForRange(range);
+      const total = pkg ? computeLines(pkg.code).reduce((s, l) => s + l.total, 0) : 0;
+      $("vRange").innerHTML = pkg
+        ? `Paquete <b>${esc(pkg.name)}</b> (${esc(pkg.code)}) · Total <b>${money(total)}</b>`
+        : `Rango ${esc(range)} sin paquete configurado`;
     };
     $("vYear").addEventListener("input", upd); upd();
+    // Solo las motos del cliente seleccionado (no de todo el sistema).
     attachSuggest($("vPlate"), $("vehicleSuggest"),
-      async (q) => (await api.findVehicles({ plate: q })).map((v) => ({ title: v.plate, sub: `${v.modelYear || ""} ${v.rangeName || ""}`.trim(), raw: v })),
+      async (q) => {
+        const doc = sale.client?.docNumber;
+        const list = doc ? await api.findVehicles({ clientDoc: doc }) : await api.findVehicles({ plate: q });
+        const qq = q.toUpperCase();
+        return list
+          .filter((v) => (v.plate || "").toUpperCase().includes(qq))
+          .map((v) => ({ title: v.plate, sub: `${v.modelYear || ""} ${v.rangeName || ""}`.trim(), raw: v }));
+      },
       (v) => selectVehicle(v));
+    // Mostrar las motos del cliente apenas se hace foco (aunque no se haya escrito).
+    $("vPlate").addEventListener("focus", async () => {
+      const doc = sale.client?.docNumber;
+      if (!doc) return;
+      try {
+        const list = await api.findVehicles({ clientDoc: doc });
+        const box = $("vehicleSuggest");
+        if (!list.length || !box) return;
+        box.innerHTML = list.map((v, i) => `<div class="suggest-item" data-vi="${i}"><b>${esc(v.plate)}</b><span>${esc(`${v.modelYear || ""} ${v.rangeName || ""}`.trim())}</span></div>`).join("");
+        box.classList.remove("hidden");
+        box.querySelectorAll("[data-vi]").forEach((el) =>
+          el.addEventListener("mousedown", (ev) => { ev.preventDefault(); box.classList.add("hidden"); selectVehicle(list[Number(el.dataset.vi)]); }));
+      } catch {}
+    });
     $("vNext").addEventListener("click", () => {
       const plate = $("vPlate").value.trim().toUpperCase().replace(/\s+/g, "");
       const year = Number($("vYear").value) || null;
