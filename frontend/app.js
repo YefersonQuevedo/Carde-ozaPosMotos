@@ -258,15 +258,15 @@ function renderActive(key) {
             <button class="btn success sm" data-consume="${p.saleId}">Realizar RTM</button>
           </div>`).join("");
         return card(key, "Provision encontrada ✓", `
-          <div class="hint">Esta placa ya tiene una RTM pagada (provisionada). Al realizarla NO se recalcula comision ni valor: se consume la provision.</div>
+          <div class="hint">Este cliente tiene RTM pagada(s) y pendiente(s). Al realizarla NO se recalcula comision ni valor: se consume la provision.</div>
           <div class="payrows">${rows}</div>
           ${search}
-          <button class="link" id="provContinue">No es ninguna de estas, continuar sin provision</button>`, false);
+          <button class="link" id="provContinue">No es ninguna de estas, crear venta nueva</button>`, false);
       }
       return card(key, "Verificar provision", `
-        <div class="warn-msg">No se encontro provision pendiente para la placa <b>${esc(sale.vehicle.plate || "")}</b>. Puedes buscar por otra placa/cedula o continuar normal.</div>
+        <div class="warn-msg">Este cliente <b>${esc(sale.client?.name || "")}</b> no tiene ninguna RTM provisionada (pagada y pendiente). Puedes buscar por placa/cedula o crear una venta nueva.</div>
         ${search}
-        <button class="btn primary" id="provContinue" style="margin-top:8px">Continuar sin provision</button>`, false);
+        <button class="btn primary" id="provContinue" style="margin-top:8px">Crear venta nueva</button>`, false);
     }
     case "resumen":
       return card(key, "8 · Resumen y registro", `
@@ -388,11 +388,12 @@ function wireWizard() {
     sale.rtmAlreadyPaid = b.dataset.rtmpaid === "si";
     if (sale.rtmAlreadyPaid) {
       sale.rtmToday = true; sale.rtmTodayAnswered = true;
-      // Buscar si la placa ya tiene una provision (pago previo) para no recalcular comision ni valor.
+      // Buscar provisiones del CLIENTE (cualquiera de sus placas), no solo la placa tecleada,
+      // para no recalcular comision ni valor de una RTM que ya pago.
       sale.provisionMatches = [];
-      const plate = sale.vehicle.plate;
-      if (plate) {
-        try { const r = await api.provisions({ plate }); sale.provisionMatches = r.items || []; } catch {}
+      const doc = sale.client?.docNumber;
+      if (doc) {
+        try { const r = await api.provisions({ clientDoc: doc }); sale.provisionMatches = r.items || []; } catch {}
       }
       sale.provisionChecked = true;
     }
