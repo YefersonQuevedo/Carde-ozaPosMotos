@@ -679,7 +679,7 @@ async function loadClosing() {
     const { closing, detail, dispersion } = await api.closingDetail(date, gastos);
     const c = closing;
     const methods = Object.entries(c.byMethod).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${(c.countByMethod && c.countByMethod[k]) || 0}</td><td class="r">${money(v)}</td></tr>`).join("");
-    const rows = detail.slice(0, 80).map((s) => `<tr><td>${esc(s.item)}</td><td>${esc(s.ventaInterna)}</td><td>${esc(s.facturaPosDian || "-")}</td><td>${esc(s.cliente)}</td><td>${esc(s.placa || "")}</td><td>${esc(s.tipoCliente)} / ${esc(s.referido || "")}</td><td>${esc(s.rtmEstado)}</td><td>${esc(s.pinRegistrado || "-")}</td><td class="r">${money(s.efectivoReal)}</td><td class="r">${money(s.bancosTarjetaQr)}</td><td class="r">${money(s.valorComision)}</td><td class="r">${money(s.costosTotal)}</td><td class="r">${money(s.bruto)}</td></tr>`).join("");
+    const rows = detail.slice(0, 80).map((s) => `<tr><td>${esc(s.item)}</td><td>${esc(s.ventaInterna)}</td><td>${esc(s.facturaPosDian || "-")}</td><td>${esc(s.cliente)}</td><td>${esc(s.placa || "")}</td><td>${esc(s.tipoCliente)} / ${esc(s.referido || "")}</td><td>${esc(s.rtmEstado)}</td><td>${esc(s.pinRegistrado || "-")}</td><td class="r">${money(s.efectivoReal)}</td><td class="r">${money(s.bancosTarjetaQr)}</td><td class="r">${money(s.valorComision)}</td><td class="r">${money(s.costosTotal)}</td><td class="r">${money(s.base)}</td><td class="r">${money(s.iva)}</td><td class="r">${money(s.bruto)}</td></tr>`).join("");
     const dispRows = (dispersion || []).map((d) => `<tr><td>${esc(d.grupo)}</td><td class="r">${d.cantidad || 0}</td><td class="r">${money(d.recaudoBruto)}</td><td class="r">${money((d.servicioRecaudo || 0) + (d.ivaServicio || 0))}</td><td class="r">${money((d.servicioHomologado || 0) + (d.ivaHomologado || 0))}</td><td class="r">${money(d.ansv)}</td><td class="r">${money((d.adqTransaccion || 0) + (d.ica || 0))}</td><td class="r"><b>${money(d.netoEstimado)}</b></td></tr>`).join("");
     $("closingBody").innerHTML = `
       <div class="kpis">
@@ -710,7 +710,7 @@ async function loadClosing() {
       <table class="data"><thead><tr><th>Grupo</th><th class="r">Cant.</th><th class="r">Recaudo</th><th class="r">Serv. recaudo</th><th class="r">Homologado</th><th class="r">ANSV</th><th class="r">ADQ/ICA</th><th class="r">Neto</th></tr></thead><tbody>${dispRows || '<tr><td class="hint" colspan="8">Sin pagos para dispersar</td></tr>'}</tbody></table>
       <h3>Detalle del dia</h3>
       <p class="hint">Vista rapida. El boton "Detalle Excel" descarga la planilla completa con pagos, costos, movimientos de caja y gastos.</p>
-      <table class="data"><thead><tr><th>#</th><th>Venta</th><th>Factura</th><th>Cliente</th><th>Placa</th><th>Tipo/ref.</th><th>RTM</th><th>PIN</th><th class="r">Efectivo</th><th class="r">Bancos</th><th class="r">Comision</th><th class="r">Costos</th><th class="r">Total</th></tr></thead><tbody>${rows || '<tr><td class="hint" colspan="13">Sin ventas</td></tr>'}</tbody></table>`;
+      <table class="data"><thead><tr><th>#</th><th>Venta</th><th>Factura</th><th>Cliente</th><th>Placa</th><th>Tipo/ref.</th><th>RTM</th><th>PIN</th><th class="r">Efectivo</th><th class="r">Bancos</th><th class="r">Comision</th><th class="r">Costos</th><th class="r">Base</th><th class="r">IVA</th><th class="r">Total</th></tr></thead><tbody>${rows || '<tr><td class="hint" colspan="15">Sin ventas</td></tr>'}</tbody></table>`;
   } catch (e) { toast(e.message); }
 }
 async function exportClosingUI() {
@@ -1198,15 +1198,25 @@ async function loadVentas() {
         (s.invoiceNumber || "").toLowerCase().includes(q)
       );
     }
-    const total = items.reduce((s, v) => s + v.total, 0);
-    $("ventasSummary").textContent = `${items.length} ventas${date ? " · " + date : " · todas"} · ${money(total)}`;
-    $("ventasBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Venta</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th>RTM</th><th>Factura</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead><tbody>${
+    const activas = items.filter((s) => s.status !== "anulada");
+    const total = activas.reduce((s, v) => s + v.total, 0);
+    const ivaTot = activas.reduce((s, v) => s + (v.totalIva || 0), 0);
+    $("ventasSummary").textContent = `${items.length} ventas${date ? " · " + date : " · todas"} · Total ${money(total)} · IVA ${money(ivaTot)}`;
+    $("ventasBody").innerHTML = `<div style="overflow-x:auto"><table class="data"><thead><tr>
+        <th>Fecha</th><th>Venta</th><th>Factura</th><th>Cliente</th><th>Documento</th><th>Placa</th><th>Modelo</th><th>Tipo</th><th>Convenio</th><th>RTM</th><th>PIN</th><th>Medios de pago</th><th class="r">Base</th><th class="r">IVA</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead><tbody>${
       items.map((s) => {
         const anulada = s.status === "anulada";
         const canVoid = !anulada && api.currentUser()?.role === "admin";
-        return `<tr style="${anulada ? "opacity:.5;text-decoration:line-through" : ""}"><td>${esc(s.saleDate)}</td><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.allyType)}</td><td>${esc(s.rtmStatus)}</td><td>${esc(s.invoiceNumber || "-")}</td><td class="r">${money(s.total)}</td><td>${anulada ? "anulada" : "activa"}</td><td>${canVoid ? `<button class="link" data-void="${s.id}">anular</button>` : ""}</td></tr>`;
-      }).join("") || '<tr><td class="hint" colspan="10">Sin ventas</td></tr>'
-    }</tbody></table>`;
+        return `<tr style="${anulada ? "opacity:.5;text-decoration:line-through" : ""}">
+          <td>${esc(s.saleDate)}</td><td>${esc(s.saleNumber)}</td><td>${esc(s.invoiceNumber || "-")}</td>
+          <td>${esc(s.clientName)}</td><td>${esc(s.clientDoc)}</td><td>${esc(s.plate || "")}</td><td>${s.modelYear || ""}</td>
+          <td>${esc(s.allyType)}</td><td>${esc(s.allyName || "")}</td><td>${esc(s.rtmStatus)}</td><td class="hint">${esc(s.pinNumber || "")}</td>
+          <td class="hint">${esc(s.methods || "")}</td>
+          <td class="r">${money(s.totalBase)}</td><td class="r">${money(s.totalIva)}</td><td class="r"><b>${money(s.total)}</b></td>
+          <td>${anulada ? "anulada" : "activa"}</td>
+          <td>${canVoid ? `<button class="link" data-void="${s.id}">anular</button>` : ""}</td></tr>`;
+      }).join("") || '<tr><td class="hint" colspan="17">Sin ventas</td></tr>'
+    }</tbody></table></div>`;
     $("ventasBody").querySelectorAll("[data-void]").forEach((b) => b.addEventListener("click", () => voidSaleUI(Number(b.dataset.void))));
   } catch (e) { toast(e.message); }
 }

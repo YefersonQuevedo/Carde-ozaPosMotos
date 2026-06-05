@@ -299,7 +299,17 @@ router.get("/", async (req, res, next) => {
     if (plate) where.plate = normalizePlate(plate);
     if (range) where.rangeName = String(range);
     const items = await prisma.sale.findMany({ where, orderBy: { id: "desc" }, take: 500 });
-    res.json(items);
+    // Adjunta el resumen de medios de pago por venta (por donde se pago).
+    const ids = items.map((s) => s.id);
+    const pays = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
+    const bySale = {};
+    for (const p of pays) (bySale[p.saleId] ||= []).push({ methodName: p.methodName, methodCode: p.methodCode, groupCode: p.groupCode, amount: p.amount });
+    const enriched = items.map((s) => ({
+      ...s,
+      payments: bySale[s.id] || [],
+      methods: (bySale[s.id] || []).map((p) => `${p.methodName}: ${p.amount}`).join(" | ")
+    }));
+    res.json(enriched);
   } catch (e) {
     next(e);
   }
@@ -316,24 +326,32 @@ router.get("/export", async (req, res, next) => {
     if (plate) where.plate = normalizePlate(plate);
     if (range) where.rangeName = String(range);
     const items = await prisma.sale.findMany({ where, orderBy: { id: "desc" }, take: 5000 });
+    const ids = items.map((s) => s.id);
+    const pays = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
+    const bySale = {};
+    for (const p of pays) (bySale[p.saleId] ||= []).push(`${p.methodName}: ${p.amount}`);
     const rows = items.map((s) => ({
-      fecha: s.saleDate, venta: s.saleNumber, cliente: s.clientName, doc: s.clientDoc,
-      placa: s.plate || "", tipo: s.allyType, convenio: s.allyName || "", rtm: s.rtmStatus,
-      pin: s.pinNumber || "", factura: s.invoiceNumber || "", estado: s.status, total: s.total
+      fecha: s.saleDate, venta: s.saleNumber, factura: s.invoiceNumber || "", cliente: s.clientName, doc: s.clientDoc,
+      placa: s.plate || "", modelo: s.modelYear || "", tipo: s.allyType, convenio: s.allyName || "",
+      rtm: s.rtmStatus, pin: s.pinNumber || "", medios: (bySale[s.id] || []).join(" | "),
+      base: s.totalBase, iva: s.totalIva, total: s.total, estado: s.status
     }));
     const total = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.total, 0);
+    const iva = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.totalIva, 0);
     const buf = await toWorkbook({
       sheets: [{
         name: "Ventas", title: `Ventas${date ? " " + date : ""}`,
         columns: [
           { header: "Fecha", key: "fecha", width: 12 }, { header: "Venta", key: "venta", width: 14 },
-          { header: "Cliente", key: "cliente", width: 28 }, { header: "Documento", key: "doc", width: 16 },
-          { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
-          { header: "Convenio", key: "convenio", width: 22 }, { header: "RTM", key: "rtm", width: 14 },
-          { header: "PIN", key: "pin", width: 22 }, { header: "Factura", key: "factura", width: 14 }, { header: "Estado", key: "estado", width: 10 },
-          { header: "Total", key: "total", width: 14, money: true }
+          { header: "Factura", key: "factura", width: 14 }, { header: "Cliente", key: "cliente", width: 28 },
+          { header: "Documento", key: "doc", width: 16 }, { header: "Placa", key: "placa", width: 10 },
+          { header: "Modelo", key: "modelo", width: 8, number: true }, { header: "Tipo", key: "tipo", width: 10 },
+          { header: "Convenio", key: "convenio", width: 22 }, { header: "RTM", key: "rtm", width: 12 },
+          { header: "PIN", key: "pin", width: 22 }, { header: "Medios de pago", key: "medios", width: 34 },
+          { header: "Base", key: "base", width: 14, money: true }, { header: "IVA", key: "iva", width: 14, money: true },
+          { header: "Total", key: "total", width: 14, money: true }, { header: "Estado", key: "estado", width: 10 }
         ],
-        rows, totals: { total }
+        rows, totals: { base: total - iva, iva, total }
       }]
     });
     sendXlsx(res, buf, `ventas${date ? "-" + date : ""}.xlsx`);
