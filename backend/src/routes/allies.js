@@ -15,6 +15,21 @@ router.get("/", async (req, res, next) => {
   }
 });
 
+// PUT /api/allies/commission-all -> actualiza la comision de todos los convenios activos.
+router.put("/commission-all", async (req, res, next) => {
+  try {
+    const commission = Math.round(Number(req.body?.commission) || 0);
+    if (commission <= 0) return res.status(400).json({ error: "commission debe ser mayor a 0" });
+    const updated = await prisma.ally.updateMany({
+      where: { active: true, isDirectUser: false },
+      data: { commission }
+    });
+    res.json({ ok: true, commission, count: updated.count });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post("/", async (req, res, next) => {
   try {
     const b = req.body || {};

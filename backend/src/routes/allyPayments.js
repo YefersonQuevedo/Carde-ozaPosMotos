@@ -5,19 +5,28 @@ const router = Router();
 
 // Clave estable: allyId si existe, si no el nombre (compatibilidad con datos viejos).
 const allyKey = (allyId, allyName) => (allyId != null ? `id:${allyId}` : `nm:${allyName}`);
+const today = () => new Date().toISOString().slice(0, 10);
+const toInt = (value) => Math.max(0, Math.round(Number(value) || 0));
+const asList = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
+
+async function nextManualInvoiceNumber(tx) {
+  const count = await tx.manualInvoice.count();
+  return `MAN-${String(count + 1).padStart(4, "0")}`;
+}
 
 // Devengado por convenio = suma de comisiones (deduction) en ventas de referidos.
 async function accruedByAlly() {
   const sales = await prisma.sale.findMany({
     where: { allyType: "referido", deduction: { gt: 0 }, status: "activa" },
-    select: { allyId: true, allyName: true, deduction: true, pinAdquirido: true }
+    select: { allyId: true, allyName: true, deduction: true, pinAdquirido: true, plate: true }
   });
   const map = {};
   for (const s of sales) {
     const k = allyKey(s.allyId, s.allyName);
-    const m = (map[k] ||= { allyId: s.allyId ?? null, allyName: s.allyName, accrued: 0, rtm: 0 });
+    const m = (map[k] ||= { allyId: s.allyId ?? null, allyName: s.allyName, accrued: 0, rtm: 0, plates: new Set() });
     m.accrued += s.deduction;
     if (s.pinAdquirido > 0) m.rtm += 1;
+    if (s.plate) m.plates.add(s.plate);
   }
   return map;
 }
@@ -50,6 +59,8 @@ router.get("/", async (_req, res, next) => {
           allyName: a?.allyName ?? p?.allyName ?? "",
           accrued: acc,
           rtm: a?.rtm || 0,
+          convenioCount: a?.rtm || 0,
+          plateCount: a?.plates?.size || 0,
           paid: paidV,
           pending: acc - paidV
         };
@@ -69,17 +80,29 @@ router.get("/", async (_req, res, next) => {
 router.get("/:name", async (req, res, next) => {
   try {
     const name = req.params.name;
-    const [sales, payments] = await Promise.all([
+    const [ally, sales, payments] = await Promise.all([
+      prisma.ally.findFirst({ where: { name } }),
       prisma.sale.findMany({
         where: { allyName: name, allyType: "referido", deduction: { gt: 0 }, status: "activa" },
-        select: { saleNumber: true, saleDate: true, plate: true, clientName: true, deduction: true, pinAdquirido: true },
+        select: { saleNumber: true, saleDate: true, plate: true, clientDoc: true, clientName: true, invoiceNumber: true, deduction: true, pinAdquirido: true },
         orderBy: { saleDate: "desc" }
       }),
       prisma.allyPayment.findMany({ where: { allyName: name }, orderBy: { paidDate: "desc" } })
     ]);
     const accrued = sales.reduce((s, v) => s + v.deduction, 0);
     const paid = payments.reduce((s, v) => s + v.amount, 0);
-    res.json({ allyName: name, accrued, paid, pending: accrued - paid, sales, payments });
+    const plates = [...new Set(sales.map((s) => s.plate).filter(Boolean))];
+    res.json({
+      ally,
+      allyName: name,
+      accrued,
+      paid,
+      pending: accrued - paid,
+      convenioCount: sales.length,
+      plates,
+      sales,
+      payments
+    });
   } catch (e) {
     next(e);
   }
@@ -89,17 +112,86 @@ router.get("/:name", async (req, res, next) => {
 router.post("/", async (req, res, next) => {
   try {
     const b = req.body || {};
-    if (!b.allyName || !(Number(b.amount) > 0)) return res.status(400).json({ error: "allyName y amount son obligatorios" });
-    const payment = await prisma.allyPayment.create({
-      data: {
-        allyId: b.allyId ? Number(b.allyId) : null,
-        allyName: b.allyName,
-        amount: Math.round(Number(b.amount)),
-        paidDate: b.paidDate || new Date().toISOString().slice(0, 10),
-        note: b.note || null
+    const amount = toInt(b.amount);
+    if (!b.allyName || amount <= 0) return res.status(400).json({ error: "allyName y amount son obligatorios" });
+
+    const ally = b.allyId
+      ? await prisma.ally.findUnique({ where: { id: Number(b.allyId) } })
+      : await prisma.ally.findFirst({ where: { name: String(b.allyName) } });
+    const plates = asList(b.plates);
+    const convenioCount = toInt(b.convenioCount) || plates.length;
+    const shouldInvoice = !!b.manualInvoice;
+    const invoiceDoc = String(b.invoiceDoc || ally?.docNumber || ally?.holderDoc || "").trim();
+    const invoiceName = String(b.invoiceName || ally?.name || b.allyName).trim();
+    const paidDate = b.paidDate || today();
+
+    if (shouldInvoice && !invoiceDoc) {
+      return res.status(400).json({ error: "Para facturar a cedula/NIT falta el documento del convenio" });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      let invoiceNumber = String(b.invoiceNumber || "").trim() || null;
+      let manualInvoice = null;
+      if (shouldInvoice) {
+        invoiceNumber = await nextManualInvoiceNumber(tx);
+        manualInvoice = await tx.manualInvoice.create({
+          data: {
+            number: invoiceNumber,
+            clientDoc: invoiceDoc,
+            clientName: invoiceName,
+            date: paidDate,
+            concept: `Comisiones convenio ${b.allyName}`,
+            base: amount,
+            iva: 0,
+            total: amount,
+            source: "convenio"
+          }
+        });
+        await tx.manualInvoiceLine.create({
+          data: {
+            invoiceId: manualInvoice.id,
+            description: `Comisiones convenio ${b.allyName}`,
+            quantity: convenioCount || 1,
+            unitPrice: convenioCount > 0 ? Math.round(amount / convenioCount) : amount,
+            taxRate: 0,
+            base: amount,
+            tax: 0,
+            total: amount
+          }
+        });
       }
+
+      const payment = await tx.allyPayment.create({
+        data: {
+          allyId: b.allyId ? Number(b.allyId) : ally?.id ?? null,
+          allyName: b.allyName,
+          amount,
+          paidDate,
+          note: b.note || null,
+          voucherPath: b.voucherPath || null,
+          invoiceNumber,
+          plates,
+          convenioCount
+        }
+      });
+
+      if (b.sendToProvision !== false) {
+        await tx.cashMovement.create({
+          data: {
+            boxCode: "PROV_CONV",
+            type: "ingreso",
+            amount,
+            refType: "ally_payment",
+            refId: payment.id,
+            date: paidDate,
+            note: `Convenio ${b.allyName}`
+          }
+        });
+      }
+
+      return { payment, manualInvoice };
     });
-    res.status(201).json(payment);
+    res.status(201).json(result);
   } catch (e) {
     next(e);
   }
