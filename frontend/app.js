@@ -35,9 +35,8 @@ function blankSale() {
     discountApplied: true,
     rtmTodayAnswered: false,
     rtmToday: true,
-    provisionChecked: false, // ya se busco provision para esta placa
-    provisionMatches: [],    // provisiones abiertas encontradas para la placa
-    provisionContinue: false, // el usuario decidio seguir sin provision
+    provisionChecked: false, // ya se busco provision para este cliente
+    provisionMatches: [],    // provisiones abiertas encontradas
     registered: null // respuesta del backend
   };
 }
@@ -97,10 +96,9 @@ function paymentState() {
 function stepOrder() {
   const o = ["cliente", "moto", "rtmPaid"];
   if (sale.rtmAlreadyPaid === true) {
-    // Siempre se verifica si la placa ya tiene una provision (pago previo).
+    // Se verifica si el cliente ya tiene una provision (pago previo). Si no hay y el
+    // usuario decide continuar, el paso cambia a "se cobra ahora" (rtmAlreadyPaid=false).
     o.push("provisionCheck");
-    // Solo si el usuario decide seguir sin provision se pide tipo de cliente.
-    if (sale.provisionContinue) o.push("tipoCliente", "resumen");
   } else if (sale.rtmAlreadyPaid === false) {
     o.push("credito");
     if (sale.needsCredit === true) o.push("creditoProveedor");
@@ -119,7 +117,7 @@ function isDone(key) {
     case "pago": return sale.paymentConfirmed;
     case "tipoCliente": return sale.allyAnswered;
     case "rtmHoy": return sale.rtmTodayAnswered;
-    case "provisionCheck": return sale.provisionContinue || !!sale.registered;
+    case "provisionCheck": return !!sale.registered;
     case "resumen": return !!sale.registered;
     default: return false;
   }
@@ -130,7 +128,7 @@ function resetFrom(key) {
   const fields = {
     cliente: () => { sale.client = null; },
     moto: () => { sale.vehicle = { plate: "", modelYear: null, rangeName: "" }; sale.packageCode = ""; },
-    rtmPaid: () => { sale.rtmAlreadyPaid = null; sale.needsCredit = null; sale.creditProvider = null; sale.payments = []; sale.paymentConfirmed = false; sale.provisionChecked = false; sale.provisionMatches = []; sale.provisionContinue = false; },
+    rtmPaid: () => { sale.rtmAlreadyPaid = null; sale.needsCredit = null; sale.creditProvider = null; sale.payments = []; sale.paymentConfirmed = false; sale.provisionChecked = false; sale.provisionMatches = []; },
     credito: () => { sale.needsCredit = null; sale.creditProvider = null; sale.payments = []; sale.paymentConfirmed = false; },
     creditoProveedor: () => { sale.creditProvider = null; sale.payments = []; },
     pago: () => { sale.payments = []; sale.paymentConfirmed = false; },
@@ -288,7 +286,7 @@ function renderDone(key) {
     case "pago": body = sale.payments.map((p) => `${methodByCode[p.methodCode].name}: ${money(p.amount)}`).join(" · "); break;
     case "tipoCliente": body = sale.allyType === "usuario" ? "Usuario directo (fidelizado)" : `Referido: ${esc(sale.allyName)}${sale.discountApplied ? " (con descuento)" : ""}`; break;
     case "rtmHoy": body = sale.rtmToday ? "Se realiza hoy" : "Pendiente"; break;
-    case "provisionCheck": body = sale.registered ? `Provision consumida · ${esc(sale.registered?.sale?.saleNumber || "")}` : "Sin provision (continua normal)"; break;
+    case "provisionCheck": body = `Provision consumida · ${esc(sale.registered?.sale?.saleNumber || "")}`; break;
     case "resumen": body = `Registrada ${esc(sale.registered?.sale?.saleNumber || "")}`; break;
   }
   return card(key, titleFor(key), body, true);
@@ -407,7 +405,13 @@ function wireWizard() {
     try { const r = await api.provisions(params); sale.provisionMatches = r.items || []; if (!sale.provisionMatches.length) toast("Sin provision para ese criterio"); render(); }
     catch (e) { toast(e.message); }
   });
-  $("provContinue")?.addEventListener("click", () => { sale.provisionContinue = true; render(); });
+  $("provContinue")?.addEventListener("click", () => {
+    // Sin provision: la RTM no estaba realmente paga -> se cobra ahora (paso 3 cambia).
+    sale.rtmAlreadyPaid = false;
+    sale.rtmToday = true; sale.rtmTodayAnswered = false;
+    sale.provisionMatches = [];
+    render();
+  });
   document.querySelectorAll("[data-credit]").forEach((b) => b.addEventListener("click", () => {
     sale.needsCredit = b.dataset.credit === "si"; render();
   }));
