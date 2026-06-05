@@ -126,6 +126,8 @@ export const api = {
 
   closing: (date, gastos = 0) => req(`/closings?date=${date}&gastos=${gastos}`),
   exportClosing: (date, gastos = 0) => reqBlob(`/closings/export?date=${date}&gastos=${gastos}`),
+  closingDetail: (date, gastos = 0) => req(`/closings/detail?date=${date}&gastos=${gastos}`),
+  exportClosingDetail: (date, gastos = 0) => reqBlob(`/closings/detail/export?date=${date}&gastos=${gastos}`),
   saveClosing: (body) => req("/closings", { method: "POST", body }),
   consolidado: (from, to) => req(`/closings/consolidado?from=${from}&to=${to}`),
   report: (from, to) => req(`/closings/report?from=${from}&to=${to}`),

@@ -623,10 +623,11 @@ async function loadClosing() {
   const date = $("closingDate").value || todayIso();
   const gastos = Number($("closingGastos").value) || 0;
   try {
-    const { closing, detail } = await api.closing(date, gastos);
+    const { closing, detail, dispersion } = await api.closingDetail(date, gastos);
     const c = closing;
     const methods = Object.entries(c.byMethod).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${(c.countByMethod && c.countByMethod[k]) || 0}</td><td class="r">${money(v)}</td></tr>`).join("");
-    const rows = detail.map((s) => `<tr><td>${esc(s.saleNumber)}</td><td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.rtmStatus)}</td><td class="r">${money(s.total)}</td></tr>`).join("");
+    const rows = detail.slice(0, 80).map((s) => `<tr><td>${esc(s.item)}</td><td>${esc(s.ventaInterna)}</td><td>${esc(s.facturaPosDian || "-")}</td><td>${esc(s.cliente)}</td><td>${esc(s.placa || "")}</td><td>${esc(s.tipoCliente)} / ${esc(s.referido || "")}</td><td>${esc(s.rtmEstado)}</td><td>${esc(s.pinRegistrado || "-")}</td><td class="r">${money(s.efectivoReal)}</td><td class="r">${money(s.bancosTarjetaQr)}</td><td class="r">${money(s.valorComision)}</td><td class="r">${money(s.costosTotal)}</td><td class="r">${money(s.bruto)}</td></tr>`).join("");
+    const dispRows = (dispersion || []).map((d) => `<tr><td>${esc(d.grupo)}</td><td class="r">${d.cantidad || 0}</td><td class="r">${money(d.recaudoBruto)}</td><td class="r">${money((d.servicioRecaudo || 0) + (d.ivaServicio || 0))}</td><td class="r">${money((d.servicioHomologado || 0) + (d.ivaHomologado || 0))}</td><td class="r">${money(d.ansv)}</td><td class="r">${money((d.adqTransaccion || 0) + (d.ica || 0))}</td><td class="r"><b>${money(d.netoEstimado)}</b></td></tr>`).join("");
     $("closingBody").innerHTML = `
       <div class="kpis">
         <div class="kpi"><span>Ventas</span><b>${money(c.salesTotal)}</b></div>
@@ -652,8 +653,11 @@ async function loadClosing() {
       <div class="amount"><span>Efectivo ${money(c.efectivo)} − Fideliz. ${money(c.fidelizacion)} − Gastos ${money(c.gastos)} − Referidos ${money(c.referidos)}</span><b>Efectivo a entregar ${money(c.efectivoEntregar)}</b></div>
       <div class="amount total"><span>JASPER ${money(c.jasper)} − Efectivo entregado ${money(c.efectivoEntregar)}</span><b>Diferencia ${money(c.diferenciaJasper)} (≈ comisiones)</b></div>
       <p class="hint">Gastos: ${money(c.gastosRegistrados || 0)} registrados (modulo Gastos)${(c.gastosManual || 0) > 0 ? ` + ${money(c.gastosManual)} extra` : ""} = ${money(c.gastos)}.</p>
+      <h3>Dispersion estimada Supergiros</h3>
+      <table class="data"><thead><tr><th>Grupo</th><th class="r">Cant.</th><th class="r">Recaudo</th><th class="r">Serv. recaudo</th><th class="r">Homologado</th><th class="r">ANSV</th><th class="r">ADQ/ICA</th><th class="r">Neto</th></tr></thead><tbody>${dispRows || '<tr><td class="hint" colspan="8">Sin pagos para dispersar</td></tr>'}</tbody></table>
       <h3>Detalle del dia</h3>
-      <table class="data"><thead><tr><th>Venta</th><th>Cliente</th><th>Placa</th><th>RTM</th><th class="r">Total</th></tr></thead><tbody>${rows || '<tr><td class="hint" colspan="5">Sin ventas</td></tr>'}</tbody></table>`;
+      <p class="hint">Vista rapida. El boton "Detalle Excel" descarga la planilla completa con pagos, costos, movimientos de caja y gastos.</p>
+      <table class="data"><thead><tr><th>#</th><th>Venta</th><th>Factura</th><th>Cliente</th><th>Placa</th><th>Tipo/ref.</th><th>RTM</th><th>PIN</th><th class="r">Efectivo</th><th class="r">Bancos</th><th class="r">Comision</th><th class="r">Costos</th><th class="r">Total</th></tr></thead><tbody>${rows || '<tr><td class="hint" colspan="13">Sin ventas</td></tr>'}</tbody></table>`;
   } catch (e) { toast(e.message); }
 }
 async function exportClosingUI() {
@@ -662,6 +666,14 @@ async function exportClosingUI() {
     const gastos = Number($("closingGastos").value) || 0;
     const blob = await api.exportClosing(date, gastos);
     await downloadBlob(blob, `cierre-${date}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+async function exportClosingDetailUI() {
+  try {
+    const date = $("closingDate").value || todayIso();
+    const gastos = Number($("closingGastos").value) || 0;
+    const blob = await api.exportClosingDetail(date, gastos);
+    await downloadBlob(blob, `detalle-dia-${date}.xlsx`);
   } catch (e) { toast(e.message); }
 }
 async function exportReportUI() {
@@ -2135,6 +2147,7 @@ async function startApp() {
   $("tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab"); if (t?.dataset.view) switchView(t.dataset.view); });
   $("loadClosing").addEventListener("click", loadClosing);
   $("exportClosing").addEventListener("click", exportClosingUI);
+  $("exportClosingDetail")?.addEventListener("click", exportClosingDetailUI);
   $("freezeClosing").addEventListener("click", freezeClosing);
   const monthStart = todayIso().slice(0, 8) + "01";
   $("repFrom").value = monthStart;
