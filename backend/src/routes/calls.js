@@ -81,4 +81,102 @@ router.get("/export", async (req, res, next) => {
   }
 });
 
+// ---------- Seguimiento de llamadas (CallLog) ----------
+const CALL_STATUS = ["pendiente", "llamado", "no_contesta", "numero_errado", "contestado", "agendado", "vino", "no_vino"];
+
+// GET /api/calls/logs?status=&clientDoc=&q= -> lista de gestiones
+router.get("/logs", async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.status) where.status = String(req.query.status);
+    if (req.query.clientDoc) where.clientDoc = String(req.query.clientDoc);
+    const items = await prisma.callLog.findMany({ where, orderBy: [{ nextCallDate: "asc" }, { id: "desc" }], take: 1000 });
+    const summary = items.reduce((a, c) => { a[c.status] = (a[c.status] || 0) + 1; return a; }, {});
+    res.json({ items, summary, count: items.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/calls/logs -> crea o actualiza (si trae id) una gestion de llamada
+router.post("/logs", async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    if (b.status && !CALL_STATUS.includes(b.status)) return res.status(400).json({ error: "status invalido" });
+    const data = {
+      clientDoc: b.clientDoc || null, clientName: b.clientName || null, plate: b.plate || null, phone: b.phone || null,
+      status: b.status || "pendiente", result: b.result || null, note: b.note || null,
+      dueDate: b.dueDate || null, nextCallDate: b.nextCallDate || null, createdBy: b.createdBy || null
+    };
+    const log = b.id
+      ? await prisma.callLog.update({ where: { id: Number(b.id) }, data })
+      : await prisma.callLog.create({ data });
+    res.json(log);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete("/logs/:id", async (req, res, next) => {
+  try {
+    await prisma.callLog.delete({ where: { id: Number(req.params.id) } });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/calls/logs/export
+router.get("/logs/export", async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.status) where.status = String(req.query.status);
+    const items = await prisma.callLog.findMany({ where, orderBy: [{ nextCallDate: "asc" }, { id: "desc" }], take: 5000 });
+    const buf = await toWorkbook({
+      sheets: [{
+        name: "Gestion llamadas", title: "Seguimiento de llamadas",
+        columns: [
+          { header: "Cliente", key: "clientName", width: 26 }, { header: "Documento", key: "clientDoc", width: 16 },
+          { header: "Placa", key: "plate", width: 10 }, { header: "Telefono", key: "phone", width: 16 },
+          { header: "Estado", key: "status", width: 14 }, { header: "Vence", key: "dueDate", width: 12 },
+          { header: "Proxima llamada", key: "nextCallDate", width: 14 }, { header: "Nota", key: "note", width: 36 }
+        ],
+        rows: items
+      }]
+    });
+    sendXlsx(res, buf, "gestion-llamadas.xlsx");
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/calls/referidos -> rendimiento por referido + placas pendientes (provisionadas no realizadas)
+router.get("/referidos", async (_req, res, next) => {
+  try {
+    const sales = await prisma.sale.findMany({
+      where: { status: "activa", allyType: "referido" },
+      select: { allyName: true, saleDate: true, plate: true, clientName: true, clientDoc: true, rtmStatus: true, provisionAmount: true, total: true }
+    });
+    const byAlly = {};
+    for (const s of sales) {
+      const name = s.allyName || "(sin nombre)";
+      const a = (byAlly[name] ||= { referido: name, total: 0, realizadas: 0, pendientes: 0, montoPendiente: 0, porMes: {}, placasPendientes: [] });
+      a.total += 1;
+      const mes = (s.saleDate || "").slice(0, 7);
+      a.porMes[mes] = (a.porMes[mes] || 0) + 1;
+      if (s.rtmStatus === "pending") {
+        a.pendientes += 1;
+        a.montoPendiente += s.provisionAmount || s.total || 0;
+        a.placasPendientes.push({ plate: s.plate, clientName: s.clientName, clientDoc: s.clientDoc, saleDate: s.saleDate, monto: s.provisionAmount || s.total || 0 });
+      } else {
+        a.realizadas += 1;
+      }
+    }
+    const items = Object.values(byAlly).sort((a, b) => b.total - a.total);
+    res.json({ items, count: items.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

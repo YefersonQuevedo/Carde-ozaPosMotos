@@ -1226,7 +1226,7 @@ const VIEW_TITLES = {
   dashboard: "Dashboard", venta: "Venta", cierre: "Cierre diario", provisiones: "Provisiones",
   consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
   llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
-  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA", dian: "Facturacion DIAN", config: "Configuracion"
+  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA", dian: "Facturacion DIAN", config: "Configuracion", payables: "Cuentas por pagar"
 };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
@@ -1244,6 +1244,7 @@ function switchView(view) {
   if (view === "dashboard") renderDashboard($("dashboardRoot"));
   if (view === "provisiones") renderProvisiones($("provisionesRoot"));
   if (view === "gastos") renderGastos($("gastosRoot"));
+  if (view === "payables") renderPayables($("payablesRoot"));
   if (view === "fupa") renderFupa($("fupaRoot"));
   if (view === "dian") renderDian($("dianRoot"));
   if (view === "config") renderConfig($("configRoot"));
@@ -1252,19 +1253,100 @@ function switchView(view) {
   if (view === "proveedores") renderProveedores($("proveedoresRoot"));
 }
 
+// ---------- Cuentas por pagar (Claude) ----------
+const PAY_FREQ = ["unico", "mensual", "bimestral", "cuotas"];
+const PAY_BADGE = { pagado: "ok", parcial: "warn", pendiente: "danger" };
+async function renderPayables(c) {
+  if (!c) return;
+  c.innerHTML = `<div class="card">
+      <div class="card-head"><h2>Nueva obligacion</h2></div>
+      <div class="form-grid">
+        <label class="fld">Concepto *<input id="pyConcept" placeholder="Ej: Arriendo junio, cuota equipo…" /></label>
+        <label class="fld">Acreedor<input id="pyCreditor" placeholder="A quien se le debe" /></label>
+        <label class="fld">Naturaleza<input id="pyCategory" placeholder="arriendo, nomina, cesantias, cuota…" /></label>
+        <label class="fld">Total *<input id="pyTotal" inputmode="numeric" placeholder="$" /></label>
+        <label class="fld">Frecuencia<select id="pyFreq">${PAY_FREQ.map((f) => `<option value="${f}">${f}</option>`).join("")}</select></label>
+        <label class="fld">Fecha estimada<input type="date" id="pyDue" /></label>
+      </div>
+      <div class="row form-actions"><button class="btn success" id="pySave">Agregar</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Cuentas por pagar</h2>
+        <div class="row"><div id="pyTotals" class="pill warn"></div><button class="btn ghost" id="pyExport">Exportar Excel</button></div>
+      </div>
+      <div id="pyBody"></div>
+    </div>`;
+  $("pySave").addEventListener("click", addPayableUI);
+  $("pyExport").addEventListener("click", async () => { try { await downloadBlob(await api.exportPayables(), "cuentas-por-pagar.xlsx"); } catch (e) { toast(e.message); } });
+  await loadPayables();
+}
+async function loadPayables() {
+  try {
+    const { items, totals, count } = await api.payables();
+    $("pyTotals").textContent = `Pendiente ${money(totals.pending)} · Total ${money(totals.total)} · Pagado ${money(totals.paid)}`;
+    $("pyBody").innerHTML = `<table class="data"><thead><tr><th>Concepto</th><th>Acreedor</th><th>Naturaleza</th><th>Frec.</th><th>Vence</th><th>Estado</th><th class="r">Total</th><th class="r">Pendiente</th><th></th></tr></thead><tbody>${
+      items.map((p) => `<tr>
+        <td><b>${esc(p.concept)}</b></td><td>${esc(p.creditor || "")}</td><td>${esc(p.category || "")}</td>
+        <td>${esc(p.frequency)}</td><td>${esc(p.dueDate || "")}</td>
+        <td><span class="pill ${PAY_BADGE[p.status] || ""}">${esc(p.status)}</span></td>
+        <td class="r">${money(p.totalAmount)}</td><td class="r"><b>${money(p.pending)}</b></td>
+        <td>${p.status !== "pagado" ? `<button class="btn primary sm" data-pay="${p.id}">Abonar</button> ` : ""}<button class="link" data-delpay="${p.id}">eliminar</button></td>
+      </tr>`).join("") || '<tr><td class="hint" colspan="9">Sin cuentas por pagar</td></tr>'
+    }</tbody></table>`;
+    $("pyBody").querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", () => payPayableUI(Number(b.dataset.pay))));
+    $("pyBody").querySelectorAll("[data-delpay]").forEach((b) => b.addEventListener("click", () => delPayableUI(Number(b.dataset.delpay))));
+  } catch (e) { toast(e.message); }
+}
+async function addPayableUI() {
+  const concept = $("pyConcept").value.trim();
+  const totalAmount = readCop("pyTotal");
+  if (!concept) return toast("El concepto es obligatorio");
+  if (totalAmount <= 0) return toast("Ingresa el total");
+  try {
+    await api.createPayable({ concept, creditor: $("pyCreditor").value.trim(), category: $("pyCategory").value.trim(), totalAmount, frequency: $("pyFreq").value, dueDate: $("pyDue").value || null });
+    toast("Obligacion agregada");
+    $("pyConcept").value = ""; $("pyCreditor").value = ""; $("pyCategory").value = ""; $("pyTotal").value = ""; $("pyDue").value = "";
+    loadPayables();
+  } catch (e) { toast(e.message); }
+}
+async function payPayableUI(id) {
+  const raw = prompt("Valor del abono:");
+  if (raw === null) return;
+  const amount = Math.round(Number(String(raw).replace(/[^\d]/g, "")) || 0);
+  if (amount <= 0) return toast("Valor invalido");
+  try { await api.payPayable(id, { amount, paidDate: todayIso() }); toast("Abono registrado"); loadPayables(); }
+  catch (e) { toast(e.message); }
+}
+async function delPayableUI(id) {
+  if (!confirm("¿Eliminar esta obligacion y sus abonos?")) return;
+  try { await api.deletePayable(id); toast("Eliminada"); loadPayables(); }
+  catch (e) { toast(e.message); }
+}
+
 // ---------- Gastos (Claude) ----------
 let gastosBoxes = [];
+let expenseNatures = [];
+function natureOptions(selected = "") {
+  return expenseNatures.map((n) => `<option value="${esc(n.code)}" ${n.code === selected ? "selected" : ""}>${esc(n.name)}</option>`).join("");
+}
 async function renderGastos(c) {
   if (!c) return;
   const today = todayIso();
-  try { const r = await api.cashBoxes(); gastosBoxes = r.boxes || []; } catch { gastosBoxes = []; }
+  try {
+    const [boxesRes, natureRes] = await Promise.all([api.cashBoxes(), api.expenseNatures()]);
+    gastosBoxes = boxesRes.boxes || [];
+    expenseNatures = natureRes.items || [];
+  } catch {
+    gastosBoxes = [];
+    expenseNatures = [];
+  }
   const boxOpts = gastosBoxes.map((b) => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join("");
   c.innerHTML = `<div class="card">
     <div class="card-head"><h2>Registrar gasto</h2></div>
     <div class="form-grid">
       <label class="fld">Fecha<input type="date" id="gxDate" value="${today}" /></label>
       <label class="fld">Concepto *<input id="gxConcept" placeholder="Ej: papeleria, almuerzo, transporte" /></label>
-      <label class="fld">Categoria<input id="gxCategory" placeholder="Opcional" /></label>
+      <label class="fld">Naturaleza<select id="gxCategory"><option value="">Sin naturaleza</option>${natureOptions()}</select></label>
       <label class="fld">Caja${`<select id="gxBox">${boxOpts}</select>`}</label>
       <label class="fld">Monto *<input id="gxAmount" inputmode="numeric" placeholder="$" /></label>
       <label class="fld">Nota<input id="gxNote" placeholder="Opcional" /></label>
@@ -1283,10 +1365,18 @@ async function renderGastos(c) {
     </div>
     <div id="gxTotal" class="pill warn"></div>
     <div id="gxBody"></div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Reporte ejecutivo por naturaleza</h2>
+      <div class="row"><button class="btn ghost" id="gxNatureExport">Excel naturalezas</button></div>
+    </div>
+    <div id="gxNatureBody"></div>
   </div>`;
   $("gxSave").addEventListener("click", addGastoUI);
   $("gxLoad").addEventListener("click", loadGastos);
   $("gxExport").addEventListener("click", exportGastosUI);
+  $("gxNatureExport").addEventListener("click", exportNatureReportUI);
   loadGastos();
 }
 async function loadGastos() {
@@ -1298,6 +1388,20 @@ async function loadGastos() {
       items.map((e) => `<tr><td>${esc(e.date)}</td><td>${esc(e.concept)}</td><td>${esc(e.category || "")}</td><td>${esc(e.boxCode)}</td><td class="hint">${esc(e.note || "")}</td><td class="r">${money(e.amount)}</td><td><button class="link" data-delgasto="${e.id}">anular</button></td></tr>`).join("") || '<tr><td class="hint" colspan="7">Sin gastos en el rango</td></tr>'
     }</tbody></table>`;
     $("gxBody").querySelectorAll("[data-delgasto]").forEach((b) => b.addEventListener("click", () => delGastoUI(Number(b.dataset.delgasto))));
+    loadNatureReport();
+  } catch (e) { toast(e.message); }
+}
+async function loadNatureReport() {
+  try {
+    const { rows, totals } = await api.expenseNatureReport({ from: $("gxFrom").value, to: $("gxTo").value });
+    $("gxNatureBody").innerHTML = `<div class="kpis">
+      <div class="kpi"><span>Gastos caja</span><b>${money(totals.expenses)}</b></div>
+      <div class="kpi"><span>Facturas recibidas</span><b>${money(totals.invoiceTotal)}</b></div>
+      <div class="kpi"><span>IVA descontable</span><b>${money(totals.invoiceIvaDeductible)}</b></div>
+    </div>
+    <table class="data"><thead><tr><th>Naturaleza</th><th class="r">Gastos</th><th class="r">Facturas</th><th class="r">IVA desc.</th><th class="r">Reg.</th></tr></thead><tbody>${
+      rows.map((r) => `<tr><td>${esc(r.name)}</td><td class="r">${money(r.expenses)}</td><td class="r">${money(r.invoiceTotal)}</td><td class="r">${money(r.invoiceIvaDeductible)}</td><td class="r">${r.count}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin movimientos por naturaleza</td></tr>'
+    }</tbody></table>`;
   } catch (e) { toast(e.message); }
 }
 async function addGastoUI() {
@@ -1321,6 +1425,12 @@ async function exportGastosUI() {
   try {
     const blob = await api.exportExpenses({ from: $("gxFrom").value, to: $("gxTo").value });
     await downloadBlob(blob, `gastos-${$("gxFrom").value}_${$("gxTo").value}.xlsx`);
+  } catch (e) { toast(e.message); }
+}
+async function exportNatureReportUI() {
+  try {
+    const blob = await api.exportExpenseNatureReport({ from: $("gxFrom").value, to: $("gxTo").value });
+    await downloadBlob(blob, `naturalezas-${$("gxFrom").value}_${$("gxTo").value}.xlsx`);
   } catch (e) { toast(e.message); }
 }
 
@@ -1600,6 +1710,7 @@ async function loadDashboard() {
     const ranges = current.byRange.map((r) => `<tr><td>${esc(r.key)}</td><td class="r">${r.count}</td><td class="r">${r.realized}</td><td class="r">${r.pending}</td><td class="r">${money(r.total)}</td></tr>`).join("");
     const methods = current.byMethod.map((m) => `<tr><td>${esc(m.method)}</td><td class="r">${m.count}</td><td class="r">${money(m.value)}</td></tr>`).join("");
     const dispersion = (current.byDispersion || []).map((d) => `<tr><td>${esc(d.grupo)}</td><td class="r">${d.cantidad || 0}</td><td class="r">${money(d.recaudoBruto)}</td><td class="r">${money((d.servicioRecaudo || 0) + (d.ivaServicio || 0) + (d.servicioHomologado || 0) + (d.ivaHomologado || 0) + (d.ansv || 0) + (d.adqTransaccion || 0) + (d.ica || 0))}</td><td class="r"><b>${money(d.netoEstimado)}</b></td></tr>`).join("");
+    const heatmap = (current.byHourHeatmap || []).slice(0, 12).map((h) => `<tr><td>${esc(h.day)}</td><td>${esc(h.label)}</td><td class="r">${h.count}</td><td class="r">${money(h.total)}</td></tr>`).join("");
     const days = current.byDay.map((d) => `<tr><td>${esc(d.date)}</td><td class="r">${d.count}</td><td class="r">${d.realized}</td><td class="r">${d.pending}</td><td class="r">${money(d.total)}</td></tr>`).join("");
     $("dashBody").innerHTML = `
       <div class="kpis">
@@ -1619,6 +1730,8 @@ async function loadDashboard() {
           <table class="data"><thead><tr><th>Indicador</th><th class="r">Actual</th><th class="r">Año anterior</th><th class="r">Diferencia</th></tr></thead><tbody>${compare}</tbody></table>
           <h3>Resumen de motos por rango</h3>
           <table class="data"><thead><tr><th>Rango</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">Ventas</th></tr></thead><tbody>${ranges || '<tr><td class="hint" colspan="5">Sin motos en el rango</td></tr>'}</tbody></table>
+          <h3>Horas pico</h3>
+          <table class="data"><thead><tr><th>Dia</th><th>Hora</th><th class="r">RTM</th><th class="r">Ventas</th></tr></thead><tbody>${heatmap || '<tr><td class="hint" colspan="4">Sin ventas con hora</td></tr>'}</tbody></table>
         </div>
         <div>
           <h3>Dispersion estimada Supergiros</h3>
@@ -1734,25 +1847,39 @@ function addMonthsIso(iso, months) {
   d.setMonth(d.getMonth() + months);
   return d.toISOString().slice(0, 10);
 }
+const CALL_STATUS_LABEL = { pendiente: "Pendiente", llamado: "Llamado", no_contesta: "No contesta", numero_errado: "Número errado", contestado: "Contestado", agendado: "Agendado", vino: "Vino", no_vino: "No vino" };
+const CALL_BADGE = { agendado: "ok", vino: "ok", contestado: "ok", no_contesta: "warn", numero_errado: "danger", no_vino: "danger", pendiente: "warn", llamado: "" };
+let llamadasTab = "venc";
 function renderLlamadas(c) {
   if (!c) return;
-  const today = todayIso();
   c.innerHTML = `<div class="card">
-    <div class="card-head">
-      <h2>Llamadas · vencimientos de RTM</h2>
+    <div class="card-head"><h2>Llamadas</h2>
       <div class="row">
-        <label class="rng">Desde <input type="date" id="llFrom" value="${today}" /></label>
-        <label class="rng">Hasta <input type="date" id="llTo" value="${addMonthsIso(today, 1)}" /></label>
-        <button class="btn primary" id="llLoad">Buscar</button>
-        <button class="btn ghost" id="llExport">Exportar Excel</button>
+        <button class="btn ${llamadasTab === "venc" ? "primary" : "ghost"}" data-lltab="venc">Vencimientos</button>
+        <button class="btn ${llamadasTab === "gest" ? "primary" : "ghost"}" data-lltab="gest">Gestión</button>
+        <button class="btn ${llamadasTab === "ref" ? "primary" : "ghost"}" data-lltab="ref">Referidos</button>
       </div>
     </div>
-    <p class="hint">Placas cuya RTM vence en el rango (ultima RTM + 1 año). Util para llamar antes de que se venza.</p>
-    <div id="llBody"></div>
+    <div id="llRoot"></div>
   </div>`;
+  c.querySelectorAll("[data-lltab]").forEach((b) => b.addEventListener("click", () => { llamadasTab = b.dataset.lltab; renderLlamadas(c); }));
+  if (llamadasTab === "venc") renderLlamadasVenc();
+  else if (llamadasTab === "gest") loadGestion();
+  else loadReferidos();
+}
+function renderLlamadasVenc() {
+  const today = todayIso();
+  $("llRoot").innerHTML = `<div class="row" style="margin-bottom:8px">
+      <label class="rng">Desde <input type="date" id="llFrom" value="${today}" /></label>
+      <label class="rng">Hasta <input type="date" id="llTo" value="${addMonthsIso(today, 1)}" /></label>
+      <button class="btn primary" id="llLoad">Buscar</button>
+      <button class="btn ghost" id="llExport">Exportar Excel</button>
+    </div>
+    <p class="hint">Placas cuya RTM vence en el rango (última RTM + 1 año). "Gestionar" abre el seguimiento de la llamada.</p>
+    <div id="llBody"></div>`;
   $("llLoad").addEventListener("click", loadLlamadas);
   $("llExport").addEventListener("click", async () => {
-    try { const blob = await api.exportCalls($("llFrom").value, $("llTo").value); await downloadBlob(blob, `llamadas-${$("llFrom").value}_${$("llTo").value}.xlsx`); }
+    try { await downloadBlob(await api.exportCalls($("llFrom").value, $("llTo").value), `llamadas-${$("llFrom").value}_${$("llTo").value}.xlsx`); }
     catch (e) { toast(e.message); }
   });
   loadLlamadas();
@@ -1763,10 +1890,62 @@ async function loadLlamadas() {
     const to = $("llTo").value || addMonthsIso(from, 1);
     const { items, count } = await api.calls(from, to);
     $("llBody").innerHTML = `<div class="detail-meta">${count} vencimiento(s) entre ${from} y ${to}</div>
-      <table class="data"><thead><tr><th>Vence</th><th>Placa</th><th>Cliente</th><th>Telefono</th><th>Ultima RTM</th><th>Año/Rango</th></tr></thead><tbody>${
-        items.map((i) => `<tr><td><b>${esc(i.dueDate)}</b></td><td>${esc(i.plate)}</td><td class="clickable" data-doc="${esc(i.clientDoc)}">${esc(i.clientName)}</td><td>${esc(i.phone || "-")}</td><td>${esc(i.lastRtm)}</td><td class="hint">${i.modelYear || ""} ${esc(i.rangeName || "")}</td></tr>`).join("") || '<tr><td class="hint" colspan="6">Sin vencimientos en el rango</td></tr>'
+      <table class="data"><thead><tr><th>Vence</th><th>Placa</th><th>Cliente</th><th>Telefono</th><th>Ultima RTM</th><th></th></tr></thead><tbody>${
+        items.map((i, idx) => `<tr data-i="${idx}"><td><b>${esc(i.dueDate)}</b></td><td>${esc(i.plate)}</td><td class="clickable" data-doc="${esc(i.clientDoc)}">${esc(i.clientName)}</td><td>${esc(i.phone || "-")}</td><td>${esc(i.lastRtm)}</td><td><button class="btn ghost sm" data-gestionar="${idx}">Gestionar</button></td></tr>`).join("") || '<tr><td class="hint" colspan="6">Sin vencimientos en el rango</td></tr>'
       }</tbody></table>`;
     $("llBody").querySelectorAll("[data-doc]").forEach((td) => td.addEventListener("click", () => { switchView("clientes"); setTimeout(() => loadClientDetail(td.dataset.doc), 50); }));
+    $("llBody").querySelectorAll("[data-gestionar]").forEach((b) => b.addEventListener("click", () => gestionarLlamada(items[Number(b.dataset.gestionar)])));
+  } catch (e) { toast(e.message); }
+}
+// Registra una gestión a partir de un vencimiento.
+async function gestionarLlamada(v) {
+  const status = prompt(`Gestión para ${v.plate} (${v.clientName}).\nEstado: pendiente, llamado, no_contesta, numero_errado, contestado, agendado, vino, no_vino`, "contestado");
+  if (status === null) return;
+  if (!CALL_STATUS_LABEL[status]) return toast("Estado inválido");
+  const note = prompt("Nota (opcional):") || "";
+  let nextCallDate = null;
+  if (status === "agendado" || status === "no_contesta") nextCallDate = prompt("Próxima llamada (YYYY-MM-DD):") || null;
+  try {
+    await api.saveCallLog({ clientDoc: v.clientDoc, clientName: v.clientName, plate: v.plate, phone: v.phone, status, note, dueDate: v.dueDate, nextCallDate });
+    toast("Gestión registrada");
+  } catch (e) { toast(e.message); }
+}
+async function loadGestion() {
+  $("llRoot").innerHTML = `<div class="row" style="margin-bottom:8px">
+      <select id="llStatusFilter"><option value="">Todos los estados</option>${Object.entries(CALL_STATUS_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+      <button class="btn primary" id="llGestLoad">Ver</button>
+      <button class="btn ghost" id="llGestExport">Exportar Excel</button>
+    </div>
+    <div id="llGestBody"></div>`;
+  $("llGestLoad").addEventListener("click", loadGestionList);
+  $("llGestExport").addEventListener("click", async () => {
+    try { await downloadBlob(await api.exportCallLogs({ status: $("llStatusFilter").value }), "gestion-llamadas.xlsx"); } catch (e) { toast(e.message); }
+  });
+  loadGestionList();
+}
+async function loadGestionList() {
+  try {
+    const status = $("llStatusFilter")?.value || "";
+    const { items, summary, count } = await api.callLogs(status ? { status } : {});
+    $("llGestBody").innerHTML = `<div class="detail-meta">${count} gestión(es) · ${Object.entries(summary).map(([k, v]) => `${CALL_STATUS_LABEL[k] || k}: ${v}`).join(" · ")}</div>
+      <table class="data"><thead><tr><th>Cliente</th><th>Placa</th><th>Telefono</th><th>Estado</th><th>Próxima</th><th>Nota</th><th></th></tr></thead><tbody>${
+        items.map((l) => `<tr>
+          <td>${esc(l.clientName || l.clientDoc || "")}</td><td>${esc(l.plate || "")}</td><td>${esc(l.phone || "")}</td>
+          <td><span class="pill ${CALL_BADGE[l.status] || ""}">${esc(CALL_STATUS_LABEL[l.status] || l.status)}</span></td>
+          <td>${esc(l.nextCallDate || "")}</td><td class="hint">${esc(l.note || "")}</td>
+          <td><button class="link" data-delcall="${l.id}">eliminar</button></td>
+        </tr>`).join("") || '<tr><td class="hint" colspan="7">Sin gestiones registradas</td></tr>'
+      }</tbody></table>`;
+    $("llGestBody").querySelectorAll("[data-delcall]").forEach((b) => b.addEventListener("click", async () => { if (confirm("¿Eliminar gestión?")) { await api.deleteCallLog(Number(b.dataset.delcall)); loadGestionList(); } }));
+  } catch (e) { toast(e.message); }
+}
+async function loadReferidos() {
+  try {
+    const { items, count } = await api.referidosReport();
+    $("llRoot").innerHTML = `<p class="hint">Rendimiento por referido y placas provisionadas pendientes (para llamarlos a cerrar la RTM).</p>
+      <table class="data"><thead><tr><th>Referido</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">$ Pendiente</th><th>Placas pendientes</th></tr></thead><tbody>${
+        items.map((r) => `<tr><td><b>${esc(r.referido)}</b></td><td class="r">${r.total}</td><td class="r">${r.realizadas}</td><td class="r">${r.pendientes ? `<span class="pill warn">${r.pendientes}</span>` : 0}</td><td class="r">${money(r.montoPendiente)}</td><td class="hint">${esc(r.placasPendientes.map((p) => p.plate).join(", "))}</td></tr>`).join("") || `<tr><td class="hint" colspan="6">Sin referidos</td></tr>`
+      }</tbody></table>`;
   } catch (e) { toast(e.message); }
 }
 async function loadDirectoReferido() {

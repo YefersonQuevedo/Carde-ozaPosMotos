@@ -219,6 +219,38 @@ Pendiente para Claude si se mantiene una migracion compartida:
 - [ ] ⏳ Codex - Ampliar Proveedores con una primera version de facturas recibidas manuales, si Claude confirma esquema.
   - Pendiente por alcance: requiere confirmar campos minimos de facturas recibidas y flujo de pago/provision.
 
+## 5b. División acordada (2026-06-05) — toda la lista repartida
+
+> El cliente pidió **toda** la lista. Codex no puede abrir el Excel/PDF, así que se le
+> asignan tareas que **no dependen** de esos binarios (el análisis de dispersión ya se
+> extrajo). Claude toma núcleo financiero/clientes/gerencial; Codex toma proveedores/reportes.
+
+### Claude (en progreso)
+1. **Llamadas con seguimiento** — modelo `CallLog` (estados: pendiente, llamado, no_contesta,
+   numero_errado, contestado, agendado, vino, no_vino), próxima fecha, nota. Registrar llamada
+   desde un vencimiento; lista filtrable por estado; export.
+2. **Reporte de referidos** — rendimiento por mes + **placas pendientes por referido**
+   (provisionadas no realizadas) para llamarlos. Sin esquema nuevo (se computa de ventas/provisiones).
+3. **Cuentas por pagar / obligaciones** — modelo `Payable` (+ `PayablePayment`): concepto,
+   acreedor, naturaleza, total, frecuencia (único/mensual/bimestral/cuotas), fecha estimada,
+   abonos, estado, pendiente. Módulo gerencial.
+4. **BTA vs DIAN** — aclarar en modelo/UI: `saleNumber` (BTA, registro interno) vs factura
+   DIAN/POS (`invoiceNumber`/CUFE). Etiquetas claras en venta, detalle, cierre y exportes.
+
+### Codex (no depende del Excel)
+5. **Facturas recibidas de proveedores** — modelo `SupplierInvoice` (proveedor/NIT, número,
+   fecha, concepto, base, IVA, total, descontable sí/no, archivo/correo origen, estado pago).
+   Vista en Proveedores: a quién se le debe, IVA descontable. (Fase posterior: lectura de correo/DIAN.)
+6. **Naturalezas de ingreso/gasto** — catálogo `ExpenseNature` (arriendo, nómina, cesantías,
+   retención, parafiscales, crédito, dispersión ADDI, socios, SOAT, 4×1000, cuota tarjeta…) +
+   **reporte ejecutivo por naturaleza** (ingresos/gastos agrupados). Coordinar: el campo
+   `Expense.category` ya existe; Codex puede normalizarlo contra el catálogo.
+7. **Mapa de calor de horas pico** — KPI por día/hora (de `sale.saleDate`/`saleTime`) en el Dashboard.
+
+> Contratos de esquema que crea **Claude** (migración compartida): `CallLog`, `Payable`,
+> `PayablePayment`. Codex crea: `SupplierInvoice`, `ExpenseNature`. Cada quien su migración;
+> sin FKs, estilo del repo.
+
 ## 6. Tareas inmediatas para Claude
 
 - [x] ✅ Codex - Agregar/validar PIN de 19 digitos en venta RTM realizada.

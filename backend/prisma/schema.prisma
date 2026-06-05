@@ -384,6 +384,62 @@ model DianConfig {
   @@map("dian_config")
 }
 
+/// Seguimiento de llamadas (gestion de vencimientos RTM y clientes por contactar).
+/// status: pendiente | llamado | no_contesta | numero_errado | contestado | agendado | vino | no_vino
+model CallLog {
+  id           Int      @id @default(autoincrement())
+  clientDoc    String?
+  clientName   String?
+  plate        String?
+  phone        String?
+  status       String   @default("pendiente")
+  result       String?
+  note         String?  @db.Text
+  dueDate      String?  // vencimiento RTM asociado (YYYY-MM-DD)
+  nextCallDate String?  // proxima llamada agendada
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([clientDoc])
+  @@index([status])
+  @@map("call_logs")
+}
+
+/// Cuentas por pagar / obligaciones (modulo gerencial). frequency: unico | mensual | bimestral | cuotas
+model Payable {
+  id                Int      @id @default(autoincrement())
+  concept           String
+  creditor          String?  // a quien se le debe
+  category          String?  // naturaleza: arriendo, nomina, cesantias, retencion, parafiscales, cuota, proveedor...
+  totalAmount       Int      @default(0)
+  paidAmount        Int      @default(0)
+  frequency         String   @default("unico")
+  installments      Int      @default(1)
+  installmentAmount Int      @default(0)
+  dueDate           String?  // fecha estimada de pago (YYYY-MM-DD)
+  status            String   @default("pendiente") // pendiente | parcial | pagado
+  note              String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status])
+  @@map("payables")
+}
+
+/// Abonos a una cuenta por pagar.
+model PayablePayment {
+  id        Int      @id @default(autoincrement())
+  payableId Int
+  amount    Int
+  paidDate  String   // YYYY-MM-DD
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([payableId])
+  @@map("payable_payments")
+}
+
 /// Anulacion de una venta (append-only: la venta no se borra, se reversa).
 model Reversal {
   id           Int      @id @default(autoincrement())
@@ -496,8 +552,24 @@ model Expense {
   createdAt DateTime @default(now())
 
   @@index([date])
+  @@index([category])
   @@index([boxCode])
   @@map("expenses")
+}
+
+/// Catalogo normalizado de naturalezas de ingreso/gasto para reportes gerenciales.
+/// kind: ingreso | gasto | ambos
+model ExpenseNature {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  kind        String   @default("gasto")
+  taxRelevant Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([kind])
+  @@map("expense_natures")
 }
 
 /// Proveedores (para ordenes de compra). Distintos de convenios/aliados.
@@ -515,6 +587,38 @@ model Supplier {
 
   @@index([name])
   @@map("suppliers")
+}
+
+/// Facturas recibidas de proveedores. Base para cuentas por pagar e IVA descontable.
+model SupplierInvoice {
+  id            Int      @id @default(autoincrement())
+  supplierId    Int?
+  supplierDoc   String?
+  supplierName  String
+  number        String
+  date          String   // YYYY-MM-DD
+  dueDate       String?
+  concept       String?
+  natureCode    String?
+  base          Int      @default(0)
+  iva           Int      @default(0)
+  total         Int      @default(0)
+  deductible    Boolean  @default(true)
+  source        String?  // manual | correo | dian | xml | pdf
+  filePath      String?
+  status        String   @default("pendiente") // pendiente | parcial | pagada | anulada
+  paidAmount    Int      @default(0)
+  paidDate      String?
+  note          String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([supplierId])
+  @@index([supplierDoc])
+  @@index([date])
+  @@index([status])
+  @@index([natureCode])
+  @@map("supplier_invoices")
 }
 
 /// Orden de compra a un proveedor (cabecera). Lineas en PurchaseOrderLine.

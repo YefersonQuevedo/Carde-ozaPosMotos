@@ -31,6 +31,21 @@ function groupSales(sales, keyFn) {
   return Object.values(map).sort((a, b) => b.count - a.count);
 }
 
+function hourHeatmap(sales = []) {
+  const dayNames = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const map = {};
+  for (const sale of sales) {
+    const hour = Number(String(sale.saleTime || "00:00").slice(0, 2));
+    const safeHour = Number.isFinite(hour) && hour >= 0 && hour <= 23 ? hour : 0;
+    const dayIndex = new Date(`${sale.saleDate}T12:00:00`).getDay();
+    const key = `${dayIndex}-${safeHour}`;
+    const row = (map[key] ||= { dayIndex, day: dayNames[dayIndex], hour: safeHour, label: `${String(safeHour).padStart(2, "0")}:00`, count: 0, total: 0 });
+    row.count += 1;
+    row.total += money(sale.total);
+  }
+  return Object.values(map).sort((a, b) => b.count - a.count || b.total - a.total);
+}
+
 async function rangeReport(from, to) {
   const sales = await prisma.sale.findMany({
     where: { status: "activa", saleDate: { gte: from, lte: to } },
@@ -112,6 +127,7 @@ async function rangeReport(from, to) {
     byVehicleType: groupSales(sales, (s) => s.vehicleType),
     byAllyType: groupSales(sales, (s) => s.allyType),
     byDay: Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date)),
+    byHourHeatmap: hourHeatmap(sales),
     byMethod: Object.entries(closing.byMethod).map(([method, value]) => ({
       method,
       count: closing.countByMethod?.[method] || 0,
@@ -193,6 +209,20 @@ router.get("/export", async (req, res, next) => {
             { header: "Ventas", key: "total", width: 16, money: true }
           ],
           rows: current.byDay
+        },
+        {
+          name: "Horas pico",
+          columns: [
+            { header: "Dia", key: "day", width: 14 },
+            { header: "Hora", key: "label", width: 10 },
+            { header: "RTM/Ventas", key: "count", width: 12, number: true },
+            { header: "Ventas", key: "total", width: 16, money: true }
+          ],
+          rows: current.byHourHeatmap,
+          totals: {
+            count: current.byHourHeatmap.reduce((a, r) => a + money(r.count), 0),
+            total: current.byHourHeatmap.reduce((a, r) => a + money(r.total), 0)
+          }
         },
         {
           name: "Metodos",
