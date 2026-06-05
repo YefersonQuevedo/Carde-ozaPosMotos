@@ -309,6 +309,30 @@ const dispersionColumns = [
   { header: "Cantidad", key: "cantidad", width: 10, number: true }
 ];
 
+const dispersionDetailColumns = [
+  { header: "Fecha", key: "fecha", width: 12 },
+  { header: "Venta", key: "venta", width: 16 },
+  { header: "Factura", key: "factura", width: 16 },
+  { header: "Cliente", key: "cliente", width: 28 },
+  { header: "Documento", key: "documento", width: 16 },
+  { header: "Placa", key: "placa", width: 10 },
+  { header: "Metodo", key: "metodo", width: 24 },
+  { header: "Codigo metodo", key: "metodoCodigo", width: 14 },
+  { header: "Grupo dispersion", key: "grupo", width: 18 },
+  { header: "Recaudo bruto", key: "recaudoBruto", width: 16, money: true },
+  { header: "SICOV/Homologado", key: "sicov", width: 18, money: true },
+  { header: "IVA SICOV", key: "ivaSicov", width: 14, money: true },
+  { header: "Servicio recaudo", key: "recaudo", width: 18, money: true },
+  { header: "IVA recaudo", key: "ivaRecaudo", width: 14, money: true },
+  { header: "ANSV/FNSV", key: "ansv", width: 14, money: true },
+  { header: "FUPA", key: "fupa", width: 12, money: true },
+  { header: "Sustratos", key: "sustratos", width: 14, money: true },
+  { header: "IVA facturacion", key: "ivaFact", width: 16, money: true },
+  { header: "Costo transaccion", key: "costoTransaccion", width: 18, money: true },
+  { header: "Deducciones operativas", key: "deduccionesOperativas", width: 22, money: true },
+  { header: "Neto estimado", key: "netoEstimado", width: 16, money: true }
+];
+
 // GET /api/closings/detail?date=&gastos= -> planilla auditable del dia.
 router.get("/detail", async (req, res, next) => {
   try {
@@ -321,6 +345,7 @@ router.get("/detail", async (req, res, next) => {
       detail: audit.detailRows,
       payments: audit.paymentRows,
       dispersion: audit.dispersionSummary,
+      dispersionDetail: audit.dispersionRows,
       movements: audit.movementRows,
       expenses: audit.expenseRows
     });
@@ -368,6 +393,26 @@ router.get("/detail/export", async (req, res, next) => {
           }
         },
         { name: "Pagos", title: `Pagos del dia ${date}`, columns: paymentColumns, rows: audit.paymentRows },
+        {
+          name: "Dispersion por venta",
+          title: `Costos de dispersion por venta/pago ${date}`,
+          columns: dispersionDetailColumns,
+          rows: audit.dispersionRows,
+          totals: {
+            recaudoBruto: total("recaudoBruto", audit.dispersionRows),
+            sicov: total("sicov", audit.dispersionRows),
+            ivaSicov: total("ivaSicov", audit.dispersionRows),
+            recaudo: total("recaudo", audit.dispersionRows),
+            ivaRecaudo: total("ivaRecaudo", audit.dispersionRows),
+            ansv: total("ansv", audit.dispersionRows),
+            fupa: total("fupa", audit.dispersionRows),
+            sustratos: total("sustratos", audit.dispersionRows),
+            ivaFact: total("ivaFact", audit.dispersionRows),
+            costoTransaccion: total("costoTransaccion", audit.dispersionRows),
+            deduccionesOperativas: total("deduccionesOperativas", audit.dispersionRows),
+            netoEstimado: total("netoEstimado", audit.dispersionRows)
+          }
+        },
         {
           name: "Dispersion estimada",
           title: `Estimado Supergiros por grupo ${date}`,
