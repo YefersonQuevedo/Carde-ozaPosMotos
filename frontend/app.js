@@ -215,16 +215,16 @@ function renderActive(key) {
         <div id="vRange" class="hint">Ingresa el año del modelo para cargar el paquete RTM.</div>
         <button class="btn primary" id="vNext">Continuar</button>`, false);
     case "rtmPaid":
-      return card(key, "3 · ¿La RTM ya está paga?", `
+      return card(key, "3 · ¿Se cobra o ya está paga?", `
         <div class="bigchoices">
-          <button class="bigchoice blue" data-rtmpaid="no"><span class="bc-ico">💵</span><span class="bc-main">NO</span><span class="bc-sub">Se cobra ahora</span></button>
-          <button class="bigchoice green" data-rtmpaid="si"><span class="bc-ico">✅</span><span class="bc-main">SÍ</span><span class="bc-sub">Ya está paga</span></button>
+          <button class="bigchoice green" data-rtmpaid="no"><span class="bc-ico">💵</span><span class="bc-main">SE COBRA AHORA</span><span class="bc-sub">Venta normal</span></button>
+          <button class="bigchoice red" data-rtmpaid="si"><span class="bc-ico">⛔</span><span class="bc-main">YA ESTÁ PAGA</span><span class="bc-sub">Buscar provisión</span></button>
         </div>`, false);
     case "credito":
-      return card(key, "4 · ¿Necesita crédito?", `
+      return card(key, "4 · ¿Cómo paga?", `
         <div class="bigchoices">
-          <button class="bigchoice green" data-credit="no"><span class="bc-ico">💵</span><span class="bc-main">NO</span><span class="bc-sub">Paga directo</span></button>
-          <button class="bigchoice blue" data-credit="si"><span class="bc-ico">🏦</span><span class="bc-main">SÍ</span><span class="bc-sub">Financiación (ADDI/GORA)</span></button>
+          <button class="bigchoice green" data-credit="no"><span class="bc-ico">💵</span><span class="bc-main">PAGA DIRECTO</span><span class="bc-sub">Efectivo, tarjeta, QR…</span></button>
+          <button class="bigchoice blue" data-credit="si"><span class="bc-ico">🏦</span><span class="bc-main">CON FINANCIACIÓN</span><span class="bc-sub">ADDI o GORA</span></button>
         </div>`, false);
     case "creditoProveedor":
       return card(key, "4b · Financiación", `
@@ -258,7 +258,7 @@ function renderActive(key) {
         <button class="btn primary" id="payDone" ${p.canConfirm ? "" : "disabled"}>Confirmar pago</button>`, false);
     }
     case "tipoCliente": {
-      return card(key, "6 · ¿Usuario directo o referido?", `
+      return card(key, "6 · ¿Cómo llegó el cliente?", `
         <div class="bigchoices">
           <button class="bigchoice green" data-ally="usuario"><span class="bc-ico">🧑</span><span class="bc-main">DIRECTO</span><span class="bc-sub">Cliente fidelizado</span></button>
           <button class="bigchoice blue" data-ally="referido"><span class="bc-ico">🤝</span><span class="bc-main">REFERIDO</span><span class="bc-sub">Lo trajo un convenio</span></button>
@@ -273,10 +273,10 @@ function renderActive(key) {
         </div>`, false);
     }
     case "rtmHoy":
-      return card(key, "7 · ¿Realiza la RTM hoy?", `
+      return card(key, "7 · ¿Cuándo hace la RTM?", `
         <div class="bigchoices">
-          <button class="bigchoice green" data-today="si"><span class="bc-ico">✅</span><span class="bc-main">SÍ</span><span class="bc-sub">Se realiza hoy · genera PIN</span></button>
-          <button class="bigchoice amber" data-today="no"><span class="bc-ico">⏳</span><span class="bc-main">NO</span><span class="bc-sub">Queda pendiente · provisión</span></button>
+          <button class="bigchoice green" data-today="si"><span class="bc-ico">✅</span><span class="bc-main">HOY MISMO</span><span class="bc-sub">Genera PIN ahora</span></button>
+          <button class="bigchoice amber" data-today="no"><span class="bc-ico">⏳</span><span class="bc-main">QUEDA PENDIENTE</span><span class="bc-sub">Va a provisión</span></button>
         </div>`, false);
     case "pin":
       return card(key, "7b · PIN SuperFlex", `
