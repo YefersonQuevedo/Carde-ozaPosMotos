@@ -25,6 +25,7 @@ import fupa from "./routes/fupa.js";
 import dian from "./routes/dian.js";
 import settings from "./routes/settings.js";
 import payables from "./routes/payables.js";
+import income from "./routes/income.js";
 import { auth } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,7 @@ app.use("/api/fupa", fupa);
 app.use("/api/dian", dian);
 app.use("/api/settings", settings);
 app.use("/api/payables", payables);
+app.use("/api/income", income);
 
 // Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).
 app.use("/uploads", express.static(UPLOADS_DIR));

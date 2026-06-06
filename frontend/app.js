@@ -1251,7 +1251,7 @@ const VIEW_TITLES = {
   dashboard: "Dashboard", venta: "Venta", cierre: "Cierre diario", provisiones: "Provisiones",
   consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
   llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
-  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA", dian: "Facturacion DIAN", config: "Configuracion", payables: "Cuentas por pagar"
+  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA", dian: "Facturacion DIAN", config: "Configuracion", payables: "Cuentas por pagar", ingresos: "Ingresos"
 };
 function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
@@ -1269,6 +1269,7 @@ function switchView(view) {
   if (view === "dashboard") renderDashboard($("dashboardRoot"));
   if (view === "provisiones") renderProvisiones($("provisionesRoot"));
   if (view === "gastos") renderGastos($("gastosRoot"));
+  if (view === "ingresos") renderIngresos($("ingresosRoot"));
   if (view === "payables") renderPayables($("payablesRoot"));
   if (view === "fupa") renderFupa($("fupaRoot"));
   if (view === "dian") renderDian($("dianRoot"));
@@ -1348,6 +1349,80 @@ async function delPayableUI(id) {
   if (!confirm("¿Eliminar esta obligacion y sus abonos?")) return;
   try { await api.deletePayable(id); toast("Eliminada"); loadPayables(); }
   catch (e) { toast(e.message); }
+}
+
+// ---------- Ingresos (plantilla) ----------
+async function renderIngresos(c) {
+  if (!c) return;
+  const today = todayIso();
+  try { expenseNatures = ((await api.expenseNatures()).items) || expenseNatures || []; } catch { expenseNatures = expenseNatures || []; }
+  const natOpts = (expenseNatures || []).map((n) => `<option value="${esc(n.code)}">${esc(n.name)}</option>`).join("");
+  c.innerHTML = `<div class="card">
+      <div class="card-head"><h2>Registrar ingreso</h2></div>
+      <div class="form-grid">
+        <label class="fld">Fecha<input type="date" id="inDate" value="${today}" /></label>
+        <label class="fld">Valor *<input id="inValue" inputmode="numeric" placeholder="$" /></label>
+        <label class="fld">Observacion<input id="inObs" placeholder="Ej: Semana 27 abril, abono SOAT…" /></label>
+        <label class="fld">Naturaleza<span class="row" style="gap:6px"><select id="inNature" style="flex:1"><option value="">Sin naturaleza</option>${natOpts}</select><button class="btn ghost" id="inAddNature" type="button" title="Agregar tipo">+</button></span></label>
+        <label class="fld">Fuente<select id="inSource"><option value="efectivo">Efectivo</option><option value="bancos">Bancos</option></select></label>
+        <label class="chk" style="align-self:end"><input type="checkbox" id="inAfectaCaja" /> Acreditar a una caja</label>
+      </div>
+      <div class="row form-actions"><button class="btn success" id="inSave">Registrar ingreso</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Ingresos</h2>
+        <div class="row">
+          <label class="rng">Desde <input type="date" id="inFrom" value="${today.slice(0, 8)}01" /></label>
+          <label class="rng">Hasta <input type="date" id="inTo" value="${today}" /></label>
+          <select id="inSourceFilter"><option value="">Toda fuente</option><option value="efectivo">Efectivo</option><option value="bancos">Bancos</option></select>
+          <button class="btn primary" id="inLoad">Ver</button>
+          <button class="btn ghost" id="inExport">Exportar Excel</button>
+        </div>
+      </div>
+      <div id="inTotal" class="pill warn"></div>
+      <div id="inBody"></div>
+    </div>`;
+  $("inSave").addEventListener("click", addIncomeUI);
+  $("inLoad").addEventListener("click", loadIncome);
+  $("inExport").addEventListener("click", exportIncomeUI);
+  $("inAddNature").addEventListener("click", () => addNatureUI(c));
+  await loadIncome();
+}
+async function loadIncome() {
+  try {
+    const params = { from: $("inFrom").value, to: $("inTo").value };
+    if ($("inSourceFilter").value) params.source = $("inSourceFilter").value;
+    const { items, total, count, bySource } = await api.income(params);
+    const natName = Object.fromEntries((expenseNatures || []).map((n) => [n.code, n.name]));
+    $("inTotal").textContent = `${count} ingreso(s) · ${money(total)} · Efectivo ${money(bySource.efectivo || 0)} · Bancos ${money(bySource.bancos || 0)}`;
+    $("inBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th class="r">Valor</th><th>Observacion</th><th>Naturaleza</th><th>Fuente</th><th></th></tr></thead><tbody>${
+      items.map((i) => `<tr><td>${esc(i.date)}</td><td class="r">${money(i.value)}</td><td>${esc(i.observation || "")}</td><td>${esc(natName[i.natureCode] || i.natureCode || "")}</td><td>${esc(i.source)}</td><td><button class="link" data-delinc="${i.id}">anular</button></td></tr>`).join("") || '<tr><td class="hint" colspan="6">Sin ingresos en el rango</td></tr>'
+    }</tbody></table>`;
+    $("inBody").querySelectorAll("[data-delinc]").forEach((b) => b.addEventListener("click", () => delIncomeUI(Number(b.dataset.delinc))));
+  } catch (e) { toast(e.message); }
+}
+async function addIncomeUI() {
+  const value = readCop("inValue");
+  if (value <= 0) return toast("Ingresa el valor");
+  try {
+    await api.addIncome({ date: $("inDate").value || todayIso(), value, observation: $("inObs").value.trim(), natureCode: $("inNature").value, source: $("inSource").value, afectaCaja: $("inAfectaCaja").checked });
+    toast("Ingreso registrado");
+    $("inValue").value = ""; $("inObs").value = "";
+    loadIncome();
+  } catch (e) { toast(e.message); }
+}
+async function delIncomeUI(id) {
+  if (!confirm("¿Anular este ingreso?")) return;
+  try { await api.deleteIncome(id); toast("Ingreso anulado"); loadIncome(); }
+  catch (e) { toast(e.message); }
+}
+async function exportIncomeUI() {
+  try {
+    const params = { from: $("inFrom").value, to: $("inTo").value };
+    if ($("inSourceFilter").value) params.source = $("inSourceFilter").value;
+    await downloadBlob(await api.exportIncome(params), `ingresos-${$("inFrom").value}_${$("inTo").value}.xlsx`);
+  } catch (e) { toast(e.message); }
 }
 
 // ---------- Gastos (Claude) ----------

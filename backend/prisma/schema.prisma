@@ -537,6 +537,27 @@ model FupaMovement {
   @@map("fupa_movements")
 }
 
+/// Plantilla de ingresos (espejo de la hoja "Ingresos" del Excel gerencial).
+/// Registro/clasificacion de ingresos por naturaleza y fuente (bancos | efectivo).
+/// Opcionalmente acredita una caja (afectaCaja => CashMovement ingreso).
+model Income {
+  id          Int      @id @default(autoincrement())
+  date        String   // YYYY-MM-DD
+  value       Int
+  observation String?
+  natureCode  String?  // naturaleza (ingreso)
+  source      String   @default("efectivo") // efectivo | bancos
+  boxCode     String?  // caja acreditada (si afecta caja)
+  note        String?
+  createdBy   String?
+  status      String   @default("activa") // activa | anulada
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+  @@index([natureCode])
+  @@map("incomes")
+}
+
 /// Gastos del negocio. Cada gasto sale de una caja (genera CashMovement egreso).
 /// Alimenta el "gastos" del cierre diario.
 model Expense {

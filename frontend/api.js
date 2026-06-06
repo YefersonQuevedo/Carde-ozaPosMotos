@@ -115,6 +115,12 @@ export const api = {
   addCashMovement: (body) => req("/provisions/movements", { method: "POST", body }),
   realizeProvision: (saleId, body) => req(`/provisions/${saleId}/realize`, { method: "POST", body }),
 
+  income: (params = {}) => req(`/income?${new URLSearchParams(params)}`),
+  addIncome: (body) => req("/income", { method: "POST", body }),
+  deleteIncome: (id) => req(`/income/${id}`, { method: "DELETE" }),
+  incomeByNature: (params = {}) => req(`/income/by-nature?${new URLSearchParams(params)}`),
+  exportIncome: (params = {}) => reqBlob(`/income/export?${new URLSearchParams(params)}`),
+
   expenses: (params = {}) => req(`/expenses?${new URLSearchParams(params)}`),
   addExpense: (body) => req("/expenses", { method: "POST", body }),
   deleteExpense: (id) => req(`/expenses/${id}`, { method: "DELETE" }),
