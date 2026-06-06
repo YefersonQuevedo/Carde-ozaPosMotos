@@ -1868,7 +1868,7 @@ async function loadDashboard() {
         <div class="kpi"><span>Ventas brutas</span><b>${money(k.salesTotal)}</b></div>
         <div class="kpi"><span>RTM realizadas</span><b>${k.rtmRealizadas}/${k.rtmFacturadas}</b></div>
         <div class="kpi"><span>Ticket promedio</span><b>${money(k.ticketPromedio)}</b></div>
-        <div class="kpi"><span>Directo / referido</span><b>${k.directPct}% / ${k.referredPct}%</b></div>
+        <div class="kpi"><span>Directo / referido</span><b>${k.directPct}% / ${k.referredPct}%</b><small>${k.directSales} directo · ${k.referredSales} referido</small></div>
         <div class="kpi"><span>Jasper estimado</span><b>${money(k.jasper)}</b></div>
         <div class="kpi"><span>Dispersion neta</span><b>${money(k.dispersionNeta)}</b></div>
         <div class="kpi"><span>Efectivo / bancos</span><b>${money(k.dispersionEfectivoNeto)} / ${money(k.dispersionBancosNeto)}</b></div>
