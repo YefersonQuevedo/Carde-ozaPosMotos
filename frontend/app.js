@@ -512,6 +512,8 @@ function wireWizard() {
     const p = paymentState();
     if (p.nonCashOver) return toast("Los pagos que no son efectivo no pueden superar el total");
     if (p.paid < p.total) return toast("Falta cubrir el total");
+    // Quita métodos en $0 (solo se cobró por los que tienen valor).
+    sale.payments = sale.payments.filter((pay) => Number(pay.amount) > 0);
     sale.paymentConfirmed = true;
     render();
   });
