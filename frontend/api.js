@@ -155,6 +155,7 @@ export const api = {
   consolidado: (from, to) => req(`/closings/consolidado?from=${from}&to=${to}`),
   report: (from, to) => req(`/closings/report?from=${from}&to=${to}`),
   exportConsolidado: (from, to) => reqBlob(`/closings/report/export?from=${from}&to=${to}`),
+  heatmap: (from, to) => req(`/reports/heatmap?from=${from}&to=${to}`),
 
   receivables: (params = {}) => req(`/receivables?${new URLSearchParams(params)}`),
   payReceivable: (id) => req(`/receivables/${id}/pay`, { method: "POST" }),

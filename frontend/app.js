@@ -785,8 +785,42 @@ async function loadReport() {
       <table class="data"><thead><tr><th>Dia</th><th class="r">Ventas</th><th class="r">Jasper</th><th class="r">Provision</th><th class="r">Deducciones</th><th class="r">Efectivo</th><th class="r">RTM</th></tr></thead>
       <tbody>${rows || '<tr><td class="hint" colspan="7">Sin ventas en el rango</td></tr>'}</tbody>
       <tfoot><tr><td><b>Total</b></td><td class="r"><b>${money(t.salesTotal)}</b></td><td class="r"><b>${money(t.jasper)}</b></td><td class="r"><b>${money(t.provision)}</b></td><td class="r"><b>${money(t.deducciones)}</b></td><td class="r"><b>${money(t.efectivoEntregar)}</b></td><td></td></tr></tfoot>
-      </table>`;
+      </table>
+      <h3 style="margin-top:18px">Mapa de calor — horas y días pico</h3>
+      <div id="heatmapBox" class="hint">Cargando…</div>`;
+    loadHeatmap(from, to);
   } catch (e) { toast(e.message); }
+}
+// Color de celda segun intensidad (0..1): de gris claro a verde fuerte.
+function heatColor(ratio) {
+  if (ratio <= 0) return "#eef2f7";
+  const r = Math.round(232 - 200 * ratio);
+  const g = Math.round(244 - 70 * ratio);
+  const b = Math.round(247 - 200 * ratio);
+  return `rgb(${r},${g},${b})`;
+}
+async function loadHeatmap(from, to) {
+  try {
+    const d = await api.heatmap(from, to);
+    const hours = [];
+    for (let h = d.hourMin; h <= d.hourMax; h++) hours.push(h);
+    const head = `<tr><th></th>${hours.map((h) => `<th>${String(h).padStart(2, "0")}h</th>`).join("")}<th>Total</th></tr>`;
+    const body = d.rows.map((row) => {
+      const cells = hours.map((h) => {
+        const v = row.hours[h] || 0;
+        const ratio = d.max ? v / d.max : 0;
+        return `<td class="cell" style="background:${heatColor(ratio)};color:${ratio > 0.55 ? "#fff" : "#0b3d20"}" title="${row.day} ${String(h).padStart(2, "0")}:00 · ${v}">${v || ""}</td>`;
+      }).join("");
+      return `<tr><td class="day">${row.day}</td>${cells}<td class="day">${row.total}</td></tr>`;
+    }).join("");
+    $("heatmapBox").innerHTML = `
+      <div class="row" style="gap:18px;margin-bottom:8px">
+        <div class="pill ok">Día pico: ${esc(d.peakDay || "-")}</div>
+        <div class="pill ok">Hora pico: ${esc(d.peakHour || "-")}</div>
+        <span class="hint">${d.total} RTM en el rango · más oscuro = más movimiento</span>
+      </div>
+      <div style="overflow-x:auto"><table class="heatmap">${head}${body}</table></div>`;
+  } catch (e) { $("heatmapBox").innerHTML = `<span class="hint">${esc(e.message)}</span>`; }
 }
 
 async function loadPagoConv() {
