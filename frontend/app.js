@@ -2212,6 +2212,7 @@ async function exportManualInvoicesUI() {
 }
 
 let selectedSupplier = null;
+let supplierInvoiceBoxes = [];
 renderProveedores = function (c) {
   if (!c) return;
   c.innerHTML = `<div class="master-detail">
@@ -2280,8 +2281,15 @@ function renderPurchaseOrderForm() {
 
 async function renderSupplierInvoiceForm() {
   if (!$("invBox")) return;
-  if (!expenseNatures.length) {
-    try { expenseNatures = (await api.expenseNatures()).items || []; } catch { expenseNatures = []; }
+  if (!expenseNatures.length || !supplierInvoiceBoxes.length) {
+    try {
+      const [natureRes, boxRes] = await Promise.all([api.expenseNatures(), api.cashBoxes()]);
+      expenseNatures = natureRes.items || [];
+      supplierInvoiceBoxes = boxRes.boxes || [];
+    } catch {
+      expenseNatures = expenseNatures || [];
+      supplierInvoiceBoxes = supplierInvoiceBoxes || [];
+    }
   }
   if (!selectedSupplier) {
     $("invBox").innerHTML = `<h3>Facturas recibidas</h3><p class="hint">Selecciona un proveedor para registrar una factura recibida. Abajo ves las ultimas facturas de todos los proveedores.</p><div id="invSummary"></div><div id="invList"></div>`;
@@ -2300,6 +2308,7 @@ async function renderSupplierInvoiceForm() {
       <label class="fld">Origen<select id="invSource"><option value="manual">Manual</option><option value="correo">Correo</option><option value="dian">DIAN</option><option value="xml">XML</option><option value="pdf">PDF</option></select></label>
     </div>
     <label class="fld">Concepto<input id="invConcept" placeholder="Ej. contabilidad, papeleria, servicio" /></label>
+    <label class="fld">Archivo / comprobante<input id="invFile" type="file" accept=".pdf,image/*" /></label>
     <label class="fld">Nota<input id="invNote" /></label>
     <div class="row form-checks"><label class="chk"><input type="checkbox" id="invDeductible" checked /> IVA descontable</label></div>
     <div class="row form-actions"><button class="btn success" id="invSave">Registrar factura recibida</button></div>
@@ -2324,7 +2333,7 @@ async function loadSupplierInvoices(supplierId = selectedSupplier?.id) {
       $("invList").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Naturaleza</th><th class="r">IVA</th><th class="r">Total</th><th class="r">Pend.</th><th>Estado</th><th></th></tr></thead><tbody>${
         items.map((i) => {
           const pending = Math.max(0, i.total - i.paidAmount);
-          return `<tr><td>${esc(i.date)}</td><td>${esc(i.supplierName)}</td><td>${esc(i.number)}<br><span class="hint">${esc(i.concept || "")}</span></td><td>${esc(i.natureCode || "")}</td><td class="r">${money(i.iva)}</td><td class="r">${money(i.total)}</td><td class="r">${money(pending)}</td><td>${esc(i.status)}</td><td>${i.status !== "anulada" && pending > 0 ? `<button class="link" data-payinv="${i.id}" data-pending="${pending}">pagar</button> ` : ""}${i.status !== "anulada" ? `<button class="link" data-voidinv="${i.id}">anular</button>` : ""}</td></tr>`;
+          return `<tr><td>${esc(i.date)}</td><td>${esc(i.supplierName)}</td><td>${esc(i.number)}<br><span class="hint">${esc(i.concept || "")}</span>${i.filePath ? `<br><a class="link" href="${esc(i.filePath)}" target="_blank">archivo</a>` : ""}</td><td>${esc(i.natureCode || "")}</td><td class="r">${money(i.iva)}</td><td class="r">${money(i.total)}</td><td class="r">${money(pending)}</td><td>${esc(i.status)}</td><td>${i.status !== "anulada" && pending > 0 ? `<button class="link" data-payinv="${i.id}" data-pending="${pending}">pagar</button> ` : ""}${i.status !== "anulada" ? `<button class="link" data-voidinv="${i.id}">anular</button>` : ""}</td></tr>`;
         }).join("") || '<tr><td class="hint" colspan="9">Sin facturas recibidas</td></tr>'
       }</tbody></table>`;
       $("invList").querySelectorAll("[data-payinv]").forEach((b) => b.addEventListener("click", () => paySupplierInvoiceUI(Number(b.dataset.payinv), Number(b.dataset.pending))));
@@ -2357,6 +2366,12 @@ async function saveSupplierInvoiceUI() {
   if (!body.number) return toast("Numero de factura obligatorio");
   if (body.total <= 0) return toast("Total de factura obligatorio");
   try {
+    const file = $("invFile")?.files?.[0];
+    if (file) {
+      toast("Subiendo archivo...");
+      const uploaded = await api.uploadFile(file);
+      body.filePath = uploaded.path || uploaded.url;
+    }
     await api.createSupplierInvoice(body);
     toast("Factura recibida registrada");
     renderSupplierInvoiceForm();
@@ -2368,9 +2383,15 @@ async function paySupplierInvoiceUI(id, pending) {
   if (value === null) return;
   const amount = Math.round(Number(String(value).replace(/[^\d]/g, "")) || 0);
   if (amount <= 0) return toast("Ingresa un valor valido");
+  if (!supplierInvoiceBoxes.length) {
+    try { supplierInvoiceBoxes = (await api.cashBoxes()).boxes || []; } catch { supplierInvoiceBoxes = []; }
+  }
+  const boxList = supplierInvoiceBoxes.map((b) => b.code).join(", ");
+  const boxCode = (prompt(`Caja de donde sale el pago (${boxList || "CAJA_MENOR"}):`, supplierInvoiceBoxes[0]?.code || "CAJA_MENOR") || "").trim();
+  if (!boxCode) return toast("Selecciona una caja");
   try {
-    await api.paySupplierInvoice(id, { amount, paidDate: todayIso() });
-    toast("Pago registrado");
+    await api.paySupplierInvoice(id, { amount, paidDate: todayIso(), boxCode });
+    toast("Pago registrado y caja descontada");
     loadSupplierInvoices(selectedSupplier?.id);
   } catch (e) { toast(e.message); }
 }

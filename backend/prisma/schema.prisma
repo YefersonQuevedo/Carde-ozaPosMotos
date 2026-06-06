@@ -642,6 +642,21 @@ model SupplierInvoice {
   @@map("supplier_invoices")
 }
 
+/// Pagos/abonos hechos a facturas recibidas. Cada pago genera egreso de caja.
+model SupplierInvoicePayment {
+  id        Int      @id @default(autoincrement())
+  invoiceId Int
+  amount    Int
+  paidDate  String   // YYYY-MM-DD
+  boxCode   String   @default("CAJA_MENOR")
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([boxCode])
+  @@map("supplier_invoice_payments")
+}
+
 /// Orden de compra a un proveedor (cabecera). Lineas en PurchaseOrderLine.
 model PurchaseOrder {
   id           Int      @id @default(autoincrement())

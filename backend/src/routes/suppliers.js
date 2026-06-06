@@ -111,6 +111,11 @@ router.get("/invoices/export", async (req, res, next) => {
       orderBy: [{ date: "desc" }, { id: "desc" }],
       take: 5000
     });
+    const invoiceIds = items.map((i) => i.id);
+    const payments = invoiceIds.length ? await prisma.supplierInvoicePayment.findMany({
+      where: { invoiceId: { in: invoiceIds } },
+      orderBy: [{ paidDate: "desc" }, { id: "desc" }]
+    }) : [];
     const totals = items.reduce((acc, i) => {
       acc.base += i.base;
       acc.iva += i.iva;
@@ -121,30 +126,53 @@ router.get("/invoices/export", async (req, res, next) => {
       return acc;
     }, { base: 0, iva: 0, total: 0, paidAmount: 0, pending: 0, ivaDeductible: 0 });
     const rows = items.map((i) => ({ ...i, pending: Math.max(0, i.total - i.paidAmount), ivaDeductible: i.deductible && i.status !== "anulada" ? i.iva : 0 }));
+    const paymentsByInvoice = Object.fromEntries(items.map((i) => [i.id, i]));
+    const paymentRows = payments.map((p) => ({
+      ...p,
+      supplierName: paymentsByInvoice[p.invoiceId]?.supplierName || "",
+      invoiceNumber: paymentsByInvoice[p.invoiceId]?.number || ""
+    }));
     const buffer = await toWorkbook({
-      sheets: [{
-        name: "Facturas recibidas",
-        title: "Facturas recibidas de proveedores",
-        columns: [
-          { header: "Fecha", key: "date", width: 12 },
-          { header: "Vence", key: "dueDate", width: 12 },
-          { header: "Proveedor", key: "supplierName", width: 32 },
-          { header: "NIT/Doc", key: "supplierDoc", width: 16 },
-          { header: "Numero", key: "number", width: 18 },
-          { header: "Concepto", key: "concept", width: 32 },
-          { header: "Naturaleza", key: "natureCode", width: 18 },
-          { header: "Base", key: "base", width: 14, money: true },
-          { header: "IVA", key: "iva", width: 14, money: true },
-          { header: "Total", key: "total", width: 14, money: true },
-          { header: "Pagado", key: "paidAmount", width: 14, money: true },
-          { header: "Pendiente", key: "pending", width: 14, money: true },
-          { header: "IVA descontable", key: "ivaDeductible", width: 16, money: true },
-          { header: "Estado", key: "status", width: 12 },
-          { header: "Origen", key: "source", width: 14 }
-        ],
-        rows,
-        totals
-      }]
+      sheets: [
+        {
+          name: "Facturas recibidas",
+          title: "Facturas recibidas de proveedores",
+          columns: [
+            { header: "Fecha", key: "date", width: 12 },
+            { header: "Vence", key: "dueDate", width: 12 },
+            { header: "Proveedor", key: "supplierName", width: 32 },
+            { header: "NIT/Doc", key: "supplierDoc", width: 16 },
+            { header: "Numero", key: "number", width: 18 },
+            { header: "Concepto", key: "concept", width: 32 },
+            { header: "Naturaleza", key: "natureCode", width: 18 },
+            { header: "Base", key: "base", width: 14, money: true },
+            { header: "IVA", key: "iva", width: 14, money: true },
+            { header: "Total", key: "total", width: 14, money: true },
+            { header: "Pagado", key: "paidAmount", width: 14, money: true },
+            { header: "Pendiente", key: "pending", width: 14, money: true },
+            { header: "IVA descontable", key: "ivaDeductible", width: 16, money: true },
+            { header: "Estado", key: "status", width: 12 },
+            { header: "Origen", key: "source", width: 14 },
+            { header: "Archivo", key: "filePath", width: 36 }
+          ],
+          rows,
+          totals
+        },
+        {
+          name: "Pagos",
+          title: "Pagos de facturas recibidas",
+          columns: [
+            { header: "Fecha pago", key: "paidDate", width: 12 },
+            { header: "Proveedor", key: "supplierName", width: 32 },
+            { header: "Factura", key: "invoiceNumber", width: 18 },
+            { header: "Caja", key: "boxCode", width: 16 },
+            { header: "Monto", key: "amount", width: 14, money: true },
+            { header: "Nota", key: "note", width: 30 }
+          ],
+          rows: paymentRows,
+          totals: { amount: paymentRows.reduce((a, p) => a + toInt(p.amount), 0) }
+        }
+      ]
     });
     sendXlsx(res, buffer, `facturas-recibidas-${new Date().toISOString().slice(0, 10)}.xlsx`);
   } catch (e) {
@@ -171,13 +199,42 @@ router.post("/invoices/:id/pay", async (req, res, next) => {
     if (!current) return res.status(404).json({ error: "Factura recibida no existe" });
     if (current.status === "anulada") return res.status(400).json({ error: "La factura esta anulada" });
     const amount = toInt(req.body?.amount);
-    const paidAmount = Math.min(current.total, current.paidAmount + amount);
+    if (amount <= 0) return res.status(400).json({ error: "El valor pagado debe ser mayor a 0" });
+    const paidDate = req.body?.paidDate || new Date().toISOString().slice(0, 10);
+    const boxCode = String(req.body?.boxCode || "CAJA_MENOR").trim() || "CAJA_MENOR";
+    const payableAmount = Math.max(0, current.total - current.paidAmount);
+    const appliedAmount = Math.min(payableAmount, amount);
+    if (appliedAmount <= 0) return res.status(400).json({ error: "La factura ya esta pagada" });
+    const paidAmount = current.paidAmount + appliedAmount;
     const status = paidAmount >= current.total ? "pagada" : "parcial";
-    const invoice = await prisma.supplierInvoice.update({
-      where: { id },
-      data: { paidAmount, paidDate: req.body?.paidDate || new Date().toISOString().slice(0, 10), status }
+    const result = await prisma.$transaction(async (tx) => {
+      const payment = await tx.supplierInvoicePayment.create({
+        data: {
+          invoiceId: id,
+          amount: appliedAmount,
+          paidDate,
+          boxCode,
+          note: String(req.body?.note || "").trim() || null
+        }
+      });
+      await tx.cashMovement.create({
+        data: {
+          boxCode,
+          type: "egreso",
+          amount: appliedAmount,
+          refType: "supplier_invoice_payment",
+          refId: payment.id,
+          date: paidDate,
+          note: `Pago factura recibida ${current.number} - ${current.supplierName}`
+        }
+      });
+      const invoice = await tx.supplierInvoice.update({
+        where: { id },
+        data: { paidAmount, paidDate, status }
+      });
+      return { invoice, payment };
     });
-    res.json({ invoice });
+    res.json(result);
   } catch (e) {
     next(e);
   }
