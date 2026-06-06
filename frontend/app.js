@@ -36,6 +36,19 @@ let catalog = { products: [], packages: [], componentsByPackage: {}, paymentMeth
 const productByCode = {};
 const methodByCode = {};
 
+// Icono + color por metodo de pago (asociacion visual para no confundir).
+function payVisual(m) {
+  const s = `${m.code || ""} ${m.name || ""}`.toUpperCase();
+  if (s.includes("EFECTIVO")) return { ico: "💵", cls: "green" };
+  if (s.includes("QR")) return { ico: "📲", cls: "indigo" };
+  if (s.includes("DATAFONO") || s.includes("TARJETA")) return { ico: "💳", cls: "blue" };
+  if (s.includes("TRANSFER")) return { ico: "🏦", cls: "teal" };
+  if (s.includes("ADDI")) return { ico: "🅰️", cls: "amber" };
+  if (s.includes("GORA")) return { ico: "🤝", cls: "teal" };
+  if (s.includes("CREDITO")) return { ico: "📄", cls: "amber" };
+  return { ico: "💳", cls: "blue" };
+}
+
 // ---------- Estado de la venta (wizard) ----------
 function blankSale() {
   return {
@@ -202,22 +215,22 @@ function renderActive(key) {
         <div id="vRange" class="hint">Ingresa el año del modelo para cargar el paquete RTM.</div>
         <button class="btn primary" id="vNext">Continuar</button>`, false);
     case "rtmPaid":
-      return card(key, "3 · ¿La RTM ya esta paga?", `
-        <div class="choices">
-          <button class="choice" data-rtmpaid="no">No, se cobra ahora</button>
-          <button class="choice" data-rtmpaid="si">Si, ya esta paga</button>
+      return card(key, "3 · ¿La RTM ya está paga?", `
+        <div class="bigchoices">
+          <button class="bigchoice blue" data-rtmpaid="no"><span class="bc-ico">💵</span><span class="bc-main">NO</span><span class="bc-sub">Se cobra ahora</span></button>
+          <button class="bigchoice green" data-rtmpaid="si"><span class="bc-ico">✅</span><span class="bc-main">SÍ</span><span class="bc-sub">Ya está paga</span></button>
         </div>`, false);
     case "credito":
-      return card(key, "4 · ¿Necesita credito?", `
-        <div class="choices">
-          <button class="choice" data-credit="no">No</button>
-          <button class="choice" data-credit="si">Si (financiacion)</button>
+      return card(key, "4 · ¿Necesita crédito?", `
+        <div class="bigchoices">
+          <button class="bigchoice green" data-credit="no"><span class="bc-ico">💵</span><span class="bc-main">NO</span><span class="bc-sub">Paga directo</span></button>
+          <button class="bigchoice blue" data-credit="si"><span class="bc-ico">🏦</span><span class="bc-main">SÍ</span><span class="bc-sub">Financiación (ADDI/GORA)</span></button>
         </div>`, false);
     case "creditoProveedor":
-      return card(key, "4b · Financiacion", `
-        <div class="choices">
-          <button class="choice" data-prov="ADDI">ADDI</button>
-          <button class="choice" data-prov="ALIADOS DE INV. GORA SAS">GORA</button>
+      return card(key, "4b · Financiación", `
+        <div class="bigchoices">
+          <button class="bigchoice amber" data-prov="ADDI"><span class="bc-ico">🅰️</span><span class="bc-main">ADDI</span><span class="bc-sub">Crédito · factura</span></button>
+          <button class="bigchoice blue" data-prov="ALIADOS DE INV. GORA SAS"><span class="bc-ico">🤝</span><span class="bc-main">GORA</span><span class="bc-sub">Crédito · factura</span></button>
         </div>
         <div class="hint">Ambos se facturan siempre y generan cartera.</div>`, false);
     case "pago": {
@@ -225,7 +238,7 @@ function renderActive(key) {
       const p = paymentState();
       const opts = catalog.paymentMethods
         .filter((m) => !m.isCredit)
-        .map((m) => `<button class="choice sm" data-pay="${esc(m.code)}">${esc(m.name)}</button>`)
+        .map((m) => { const v = payVisual(m); return `<button class="paybtn ${v.cls}" data-pay="${esc(m.code)}"><span class="pb-ico">${v.ico}</span> ${esc(m.name)}</button>`; })
         .join("");
       const rows = sale.payments
         .map((pay, i) => `<div class="payrow"><span>${esc(methodByCode[pay.methodCode].name)}</span>
@@ -246,9 +259,9 @@ function renderActive(key) {
     }
     case "tipoCliente": {
       return card(key, "6 · ¿Usuario directo o referido?", `
-        <div class="choices">
-          <button class="choice" data-ally="usuario">Usuario directo</button>
-          <button class="choice" data-ally="referido">Referido</button>
+        <div class="bigchoices">
+          <button class="bigchoice green" data-ally="usuario"><span class="bc-ico">🧑</span><span class="bc-main">DIRECTO</span><span class="bc-sub">Cliente fidelizado</span></button>
+          <button class="bigchoice blue" data-ally="referido"><span class="bc-ico">🤝</span><span class="bc-main">REFERIDO</span><span class="bc-sub">Lo trajo un convenio</span></button>
         </div>
         <div id="refBox" class="grid2 hidden">
           <div class="lookup">
@@ -261,9 +274,9 @@ function renderActive(key) {
     }
     case "rtmHoy":
       return card(key, "7 · ¿Realiza la RTM hoy?", `
-        <div class="choices">
-          <button class="choice" data-today="si">Si, se realiza hoy</button>
-          <button class="choice" data-today="no">No, queda pendiente</button>
+        <div class="bigchoices">
+          <button class="bigchoice green" data-today="si"><span class="bc-ico">✅</span><span class="bc-main">SÍ</span><span class="bc-sub">Se realiza hoy · genera PIN</span></button>
+          <button class="bigchoice amber" data-today="no"><span class="bc-ico">⏳</span><span class="bc-main">NO</span><span class="bc-sub">Queda pendiente · provisión</span></button>
         </div>`, false);
     case "pin":
       return card(key, "7b · PIN SuperFlex", `

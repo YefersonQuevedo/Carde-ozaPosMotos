@@ -145,6 +145,38 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
 .chk { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
 .chk input { flex: 0; }
 
+/* Botones SI/NO grandes con icono y color (asociacion visual para no confundir) */
+.bigchoices { display: flex; gap: 12px; margin-top: 4px; }
+.bigchoices.wrap { flex-wrap: wrap; }
+.bigchoice {
+  flex: 1 1 0; min-width: 150px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 16px 12px; border-radius: 12px; border: 2px solid var(--line-strong); background: var(--surface);
+  cursor: pointer; font: inherit; transition: transform .1s, box-shadow .15s, background .15s, border-color .15s;
+}
+.bigchoice:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.bigchoice:active { transform: translateY(0); }
+.bigchoice .bc-ico { font-size: 28px; line-height: 1; }
+.bigchoice .bc-main { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
+.bigchoice .bc-sub { font-size: 12.5px; color: var(--muted); font-weight: 600; text-align: center; }
+.bigchoice.green { border-color: var(--green); } .bigchoice.green .bc-main { color: var(--green); } .bigchoice.green:hover { background: var(--green-soft); }
+.bigchoice.blue { border-color: var(--blue); } .bigchoice.blue .bc-main { color: var(--blue); } .bigchoice.blue:hover { background: var(--blue-soft); }
+.bigchoice.amber { border-color: var(--amber); } .bigchoice.amber .bc-main { color: var(--amber); } .bigchoice.amber:hover { background: var(--amber-soft); }
+.bigchoice.red { border-color: var(--red); } .bigchoice.red .bc-main { color: var(--red); } .bigchoice.red:hover { background: #fde8ea; }
+
+/* Botones de metodo de pago con icono y color */
+.paybtn {
+  display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: 9px;
+  border: 2px solid var(--line-strong); background: var(--surface); cursor: pointer; font: inherit;
+  font-weight: 700; transition: transform .1s, box-shadow .15s, background .15s;
+}
+.paybtn .pb-ico { font-size: 16px; }
+.paybtn:hover { box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.paybtn.green { border-color: var(--green); color: var(--green); } .paybtn.green:hover { background: var(--green-soft); }
+.paybtn.blue { border-color: var(--blue); color: var(--blue); } .paybtn.blue:hover { background: var(--blue-soft); }
+.paybtn.indigo { border-color: #5b4bce; color: #5b4bce; } .paybtn.indigo:hover { background: #ecebfb; }
+.paybtn.amber { border-color: var(--amber); color: var(--amber); } .paybtn.amber:hover { background: var(--amber-soft); }
+.paybtn.teal { border-color: #0c9c8f; color: #0c9c8f; } .paybtn.teal:hover { background: #e2f6f4; }
+
 .payrows { margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
 .payrow { display: flex; align-items: center; gap: 10px; background: var(--surface-2); padding: 8px 10px; border-radius: 8px; }
 .payrow span { flex: 1; font-weight: 600; }
