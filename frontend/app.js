@@ -799,7 +799,7 @@ function heatColor(ratio) {
   const b = Math.round(247 - 200 * ratio);
   return `rgb(${r},${g},${b})`;
 }
-async function loadHeatmap(from, to) {
+async function loadHeatmap(from, to, boxId = "heatmapBox") {
   try {
     const d = await api.heatmap(from, to);
     const hours = [];
@@ -813,14 +813,14 @@ async function loadHeatmap(from, to) {
       }).join("");
       return `<tr><td class="day">${row.day}</td>${cells}<td class="day">${row.total}</td></tr>`;
     }).join("");
-    $("heatmapBox").innerHTML = `
+    $(boxId).innerHTML = `
       <div class="row" style="gap:18px;margin-bottom:8px">
         <div class="pill ok">Día pico: ${esc(d.peakDay || "-")}</div>
         <div class="pill ok">Hora pico: ${esc(d.peakHour || "-")}</div>
         <span class="hint">${d.total} RTM en el rango · más oscuro = más movimiento</span>
       </div>
       <div style="overflow-x:auto"><table class="heatmap">${head}${body}</table></div>`;
-  } catch (e) { $("heatmapBox").innerHTML = `<span class="hint">${esc(e.message)}</span>`; }
+  } catch (e) { $(boxId).innerHTML = `<span class="hint">${esc(e.message)}</span>`; }
 }
 
 async function loadPagoConv() {
@@ -1881,6 +1881,8 @@ async function loadDashboard() {
           <table class="data"><thead><tr><th>Indicador</th><th class="r">Actual</th><th class="r">Año anterior</th><th class="r">Diferencia</th></tr></thead><tbody>${compare}</tbody></table>
           <h3>Resumen de motos por rango</h3>
           <table class="data"><thead><tr><th>Rango</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">Ventas</th></tr></thead><tbody>${ranges || '<tr><td class="hint" colspan="5">Sin motos en el rango</td></tr>'}</tbody></table>
+          <h3>Mapa de calor</h3>
+          <div id="dashHeatmapBox" class="hint">Cargando...</div>
           <h3>Horas pico</h3>
           <table class="data"><thead><tr><th>Dia</th><th>Hora</th><th class="r">RTM</th><th class="r">Ventas</th></tr></thead><tbody>${heatmap || '<tr><td class="hint" colspan="4">Sin ventas con hora</td></tr>'}</tbody></table>
         </div>
@@ -1893,6 +1895,7 @@ async function loadDashboard() {
           <table class="data"><thead><tr><th>Dia</th><th class="r">RTM</th><th class="r">Hechas</th><th class="r">Pend.</th><th class="r">Ventas</th></tr></thead><tbody>${days || '<tr><td class="hint" colspan="5">Sin dias</td></tr>'}</tbody></table>
         </div>
       </div>`;
+    loadHeatmap(from, to, "dashHeatmapBox");
   } catch (e) { toast(e.message); }
 }
 
