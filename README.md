@@ -12,6 +12,9 @@ Detalle del modelo y formulas: ver [`MODELO_DATOS.md`](MODELO_DATOS.md).
 
 > **En desarrollo (revisión 2026-06-04):** backlog del cliente y reparto de trabajo
 > Claude/Codex en [`PLAN-REVISION-2026-06-04.md`](PLAN-REVISION-2026-06-04.md).
+>
+> **Arquitectura / próximos pasos:** modularizar el frontend y preparar multi-empresa
+> (10–20 CDAs) en [`REFACTOR-Y-MULTIEMPRESA.md`](REFACTOR-Y-MULTIEMPRESA.md).
 
 ## Estructura
 
