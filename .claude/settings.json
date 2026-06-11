@@ -4,7 +4,11 @@
       "mcp__playwright__browser_snapshot",
       "mcp__playwright__browser_take_screenshot",
       "Bash(ipconfig*)",
-      "Bash(findstr*)"
+      "Bash(findstr*)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='Cmd';e={\\($_.CommandLine -replace '\\\\s+',' '\\).Substring\\(0,[Math]::Min\\(90,\\($_.CommandLine\\).Length\\)\\)}} | Format-Table -AutoSize -Wrap)",
+      "PowerShell(Get-Process node,mysqld -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'pos-motos|server\\\\.js' } | Select-Object ProcessId,CommandLine | Format-List)",
+      "PowerShell(Invoke-RestMethod http://localhost:5188/api/health)"
     ]
   }
 }

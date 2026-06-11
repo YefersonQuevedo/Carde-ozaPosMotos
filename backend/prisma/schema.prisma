@@ -158,6 +158,7 @@ model Sale {
   saleNumber           String   @unique
   saleDate             String // YYYY-MM-DD (dia operativo del cierre)
   saleTime             String?
+  shiftId              Int? // turno en el que se factura (null para ventas previas a turnos)
   clientDoc            String
   clientName           String
   plate                String?
@@ -170,6 +171,7 @@ model Sale {
   allyType             String   @default("usuario") // usuario | referido
   discountApplied      Boolean  @default(true)
   deduction            Int      @default(0) // DEDUCCIONES CONVENIOS
+  commissionPaidBy     Int? // id del AllyPayment que pago esta comision (null = pendiente)
   totalBase            Int      @default(0)
   totalIva             Int      @default(0)
   total                Int      @default(0)
@@ -196,7 +198,37 @@ model Sale {
   @@index([clientDoc])
   @@index([plate])
   @@index([pinNumber])
+  @@index([shiftId])
+  @@index([commissionPaidBy])
   @@map("sales")
+}
+
+/// Turno de caja. Las ventas se facturan dentro de un turno ABIERTO; al cerrarlo
+/// solo se hace el ARQUEO de efectivo (la dispersion del dinero ocurre en el CIERRE
+/// DIARIO, no aqui). Puede haber varios turnos por dia (cambio de cajera);
+/// solo uno abierto a la vez. `number` es un consecutivo GLOBAL unico (no se repite).
+model Shift {
+  id           Int       @id @default(autoincrement())
+  businessDate String // YYYY-MM-DD (dia en que se abrio)
+  number       Int       @unique // consecutivo global unico del turno
+  status       String    @default("abierto") // abierto | cerrado
+  openingCash  Int       @default(0) // base de efectivo con la que abre
+  openedBy     String?
+  openedAt     DateTime  @default(now())
+  expectedCash Int       @default(0) // efectivo a entregar calculado (esperado)
+  countedCash  Int? // efectivo contado fisicamente al cerrar (arqueo)
+  cashDiff     Int       @default(0) // countedCash - expectedCash (sobrante/faltante)
+  salesTotal   Int       @default(0)
+  jasper       Int       @default(0)
+  provision    Int       @default(0)
+  closedBy     String?
+  closedAt     DateTime?
+  note         String?
+  createdAt    DateTime  @default(now())
+
+  @@index([businessDate])
+  @@index([status])
+  @@map("shifts")
 }
 
 /// Lineas fiscales internas de la venta (referencia por saleId, sin FK).
@@ -420,21 +452,27 @@ model Payable {
   dueDate           String?  // fecha estimada de pago (YYYY-MM-DD)
   status            String   @default("pendiente") // pendiente | parcial | pagado
   note              String?  @db.Text
+  refType           String?  // closing | manual ... (origen de la obligacion)
+  refId             Int?     // id de referencia (p.ej. DailyClosing.id) para idempotencia
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   @@index([status])
+  @@index([creditor])
+  @@index([refType, refId])
   @@map("payables")
 }
 
 /// Abonos a una cuenta por pagar.
 model PayablePayment {
-  id        Int      @id @default(autoincrement())
-  payableId Int
-  amount    Int
-  paidDate  String   // YYYY-MM-DD
-  note      String?
-  createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  payableId   Int
+  amount      Int
+  paidDate    String // YYYY-MM-DD
+  note        String?
+  voucherPath String? // comprobante del pago subido (escaneo/foto firmado por Supergiros)
+  paidBy      String? // quien hizo el pago (responsable del turno)
+  createdAt   DateTime @default(now())
 
   @@index([payableId])
   @@map("payable_payments")

@@ -44,7 +44,10 @@ const paymentMethods = [
   { code: "TRANSFERENCIA DIRECTA", name: "Transferencia directa", groupCode: "CM", costType: "none" },
   { code: "ADDI", name: "ADDI", groupCode: "CREDITO", isCredit: true, generatesReceivable: true, facturaDian: true, costType: "percent_plus_tax", costRate: 0.09, costTaxRate: 0.19 },
   { code: "ALIADOS DE INV. GORA SAS", name: "GORA", groupCode: "CREDITO", isCredit: true, generatesReceivable: true, facturaDian: true, costType: "none" },
-  { code: "CREDITO PROPIO", name: "Credito propio", groupCode: "CREDITO", isCredit: true, generatesReceivable: true, costType: "fixed", costAmount: 1000 }
+  { code: "CREDITO PROPIO", name: "Credito propio", groupCode: "CREDITO", isCredit: true, generatesReceivable: true, costType: "fixed", costAmount: 1000 },
+  // Cupon / descuento al usuario: NO es dinero real, completa el total para que la
+  // factura salga plena y Supergiros (CM) se calcule completo; el CDA lo absorbe (diferencia Jasper).
+  { code: "DESCUENTO_FENIX", name: "Cupón / descuento", groupCode: "CM", costType: "none" }
 ];
 
 // Tarifas MOTO 2026 (replican el formato de cierre del cliente).

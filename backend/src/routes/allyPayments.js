@@ -80,17 +80,31 @@ router.get("/", async (_req, res, next) => {
 router.get("/:name", async (req, res, next) => {
   try {
     const name = req.params.name;
-    const [ally, sales, payments] = await Promise.all([
+    const [ally, salesRaw, payments] = await Promise.all([
       prisma.ally.findFirst({ where: { name } }),
       prisma.sale.findMany({
         where: { allyName: name, allyType: "referido", deduction: { gt: 0 }, status: "activa" },
-        select: { saleNumber: true, saleDate: true, plate: true, clientDoc: true, clientName: true, invoiceNumber: true, deduction: true, pinAdquirido: true },
+        select: { id: true, saleNumber: true, saleDate: true, plate: true, clientDoc: true, clientName: true, invoiceNumber: true, deduction: true, pinAdquirido: true, commissionPaidBy: true },
         orderBy: { saleDate: "desc" }
       }),
       prisma.allyPayment.findMany({ where: { allyName: name }, orderBy: { paidDate: "desc" } })
     ]);
+    // Cada comision queda enlazada al pago que la cubrio (commissionPaidBy) -> estado + comprobante.
+    const payById = Object.fromEntries(payments.map((p) => [p.id, p]));
+    const sales = salesRaw.map((s) => {
+      const pay = s.commissionPaidBy != null ? payById[s.commissionPaidBy] : null;
+      return {
+        ...s,
+        paid: !!pay,
+        paymentId: pay?.id ?? null,
+        paidDate: pay?.paidDate ?? null,
+        voucherPath: pay?.voucherPath ?? null,
+        paidInvoice: pay?.invoiceNumber ?? null
+      };
+    });
     const accrued = sales.reduce((s, v) => s + v.deduction, 0);
     const paid = payments.reduce((s, v) => s + v.amount, 0);
+    const accruedPaid = sales.filter((s) => s.paid).reduce((s, v) => s + v.deduction, 0);
     const plates = [...new Set(sales.map((s) => s.plate).filter(Boolean))];
     res.json({
       ally,
@@ -98,6 +112,8 @@ router.get("/:name", async (req, res, next) => {
       accrued,
       paid,
       pending: accrued - paid,
+      accruedPaid,
+      accruedPending: accrued - accruedPaid,
       convenioCount: sales.length,
       plates,
       sales,
@@ -175,6 +191,16 @@ router.post("/", async (req, res, next) => {
         }
       });
 
+      // Enlaza las comisiones cubiertas por este pago (estado "pagada" + comprobante).
+      // Si el front manda saleNumbers, marca esas; si no, marca TODAS las pendientes del convenio.
+      const saleNumbers = asList(b.saleNumbers);
+      const markWhere = {
+        allyName: b.allyName, allyType: "referido", deduction: { gt: 0 }, status: "activa",
+        commissionPaidBy: null,
+        ...(saleNumbers.length ? { saleNumber: { in: saleNumbers } } : {})
+      };
+      await tx.sale.updateMany({ where: markWhere, data: { commissionPaidBy: payment.id } });
+
       if (b.sendToProvision !== false) {
         await tx.cashMovement.create({
           data: {
@@ -197,10 +223,20 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-// DELETE /api/ally-payments/:id  -> corregir/eliminar un pago.
+// DELETE /api/ally-payments/:id  -> corregir/eliminar un pago (libera sus comisiones).
 router.delete("/:id", async (req, res, next) => {
   try {
-    await prisma.allyPayment.delete({ where: { id: Number(req.params.id) } });
+    const id = Number(req.params.id);
+    await prisma.$transaction(async (tx) => {
+      // Las comisiones que cubria vuelven a "pendiente".
+      await tx.sale.updateMany({ where: { commissionPaidBy: id }, data: { commissionPaidBy: null } });
+      // Revierte el ingreso a PROV_CONV si lo genero.
+      const movs = await tx.cashMovement.findMany({ where: { refType: "ally_payment", refId: id, type: "ingreso" } });
+      for (const m of movs) {
+        await tx.cashMovement.create({ data: { boxCode: m.boxCode, type: "egreso", amount: m.amount, refType: "ally_payment_void", refId: id, date: today(), note: `Reversa pago convenio #${id}` } });
+      }
+      await tx.allyPayment.delete({ where: { id } });
+    });
     res.json({ ok: true });
   } catch (e) {
     next(e);

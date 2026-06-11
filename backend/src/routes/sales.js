@@ -4,6 +4,7 @@ import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/co
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { auth } from "../auth.js";
+import { openShift } from "./shifts.js";
 
 const router = Router();
 
@@ -64,6 +65,10 @@ router.post("/", async (req, res, next) => {
     const v = b.vehicle || {};
     if (!c.docNumber || !c.name) return res.status(400).json({ error: "Cliente (docNumber, name) obligatorio" });
 
+    // Debe haber un turno ABIERTO para poder facturar. La venta queda atada a ese turno.
+    const shift = await openShift();
+    if (!shift) return res.status(409).json({ error: "No hay turno abierto. Abre un turno para poder facturar." });
+
     // 1) Cliente y moto (upsert / find-or-create, sin FK).
     // En update solo se tocan los campos que vienen en la venta: no se pisan
     // telefono/email/direccion existentes con null si la venta no los reenvia.
@@ -118,7 +123,14 @@ router.post("/", async (req, res, next) => {
     const discountApplied = b.ally?.discountApplied !== false;
     const ally = await prisma.ally.findFirst({ where: { name: allyName } });
     const baseCommission = ally?.commission ?? (allyType === "usuario" ? 20000 : 40000);
-    const deduction = discountApplied ? baseCommission : 0;
+    // Si la venta lleva un descuento Fénix/cupón, ese descuento ES la deducción (no se
+    // duplica con la fidelización fija): la línea DESCUENTO_FENIX ya lo absorbe.
+    const hasFenix = (b.payments || []).some((p) => p && p.methodCode === "DESCUENTO_FENIX" && Number(p.amount) > 0);
+    // El cupón/descuento solo aplica a clientes DIRECTOS (usuario), nunca a referidos.
+    if (hasFenix && allyType !== "usuario") {
+      return res.status(400).json({ error: "El cupón/descuento solo aplica a clientes directos, no a referidos." });
+    }
+    const deduction = hasFenix ? 0 : (discountApplied ? baseCommission : 0);
 
     // 5) Pagos (mixtos) + costo de transaccion congelado por pago.
     const methods = await prisma.paymentMethod.findMany();
@@ -168,7 +180,7 @@ router.post("/", async (req, res, next) => {
 
     const saleNumber = await nextSaleNumber();
     const invoiceNumber = facturada ? await nextInvoiceNumber(prisma) : null;
-    const saleDate = b.date || new Date().toISOString().slice(0, 10);
+    const saleDate = b.date || shift.businessDate;
 
     // 9) Persistir todo en una transaccion (sin FK; referencias por saleId).
     const sale = await prisma.$transaction(async (tx) => {
@@ -177,6 +189,7 @@ router.post("/", async (req, res, next) => {
           saleNumber,
           saleDate,
           saleTime: b.time || new Date().toTimeString().slice(0, 8),
+          shiftId: shift.id,
           clientDoc: String(c.docNumber),
           clientName: c.name,
           plate: plate || null,
@@ -289,15 +302,16 @@ router.post("/:id/void", auth(["admin"]), async (req, res, next) => {
   }
 });
 
-// GET /api/sales?date=&clientDoc=&plate=&range=&status=
+// GET /api/sales?date=&clientDoc=&plate=&range=&shiftId=&status=
 router.get("/", async (req, res, next) => {
   try {
-    const { date, clientDoc, plate, range } = req.query;
+    const { date, clientDoc, plate, range, shiftId } = req.query;
     const where = {};
     if (date) where.saleDate = String(date);
     if (clientDoc) where.clientDoc = String(clientDoc);
     if (plate) where.plate = normalizePlate(plate);
     if (range) where.rangeName = String(range);
+    if (shiftId) where.shiftId = Number(shiftId);
     const items = await prisma.sale.findMany({ where, orderBy: { id: "desc" }, take: 500 });
     // Adjunta el resumen de medios de pago por venta (por donde se pago).
     const ids = items.map((s) => s.id);
@@ -375,6 +389,86 @@ router.get("/:id", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+// PUT /api/sales/:id — edita campos descriptivos de una venta activa (solo admin).
+router.put("/:id", auth(["admin"]), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const sale = await prisma.sale.findUnique({ where: { id } });
+    if (!sale) return res.status(404).json({ error: "No existe" });
+    if (sale.status === "anulada") return res.status(400).json({ error: "No se puede editar una venta anulada" });
+
+    const b = req.body || {};
+    const data = {};
+
+    if (b.clientName !== undefined) data.clientName = String(b.clientName).trim();
+    if (b.plate !== undefined) data.plate = normalizePlate(b.plate) || null;
+    if (b.modelYear !== undefined) data.modelYear = Number(b.modelYear) || null;
+    if (b.invoiceNumber !== undefined) data.invoiceNumber = String(b.invoiceNumber).trim() || null;
+    if (b.observaciones !== undefined) data.observaciones = String(b.observaciones).trim() || null;
+    if (b.responsable !== undefined) data.responsable = String(b.responsable).trim() || null;
+
+    // Cambio de convenio / referido / comisión. El admin puede: poner referido,
+    // cambiarlo, quitarlo (USUARIO) y activar/desactivar la comisión (deduction).
+    if (b.allyName !== undefined || b.allyType !== undefined || b.discountApplied !== undefined) {
+      const allyNameRaw = b.allyName !== undefined ? String(b.allyName).trim() : sale.allyName;
+      const allyName = allyNameRaw || "USUARIO";
+      const allyType = b.allyType !== undefined
+        ? b.allyType
+        : (allyName.toUpperCase() === "USUARIO" ? "usuario" : "referido");
+      const discountApplied = b.discountApplied !== undefined ? !!b.discountApplied : sale.discountApplied;
+      const ally = await prisma.ally.findFirst({ where: { name: allyName } });
+      const baseCommission = ally?.commission ?? (allyType === "usuario" ? 20000 : 40000);
+      data.allyName = allyName;
+      data.allyType = allyType;
+      data.allyId = ally?.id ?? null;
+      data.discountApplied = discountApplied;
+      data.deduction = discountApplied ? baseCommission : 0;
+    }
+
+    // Si la comisión cambia y la venta ya estaba marcada como pagada a un convenio,
+    // se libera el enlace (vuelve a "pendiente") para que cuadre el nuevo monto.
+    if (data.deduction !== undefined && sale.commissionPaidBy != null) {
+      data.commissionPaidBy = null;
+    }
+
+    const updated = await prisma.sale.update({ where: { id }, data });
+    res.json({ sale: updated });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/sales/:id — elimina fisicamente una venta (solo admin).
+router.delete("/:id", auth(["admin"]), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const sale = await prisma.sale.findUnique({ where: { id } });
+    if (!sale) return res.status(404).json({ error: "No existe" });
+
+    // Bloquear si tiene cartera abierta.
+    const openReceivable = await prisma.receivable.findFirst({ where: { saleId: id, status: "abierta" } });
+    if (openReceivable) return res.status(400).json({ error: "La venta tiene cartera abierta. Cierrala antes de eliminar." });
+
+    // Bloquear si la RTM ya fue realizada (el PIN fue emitido).
+    if (["done", "paid_done"].includes(sale.rtmStatus)) {
+      return res.status(400).json({ error: "La RTM ya fue realizada. Solo se puede anular, no eliminar." });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.saleLine.deleteMany({ where: { saleId: id } });
+      await tx.salePayment.deleteMany({ where: { saleId: id } });
+      await tx.saleCost.deleteMany({ where: { saleId: id } });
+      await tx.clientHistory.deleteMany({ where: { saleId: id } });
+      await tx.reversal.deleteMany({ where: { saleId: id } });
+      await tx.receivable.deleteMany({ where: { saleId: id } });
+      await tx.invoice.deleteMany({ where: { saleId: id } });
+      // Limpia los movimientos de caja de la venta (provision RTM) para no dejar saldos huerfanos.
+      await tx.cashMovement.deleteMany({ where: { refType: "sale", refId: id } });
+      await tx.sale.delete({ where: { id } });
+    });
+
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
 
 // POST /api/sales/:id/invoice — emitir factura local (marca facturada + IVA discriminado).

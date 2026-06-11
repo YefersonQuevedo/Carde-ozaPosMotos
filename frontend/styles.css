@@ -215,7 +215,7 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
 /* ---------- Cards / tables ---------- */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow-sm); }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.pill { padding: 7px 14px; border-radius: 20px; font-weight: 700; background: var(--surface-2); }
+.pill { display: inline-block; padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 12px; white-space: nowrap; background: var(--surface-2); }
 .pill.warn { background: var(--amber-soft); color: var(--amber); }
 .pill.ok { background: #d7f7e4; color: #138a4e; }
 .pill.danger { background: #fbdcdc; color: #c0392b; }

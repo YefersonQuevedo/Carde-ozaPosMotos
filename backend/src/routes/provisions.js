@@ -93,6 +93,37 @@ router.get("/boxes", async (_req, res, next) => {
   }
 });
 
+// GET /api/provisions/ledger?boxCode=&from=&to= -> detalle de movimientos de UNA caja
+// con saldo corrido (incluye el saldo inicial = movimientos previos al rango).
+router.get("/ledger", async (req, res, next) => {
+  try {
+    const boxCode = String(req.query.boxCode || "CAJA_MENOR");
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+
+    let opening = 0;
+    if (from) {
+      const prev = await prisma.cashMovement.groupBy({ by: ["type"], where: { boxCode, date: { lt: from } }, _sum: { amount: true } });
+      opening = prev.reduce((b, r) => b + (r.type === "ingreso" ? 1 : -1) * (r._sum.amount || 0), 0);
+    }
+    const where = { boxCode };
+    if (from || to) where.date = { gte: from || "0000", lte: to || "9999" };
+    const movs = await prisma.cashMovement.findMany({ where, orderBy: [{ date: "asc" }, { id: "asc" }], take: 5000 });
+
+    let running = opening;
+    let ingresos = 0, egresos = 0;
+    const rows = movs.map((m) => {
+      const signed = (m.type === "ingreso" ? 1 : -1) * m.amount;
+      running += signed;
+      if (m.type === "ingreso") ingresos += m.amount; else egresos += m.amount;
+      return { id: m.id, date: m.date, type: m.type, amount: m.amount, refType: m.refType, refId: m.refId, note: m.note, balance: running };
+    });
+    res.json({ boxCode, opening, ingresos, egresos, closing: running, rows, count: rows.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/provisions/boxes { code, name, kind } -> agregar una caja
 router.post("/boxes", async (req, res, next) => {
   try {

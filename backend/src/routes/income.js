@@ -89,7 +89,10 @@ router.post("/", async (req, res, next) => {
     const value = toInt(b.value);
     if (value <= 0) return res.status(400).json({ error: "valor > 0 obligatorio" });
     const date = b.date || iso();
-    const boxCode = b.afectaCaja ? (b.boxCode || (b.source === "efectivo" ? "CAJA_MENOR" : null)) : null;
+    // Los ingresos SIEMPRE quedan ligados a una caja (por defecto CAJA_MENOR): es el
+    // dinero que luego se usa para pagar Supergiros/Jasper. Solo se desliga si se pide
+    // explicitamente (afectaCaja === false).
+    const boxCode = b.afectaCaja === false ? null : (b.boxCode || "CAJA_MENOR");
     const income = await prisma.$transaction(async (tx) => {
       const inc = await tx.income.create({
         data: { date, value, observation: b.observation || null, natureCode: b.natureCode || null, source: b.source || "efectivo", boxCode, note: b.note || null, createdBy: b.createdBy || null }

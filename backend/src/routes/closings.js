@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { computeClosing } from "../services/closing.js";
 import { gatherDay, gatherDayAudit, money } from "../services/dayAudit.js";
+import { applyDailyDispersion } from "../services/dispersion.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
@@ -13,6 +14,27 @@ router.get("/", async (req, res, next) => {
     const gastos = Number(req.query.gastos) || 0;
     const { sales, closing } = await gatherDay(date, gastos);
     res.json({ date, closing, detail: sales });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/closings/day?date= -> tablero del dia: turnos + cierre calculado en vivo +
+// estado de la dispersion (snapshot DailyClosing y cuenta por pagar Supergiros del dia).
+// Es la vista para CUADRAR: suma de turnos vs consolidado del dia vs deuda Jasper.
+router.get("/day", async (req, res, next) => {
+  try {
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+    const { closing } = await gatherDay(date, 0);
+    const shifts = await prisma.shift.findMany({ where: { businessDate: date }, orderBy: { id: "asc" } });
+    const snapshot = await prisma.dailyClosing.findUnique({ where: { closingDate: date } });
+    const payable = snapshot
+      ? await prisma.payable.findFirst({ where: { refType: "closing", refId: snapshot.id } })
+      : null;
+    res.json({
+      date, closing, shifts, snapshot,
+      payable: payable ? { ...payable, pending: Math.max(0, payable.totalAmount - payable.paidAmount) } : null
+    });
   } catch (e) {
     next(e);
   }
@@ -265,9 +287,9 @@ router.get("/export", async (req, res, next) => {
       { concepto: "JASPER (gira Supergiros)", valor: c.jasper },
       { concepto: "Fidelizacion (descuentos usuarios)", valor: c.fidelizacion },
       { concepto: "Referidos", valor: c.referidos },
-      { concepto: "Gastos", valor: c.gastos },
+      { concepto: "Gastos del día (salen de caja menor, no del cierre)", valor: c.gastosRegistrados ?? c.gastos },
       { concepto: "Efectivo recibido", valor: c.efectivo },
-      { concepto: "Efectivo a entregar", valor: c.efectivoEntregar },
+      { concepto: "Efectivo a entregar (a caja menor)", valor: c.efectivoEntregar },
       { concepto: "DIFERENCIA JASPER (= comisiones)", valor: c.diferenciaJasper },
       { concepto: "Cartera abierta", valor: c.receivableOpen },
       { concepto: "RTM realizadas", valor: c.rtmRealizadas },
@@ -303,7 +325,10 @@ router.get("/export", async (req, res, next) => {
   }
 });
 
-// POST /api/closings -> congela el cierre del dia como snapshot.
+// POST /api/closings -> congela el cierre del DIA (consolidado de los turnos) Y dispersa:
+//   - ingresa el efectivo a entregar del dia a CAJA_MENOR
+//   - crea/actualiza la cuenta por pagar a Supergiros (Jasper) del dia
+// Idempotente: re-cerrar el dia actualiza montos sin duplicar ni perder abonos.
 router.post("/", async (req, res, next) => {
   try {
     const date = String(req.body?.date || new Date().toISOString().slice(0, 10));
@@ -321,10 +346,10 @@ router.post("/", async (req, res, next) => {
       responsable: req.body?.responsable || null,
       recibe: req.body?.recibe || null
     };
-    const snapshot = await prisma.dailyClosing.upsert({
-      where: { closingDate: date },
-      update: data,
-      create: data
+    const snapshot = await prisma.$transaction(async (tx) => {
+      const snap = await tx.dailyClosing.upsert({ where: { closingDate: date }, update: data, create: data });
+      await applyDailyDispersion(tx, { snapshotId: snap.id, closing, date });
+      return snap;
     });
     res.json({ snapshot, closing });
   } catch (e) {

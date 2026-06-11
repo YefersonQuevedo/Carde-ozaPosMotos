@@ -110,6 +110,16 @@ export async function gatherDay(date, gastosManual = 0) {
   return { sales, payments, receivables, closing, expenses: dayExpenses };
 }
 
+// Cierre calculado sobre las ventas de UN turno (no de todo el dia).
+export async function gatherShift(shiftId) {
+  const sales = await prisma.sale.findMany({ where: { shiftId, status: "activa" } });
+  const ids = sales.map((s) => s.id);
+  const payments = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
+  const receivables = ids.length ? await prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [];
+  const closing = computeClosing({ sales, payments, receivables });
+  return { sales, payments, receivables, closing };
+}
+
 export async function buildDispersionForSales(sales = [], payments = [], costs = []) {
   const paymentsBySale = {};
   for (const p of payments) (paymentsBySale[p.saleId] ||= []).push(p);
@@ -146,6 +156,7 @@ export async function gatherDayAudit(date, gastosManual = 0) {
     const itemNames = saleLines.map((l) => l.description).join(" | ");
     detailRows.push({
       item: idx + 1,
+      id: s.id,
       fecha: s.saleDate,
       hora: s.saleTime || "",
       ventaInterna: s.saleNumber,

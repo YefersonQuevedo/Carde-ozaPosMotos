@@ -49,11 +49,12 @@
         <nav class="nav" id="tabs">
           <button class="tab" data-view="dashboard"><span class="ico">📋</span> Dashboard</button>
           <button class="tab active" data-view="venta"><span class="ico">🧾</span> Venta</button>
+          <button class="tab" data-view="turnos"><span class="ico">🕐</span> Turnos</button>
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre diario</button>
           <button class="tab" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
           <button class="tab" data-view="ingresos"><span class="ico">📥</span> Ingresos</button>
           <button class="tab" data-view="gastos"><span class="ico">🧾</span> Gastos</button>
-          <button class="tab" data-view="payables"><span class="ico">📌</span> Cuentas x pagar</button>
+          <button class="tab" data-view="payables"><span class="ico">📌</span> Caja / x pagar</button>
           <button class="tab" data-view="fupa"><span class="ico">🎟️</span> Pines/FUPA</button>
           <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
           <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera</button>
@@ -83,7 +84,10 @@
             <p class="eyebrow">Punto de venta</p>
             <h1 id="pageTitle">Venta</h1>
           </div>
-          <div class="topbar-meta" id="topbarMeta"></div>
+          <div class="row" style="gap:12px;align-items:center">
+            <span id="shiftBadge" class="pill" style="cursor:pointer" title="Ir a turnos"></span>
+            <div class="topbar-meta" id="topbarMeta"></div>
+          </div>
         </header>
 
         <!-- VENTA -->
@@ -92,6 +96,11 @@
             <div class="wizard" id="wizard"></div>
             <aside class="summary" id="summary"></aside>
           </div>
+        </section>
+
+        <!-- TURNOS -->
+        <section class="view" id="view-turnos">
+          <div id="shiftsRoot"></div>
         </section>
 
         <!-- CIERRE -->
@@ -262,18 +271,24 @@
 
         <!-- VENTAS -->
         <section class="view" id="view-ventas">
-          <div class="card">
-            <div class="card-head">
-              <h2>Ventas registradas</h2>
-              <div class="row">
-                <input type="search" id="ventasSearch" placeholder="Cliente, placa o factura…" />
-                <input type="date" id="ventasDate" />
-                <button class="btn ghost" id="ventasAll">Ver todas</button>
-                <button class="btn ghost" id="exportVentas">Exportar Excel</button>
+          <div class="master-detail">
+            <div class="card">
+              <div class="card-head">
+                <h2>Ventas registradas</h2>
+                <div class="row">
+                  <input type="search" id="ventasSearch" placeholder="Cliente, placa o factura…" />
+                  <input type="date" id="ventasDate" />
+                  <button class="btn ghost" id="ventasAll">Ver todas</button>
+                  <button class="btn ghost" id="exportVentas">Exportar Excel</button>
+                </div>
               </div>
+              <div id="ventasSummary" class="detail-meta"></div>
+              <div id="ventasBody"></div>
             </div>
-            <div id="ventasSummary" class="detail-meta"></div>
-            <div id="ventasBody"></div>
+            <div class="card">
+              <div class="card-head"><h2 id="ventasDetailTitle">Detalle</h2></div>
+              <div id="ventasDetailBody"><p class="hint">Haz clic en una venta para ver el detalle, editarla, cambiar el referido o eliminarla.</p></div>
+            </div>
           </div>
         </section>
       </main>

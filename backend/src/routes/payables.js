@@ -5,6 +5,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
+import { boxBalance } from "../services/cash.js";
 
 const router = Router();
 const iso = () => new Date().toISOString().slice(0, 10);
@@ -15,29 +16,38 @@ function statusFor(total, paid) {
   return "parcial";
 }
 
-// GET /api/payables?status=&category= -> lista + totales
+// Filtros compartidos por la lista y el export: status, category, creditor (proveedor)
+// y rango de fechas sobre dueDate (from/to).
+function payableWhere(query = {}) {
+  const where = {};
+  if (query.status) where.status = String(query.status);
+  if (query.category) where.category = String(query.category);
+  if (query.creditor) where.creditor = String(query.creditor);
+  if (query.from || query.to) where.dueDate = { gte: String(query.from || "0000"), lte: String(query.to || "9999") };
+  return where;
+}
+
+// GET /api/payables?status=&category=&creditor=&from=&to= -> lista + totales + proveedores
 router.get("/", async (req, res, next) => {
   try {
-    const where = {};
-    if (req.query.status) where.status = String(req.query.status);
-    if (req.query.category) where.category = String(req.query.category);
-    const items = await prisma.payable.findMany({ where, orderBy: [{ status: "asc" }, { dueDate: "asc" }, { id: "desc" }], take: 1000 });
+    const items = await prisma.payable.findMany({ where: payableWhere(req.query), orderBy: [{ status: "asc" }, { dueDate: "asc" }, { id: "desc" }], take: 1000 });
     const withPending = items.map((p) => ({ ...p, pending: Math.max(0, p.totalAmount - p.paidAmount) }));
     const totals = withPending.reduce((a, p) => {
       a.total += p.totalAmount; a.paid += p.paidAmount; a.pending += p.pending; return a;
     }, { total: 0, paid: 0, pending: 0 });
-    res.json({ items: withPending, totals, count: items.length });
+    // Catalogo de proveedores (para el filtro), sin depender del filtro actual.
+    const distinct = await prisma.payable.findMany({ where: { creditor: { not: null } }, distinct: ["creditor"], select: { creditor: true }, orderBy: { creditor: "asc" } });
+    const creditors = distinct.map((d) => d.creditor).filter(Boolean);
+    res.json({ items: withPending, totals, count: items.length, creditors });
   } catch (e) {
     next(e);
   }
 });
 
-// GET /api/payables/export
+// GET /api/payables/export?status=&category=&creditor=&from=&to= -> descarga lo filtrado
 router.get("/export", async (req, res, next) => {
   try {
-    const where = {};
-    if (req.query.status) where.status = String(req.query.status);
-    const items = await prisma.payable.findMany({ where, orderBy: [{ dueDate: "asc" }, { id: "desc" }], take: 5000 });
+    const items = await prisma.payable.findMany({ where: payableWhere(req.query), orderBy: [{ dueDate: "asc" }, { id: "desc" }], take: 5000 });
     const rows = items.map((p) => ({ ...p, pending: Math.max(0, p.totalAmount - p.paidAmount) }));
     const totals = rows.reduce((a, p) => { a.totalAmount += p.totalAmount; a.paidAmount += p.paidAmount; a.pending += p.pending; return a; }, { totalAmount: 0, paidAmount: 0, pending: 0 });
     const buf = await toWorkbook({
@@ -112,7 +122,9 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
-// POST /api/payables/:id/pay -> registrar abono
+// POST /api/payables/:id/pay -> registrar abono.
+// Si viene boxCode, el abono genera un egreso de esa caja (descuenta el saldo) y
+// valida fondos: si no alcanza devuelve 409 con el faltante (salvo force:true).
 router.post("/:id/pay", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -120,9 +132,58 @@ router.post("/:id/pay", async (req, res, next) => {
     if (!p) return res.status(404).json({ error: "No existe" });
     const amount = Math.round(Number(req.body?.amount) || 0);
     if (amount <= 0) return res.status(400).json({ error: "amount > 0 obligatorio" });
+    const boxCode = req.body?.boxCode ? String(req.body.boxCode) : null;
+    const force = req.body?.force === true;
+    const paidDate = req.body?.paidDate || iso();
+
+    if (boxCode && !force) {
+      const saldo = await boxBalance(boxCode);
+      if (saldo < amount) {
+        return res.status(409).json({ error: `Fondos insuficientes en ${boxCode}: saldo ${saldo}, faltan ${amount - saldo}`, saldo, faltan: amount - saldo });
+      }
+    }
+
     const paidAmount = p.paidAmount + amount;
     const updated = await prisma.$transaction(async (tx) => {
-      await tx.payablePayment.create({ data: { payableId: id, amount, paidDate: req.body?.paidDate || iso(), note: req.body?.note || null } });
+      const payment = await tx.payablePayment.create({
+        data: {
+          payableId: id, amount, paidDate,
+          note: req.body?.note || null,
+          voucherPath: req.body?.voucherPath || null,
+          paidBy: req.body?.paidBy || null
+        }
+      });
+      if (boxCode) {
+        // El egreso queda ligado al ABONO (no a la cuenta) para poder anularlo exacto.
+        await tx.cashMovement.create({ data: { boxCode, type: "egreso", amount, refType: "payable_payment", refId: payment.id, date: paidDate, note: `Pago: ${p.concept}` } });
+      }
+      return tx.payable.update({ where: { id }, data: { paidAmount, status: statusFor(p.totalAmount, paidAmount) } });
+    });
+    res.json({ ...updated, pending: Math.max(0, updated.totalAmount - updated.paidAmount) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE /api/payables/:id/payments/:paymentId -> anula UN abono (corrige errores).
+// Devuelve el dinero a la caja si el pago habia generado egreso y recalcula el estado.
+router.delete("/:id/payments/:paymentId", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const paymentId = Number(req.params.paymentId);
+    const p = await prisma.payable.findUnique({ where: { id } });
+    if (!p) return res.status(404).json({ error: "No existe" });
+    const pay = await prisma.payablePayment.findUnique({ where: { id: paymentId } });
+    if (!pay || pay.payableId !== id) return res.status(404).json({ error: "No existe el abono" });
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // Devuelve a la caja exactamente el egreso de ESTE abono (si lo genero).
+      const egreso = await tx.cashMovement.findFirst({ where: { refType: "payable_payment", refId: paymentId, type: "egreso" } });
+      if (egreso) {
+        await tx.cashMovement.create({ data: { boxCode: egreso.boxCode, type: "ingreso", amount: egreso.amount, refType: "payable_void", refId: id, date: iso(), note: `Anula abono #${paymentId} de: ${p.concept}` } });
+      }
+      await tx.payablePayment.delete({ where: { id: paymentId } });
+      const paidAmount = Math.max(0, p.paidAmount - pay.amount);
       return tx.payable.update({ where: { id }, data: { paidAmount, status: statusFor(p.totalAmount, paidAmount) } });
     });
     res.json({ ...updated, pending: Math.max(0, updated.totalAmount - updated.paidAmount) });
@@ -134,8 +195,25 @@ router.post("/:id/pay", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    await prisma.payablePayment.deleteMany({ where: { payableId: id } });
-    await prisma.payable.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      // Revierte los egresos de caja generados por los pagos de esta cuenta:
+      // los ligados a cada abono (payable_payment) y los antiguos ligados a la cuenta (payable).
+      const pagos = await tx.payablePayment.findMany({ where: { payableId: id }, select: { id: true } });
+      const egresos = await tx.cashMovement.findMany({
+        where: {
+          type: "egreso",
+          OR: [
+            { refType: "payable", refId: id },
+            { refType: "payable_payment", refId: { in: pagos.map((x) => x.id) } }
+          ]
+        }
+      });
+      for (const m of egresos) {
+        await tx.cashMovement.create({ data: { boxCode: m.boxCode, type: "ingreso", amount: m.amount, refType: "payable_void", refId: id, date: iso(), note: `Reversa pago cuenta #${id}` } });
+      }
+      await tx.payablePayment.deleteMany({ where: { payableId: id } });
+      await tx.payable.delete({ where: { id } });
+    });
     res.json({ ok: true });
   } catch (e) {
     next(e);
