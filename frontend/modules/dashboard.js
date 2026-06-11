@@ -54,7 +54,12 @@ export function createDashboardModule(context) {
         dashCompareRow("IVA provisionado", k.ivaProvision, p.ivaProvision),
         dashCompareRow("Utilidad bruta aprox.", k.utilidadBruta, p.utilidadBruta)
       ].join("");
-      const ranges = current.byRange.map((r) => `<tr><td>${esc(r.key)}</td><td class="r">${r.count}</td><td class="r">${r.realized}</td><td class="r">${r.pending}</td><td class="r">${money(r.total)}</td></tr>`).join("");
+      // Motos por rango: el cliente quiere el % (que % de motos viejas/nuevas entran).
+      const rangeTotal = current.byRange.reduce((s, r) => s + (Number(r.count) || 0), 0) || 1;
+      const ranges = current.byRange.map((r) => {
+        const pct = Math.round(((Number(r.count) || 0) / rangeTotal) * 1000) / 10;
+        return `<tr><td>${esc(r.key)}</td><td class="r"><b>${pct}%</b></td><td class="r">${r.count}</td><td class="r">${r.realized}</td><td class="r">${r.pending}</td><td class="r">${money(r.total)}</td></tr>`;
+      }).join("");
       // Metodos de pago: solo el % del valor (favoritismo), sin cantidad ni valor.
       // Se excluye el cupon/descuento: no es un metodo de pago real.
       const realMethods = (current.byMethod || []).filter((m) => !/descuento|cup[oó]n/i.test(m.method || ""));
@@ -86,8 +91,8 @@ export function createDashboardModule(context) {
           <div>
             <h3>Comparacion contra año anterior</h3>
             <table class="data"><thead><tr><th>Indicador</th><th class="r">Actual</th><th class="r">Año anterior</th><th class="r">Diferencia</th></tr></thead><tbody>${compare}</tbody></table>
-            <h3>Resumen de motos por rango</h3>
-            <table class="data"><thead><tr><th>Rango</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">Ventas</th></tr></thead><tbody>${ranges || '<tr><td class="hint" colspan="5">Sin motos en el rango</td></tr>'}</tbody></table>
+            <h3>Motos por rango <small class="hint">(% de lo que está entrando)</small></h3>
+            <table class="data"><thead><tr><th>Rango</th><th class="r">%</th><th class="r">Total</th><th class="r">Realizadas</th><th class="r">Pendientes</th><th class="r">Ventas</th></tr></thead><tbody>${ranges || '<tr><td class="hint" colspan="6">Sin motos en el rango</td></tr>'}</tbody></table>
             <h3>Mapa de calor</h3>
             <div id="dashHeatmapBox" class="hint">Cargando...</div>
             <h3>Horas pico</h3>

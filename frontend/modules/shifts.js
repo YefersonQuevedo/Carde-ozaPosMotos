@@ -69,7 +69,8 @@ export function createShiftsModule(context) {
         <label class="fld">Cierra (responsable)<input id="shCloseBy" placeholder="Quién cierra" /></label>
         <div class="fld" style="align-self:end"><div id="shArqueo" class="hint">Esperado a entregar: ${money(k.efectivoEntregar || 0)}</div></div>
       </div>
-      <div class="row form-actions"><button class="btn danger" id="shCloseBtn">Cerrar turno y dispersar</button></div>`;
+      <div class="row form-actions"><button class="btn danger" id="shCloseBtn">Cerrar turno (arqueo)</button></div>
+      <p class="hint">Cerrar el turno solo hace el arqueo. La dispersión del dinero (caja menor + deuda Supergiros) se hace en el cierre del día.</p>`;
   }
 
   function wireCurrent() {
@@ -98,7 +99,7 @@ export function createShiftsModule(context) {
   async function closeShiftUI() {
     const s = current.shift;
     if (!s) return;
-    if (!confirm("¿Cerrar el turno? Se hará el arqueo y la dispersión a caja menor.")) return;
+    if (!confirm("¿Cerrar el turno? Se hará el arqueo (esperado vs contado). La dispersión a caja menor se hace aparte, en el cierre del día.")) return;
     try {
       const r = await api.closeShift(s.id, { countedCash: readCop("shCountCash") || null, closedBy: ($("shCloseBy").value || "").trim() });
       const a = r.arqueo || {};
