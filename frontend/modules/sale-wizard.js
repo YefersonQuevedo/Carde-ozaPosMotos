@@ -328,7 +328,11 @@ export function createSaleModule(context) {
       ${facturada
         ? `<div class="pill ok" style="display:inline-block;margin:8px 0">Factura ${esc(s.invoiceNumber)}</div>
            <div style="margin:12px 0"><button class="btn primary big" id="printInvoiceBtn">🖨️ Imprimir factura</button></div>`
-        : `<div style="margin:12px 0"><button class="btn primary big" id="invoiceBtn">Emitir factura</button></div>`}
+        : `<div style="margin:12px 0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+             <button class="btn big" id="printSaleBtn">🖨️ Imprimir venta ${esc(s.saleNumber)}</button>
+             <button class="btn primary big" id="invoiceBtn">Emitir factura</button>
+           </div>
+           <p class="hint">Imprime el comprobante interno de la venta; si emites la factura, ahí sí se imprime la factura.</p>`}
       <div style="margin-top:18px"><button class="btn success big" id="newSale">🧾 Hacer otra venta</button></div>
     </div>`;
   }
@@ -364,7 +368,7 @@ export function createSaleModule(context) {
           <div class="head">
             <h1>RTM Motos · Girardot</h1>
             <div class="muted">Revisión Tecnomecánica</div>
-            <div class="muted">${facturada && s.invoiceNumber ? "Factura " + esc(s.invoiceNumber) : "Comprobante"} · ${esc(s.saleNumber)}</div>
+            <div class="muted">${facturada && s.invoiceNumber ? "Factura " + esc(s.invoiceNumber) : "Comprobante de venta (documento interno)"} · ${esc(s.saleNumber)}</div>
           </div>
           <div class="grid"><span>Fecha</span><b>${esc(fecha)}</b></div>
           <div class="grid"><span>Cliente</span><b>${esc(s.clientName)}</b></div>
@@ -442,6 +446,7 @@ export function createSaleModule(context) {
     $("newSale")?.addEventListener("click", () => { sale = blankSale(); render(); });
     $("invoiceBtn")?.addEventListener("click", emitInvoice);
     $("printInvoiceBtn")?.addEventListener("click", printInvoice);
+    $("printSaleBtn")?.addEventListener("click", printInvoice); // sin factura imprime el comprobante de venta (VTA)
     document.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => resetFrom(b.dataset.edit)));
 
     // Cliente — autocompletado por documento o nombre
