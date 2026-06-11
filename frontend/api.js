@@ -115,6 +115,7 @@ export const api = {
   cashLedger: (params = {}) => req(`/provisions/ledger?${new URLSearchParams(params)}`),
   addCashBox: (body) => req("/provisions/boxes", { method: "POST", body }),
   addCashMovement: (body) => req("/provisions/movements", { method: "POST", body }),
+  voidCashMovement: (id) => req(`/provisions/movements/${id}/void`, { method: "POST" }),
   realizeProvision: (saleId, body) => req(`/provisions/${saleId}/realize`, { method: "POST", body }),
 
   income: (params = {}) => req(`/income?${new URLSearchParams(params)}`),

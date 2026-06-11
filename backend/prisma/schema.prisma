@@ -547,10 +547,11 @@ model CashMovement {
   boxCode   String
   type      String // ingreso | egreso
   amount    Int
-  refType   String? // sale | ally_payment | closing | manual ...
+  refType   String? // sale | ally_payment | closing | manual | manual_void ...
   refId     Int?
   date      String // YYYY-MM-DD
   note      String?
+  createdBy String? // usuario que hizo el movimiento (trazabilidad)
   createdAt DateTime @default(now())
 
   @@index([boxCode])

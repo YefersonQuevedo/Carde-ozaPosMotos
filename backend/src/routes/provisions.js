@@ -12,6 +12,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { buildTariffLookup, computeSaleCosts } from "../services/costs.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
+import { auth } from "../auth.js";
 
 const router = Router();
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
@@ -110,13 +111,20 @@ router.get("/ledger", async (req, res, next) => {
     if (from || to) where.date = { gte: from || "0000", lte: to || "9999" };
     const movs = await prisma.cashMovement.findMany({ where, orderBy: [{ date: "asc" }, { id: "asc" }], take: 5000 });
 
+    // Marca los movimientos manuales que ya tienen reversa (para no anular dos veces).
+    const manualIds = movs.filter((m) => m.refType === "manual").map((m) => m.id);
+    const voids = manualIds.length
+      ? await prisma.cashMovement.findMany({ where: { refType: "manual_void", refId: { in: manualIds } }, select: { refId: true } })
+      : [];
+    const voidedIds = new Set(voids.map((v) => v.refId));
+
     let running = opening;
     let ingresos = 0, egresos = 0;
     const rows = movs.map((m) => {
       const signed = (m.type === "ingreso" ? 1 : -1) * m.amount;
       running += signed;
       if (m.type === "ingreso") ingresos += m.amount; else egresos += m.amount;
-      return { id: m.id, date: m.date, type: m.type, amount: m.amount, refType: m.refType, refId: m.refId, note: m.note, balance: running };
+      return { id: m.id, date: m.date, type: m.type, amount: m.amount, refType: m.refType, refId: m.refId, note: m.note, createdBy: m.createdBy, voided: voidedIds.has(m.id), balance: running };
     });
     res.json({ boxCode, opening, ingresos, egresos, closing: running, rows, count: rows.length });
   } catch (e) {
@@ -141,8 +149,9 @@ router.post("/boxes", async (req, res, next) => {
   }
 });
 
-// POST /api/provisions/movements { boxCode, type, amount, note, date } -> movimiento manual
-router.post("/movements", async (req, res, next) => {
+// POST /api/provisions/movements { boxCode, type, amount, note, date } -> movimiento manual.
+// Solo admin. Queda registrado QUIEN lo hizo (trazabilidad).
+router.post("/movements", auth(["admin"]), async (req, res, next) => {
   try {
     const b = req.body || {};
     if (!b.boxCode || !["ingreso", "egreso"].includes(b.type) || !(Number(b.amount) > 0)) {
@@ -152,10 +161,42 @@ router.post("/movements", async (req, res, next) => {
       data: {
         boxCode: String(b.boxCode), type: b.type, amount: Math.round(Number(b.amount)),
         refType: b.refType || "manual", refId: b.refId ?? null,
-        date: b.date || new Date().toISOString().slice(0, 10), note: b.note || null
+        date: b.date || new Date().toISOString().slice(0, 10), note: b.note || null,
+        createdBy: req.user?.name || req.user?.username || null
       }
     });
     res.json(mv);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/provisions/movements/:id/void -> anula un movimiento MANUAL con un
+// contra-movimiento (nunca se borra: queda el original + la reversa = trazabilidad).
+// Solo admin. Los movimientos del sistema (ventas, cierres, pagos) no se anulan
+// por aqui: se corrigen desde su modulo (editar venta, re-cerrar dia, anular abono).
+router.post("/movements/:id/void", auth(["admin"]), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const mv = await prisma.cashMovement.findUnique({ where: { id } });
+    if (!mv) return res.status(404).json({ error: "No existe el movimiento" });
+    if (mv.refType !== "manual") {
+      return res.status(400).json({ error: "Solo se anulan movimientos manuales. Este viene del sistema: corrígelo desde su módulo (venta, cierre, pago)." });
+    }
+    const already = await prisma.cashMovement.findFirst({ where: { refType: "manual_void", refId: id } });
+    if (already) return res.status(400).json({ error: `Ese movimiento ya fue anulado (reversa #${already.id})` });
+    const reversal = await prisma.cashMovement.create({
+      data: {
+        boxCode: mv.boxCode,
+        type: mv.type === "ingreso" ? "egreso" : "ingreso",
+        amount: mv.amount,
+        refType: "manual_void", refId: id,
+        date: new Date().toISOString().slice(0, 10),
+        note: `Anula mov. #${id}${mv.note ? `: ${mv.note}` : ""}`,
+        createdBy: req.user?.name || req.user?.username || null
+      }
+    });
+    res.json({ ok: true, reversal });
   } catch (e) {
     next(e);
   }

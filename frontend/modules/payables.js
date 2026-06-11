@@ -188,15 +188,23 @@ export function createPayablesModule(context) {
     if ($("ledTo")?.value) params.to = $("ledTo").value;
     try {
       const { rows, opening, ingresos, egresos, closing } = await api.cashLedger(params);
+      const isAdmin = api.currentUser()?.role === "admin";
       $("ledTotals").textContent = `Saldo inicial ${money(opening)} · Ingresos ${money(ingresos)} · Egresos ${money(egresos)} · Saldo final ${money(closing)}`;
-      $("ledBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Concepto</th><th>Origen</th><th class="r">Ingreso</th><th class="r">Egreso</th><th class="r">Saldo</th></tr></thead><tbody>${
-        rows.map((m) => `<tr>
-          <td>${esc(m.date)}</td><td>${esc(m.note || "")}</td><td class="hint">${esc(m.refType || "")}${m.refId ? " #" + m.refId : ""}</td>
+      $("ledBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Concepto</th><th>Origen</th><th>Quién</th><th class="r">Ingreso</th><th class="r">Egreso</th><th class="r">Saldo</th><th></th></tr></thead><tbody>${
+        rows.map((m) => `<tr style="${m.voided ? "opacity:.5;text-decoration:line-through" : ""}">
+          <td>${esc(m.date)}</td><td>${esc(m.note || "")}${m.voided ? ' <span class="pill danger" style="text-decoration:none">anulado</span>' : ""}</td><td class="hint">${esc(m.refType || "")}${m.refId ? " #" + m.refId : ""}</td>
+          <td>${esc(m.createdBy || "")}</td>
           <td class="r">${m.type === "ingreso" ? money(m.amount) : ""}</td>
           <td class="r">${m.type === "egreso" ? money(m.amount) : ""}</td>
           <td class="r"><b>${money(m.balance)}</b></td>
-        </tr>`).join("") || '<tr><td class="hint" colspan="6">Sin movimientos en el rango</td></tr>'
+          <td>${isAdmin && m.refType === "manual" && !m.voided ? `<button class="link" data-ledvoid="${m.id}">anular</button>` : ""}</td>
+        </tr>`).join("") || '<tr><td class="hint" colspan="8">Sin movimientos en el rango</td></tr>'
       }</tbody></table>`;
+      $("ledBody").querySelectorAll("[data-ledvoid]").forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm("¿Anular este movimiento? Se crea una reversa por el mismo valor (nada se borra).")) return;
+        try { await api.voidCashMovement(Number(b.dataset.ledvoid)); toast("Movimiento anulado"); await loadPayables(); await loadLedger(); }
+        catch (e) { toast(e.message); }
+      }));
     } catch (e) { toast(e.message); }
   }
 

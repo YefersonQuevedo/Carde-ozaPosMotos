@@ -4,7 +4,21 @@ export function createProvisionsModule(context) {
   const { api, toast } = context;
   async function renderProvisiones(c) {
     if (!c) return;
+    const month0 = todayIso().slice(0, 8) + "01";
     c.innerHTML = `<div id="provBoxes"></div>
+      <div class="card">
+        <div class="card-head"><h2>Movimientos por caja — trazabilidad</h2>
+          <div class="row">
+            <select id="trzBox"></select>
+            <label class="rng">Desde <input type="date" id="trzFrom" value="${month0}" /></label>
+            <label class="rng">Hasta <input type="date" id="trzTo" value="${todayIso()}" /></label>
+            <button class="btn primary" id="trzLoad">Ver</button>
+          </div>
+        </div>
+        <p class="hint">Todo movimiento queda registrado con fecha, origen y quién lo hizo. Los manuales se pueden anular (queda el original + la reversa, nada se borra).</p>
+        <div id="trzTotals" class="pill"></div>
+        <div id="trzBody"></div>
+      </div>
       <div class="card">
         <div class="card-head"><h2>Provisiones (RTM pendientes)</h2>
           <div class="row"><div id="provTotal" class="pill warn"></div><button class="btn ghost" id="provExport">Exportar Excel</button></div>
@@ -16,7 +30,50 @@ export function createProvisionsModule(context) {
       try { const blob = await api.exportProvisions(); await downloadBlob(blob, `provisiones-${todayIso()}.xlsx`); }
       catch (e) { toast(e.message); }
     });
+    $("trzLoad").addEventListener("click", loadTrace);
     await loadProvisiones();
+    await loadTrace();
+  }
+
+  // Detalle de movimientos de una caja con saldo corrido + anular manuales (admin).
+  async function loadTrace() {
+    const sel = $("trzBox");
+    if (!sel) return;
+    if (!sel.options.length) {
+      sel.innerHTML = provBoxesList.map((b) => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join("");
+    }
+    const boxCode = sel.value || provBoxesList[0]?.code || "CAJA_MENOR";
+    const isAdmin = api.currentUser()?.role === "admin";
+    try {
+      const params = { boxCode };
+      if ($("trzFrom").value) params.from = $("trzFrom").value;
+      if ($("trzTo").value) params.to = $("trzTo").value;
+      const { rows, opening, ingresos, egresos, closing } = await api.cashLedger(params);
+      $("trzTotals").textContent = `Saldo inicial ${money(opening)} · Ingresos ${money(ingresos)} · Egresos ${money(egresos)} · Saldo final ${money(closing)}`;
+      $("trzBody").innerHTML = `<div style="overflow-x:auto"><table class="data"><thead><tr><th>Fecha</th><th>Concepto</th><th>Origen</th><th>Quién</th><th class="r">Ingreso</th><th class="r">Egreso</th><th class="r">Saldo</th><th></th></tr></thead><tbody>${
+        rows.map((m) => `<tr style="${m.voided ? "opacity:.5;text-decoration:line-through" : ""}">
+          <td>${esc(m.date)}</td>
+          <td>${esc(m.note || "")}${m.voided ? ' <span class="pill danger" style="text-decoration:none">anulado</span>' : ""}</td>
+          <td class="hint">${esc(m.refType || "")}${m.refId ? " #" + m.refId : ""}</td>
+          <td>${esc(m.createdBy || "")}</td>
+          <td class="r">${m.type === "ingreso" ? money(m.amount) : ""}</td>
+          <td class="r">${m.type === "egreso" ? money(m.amount) : ""}</td>
+          <td class="r"><b>${money(m.balance)}</b></td>
+          <td>${isAdmin && m.refType === "manual" && !m.voided ? `<button class="link" data-voidmv="${m.id}">anular</button>` : ""}</td>
+        </tr>`).join("") || '<tr><td class="hint" colspan="8">Sin movimientos en el rango</td></tr>'
+      }</tbody></table></div>`;
+      $("trzBody").querySelectorAll("[data-voidmv]").forEach((b) => b.addEventListener("click", () => voidMovementUI(Number(b.dataset.voidmv))));
+    } catch (e) { toast(e.message); }
+  }
+
+  async function voidMovementUI(id) {
+    if (!confirm("¿Anular este movimiento? Se crea una reversa por el mismo valor (el original queda visible, nada se borra).")) return;
+    try {
+      await api.voidCashMovement(id);
+      toast("Movimiento anulado (reversa creada)");
+      await loadProvisiones();
+      await loadTrace();
+    } catch (e) { toast(e.message); }
   }
   let provBoxesList = [];
   async function loadProvisiones() {
@@ -78,7 +135,8 @@ export function createProvisionsModule(context) {
       try {
         await api.addCashMovement({ boxCode: $("mvBox").value, type: $("mvType").value, amount, note: $("mvNote").value.trim(), date: todayIso() });
         toast("Movimiento aplicado");
-        loadProvisiones();
+        await loadProvisiones();
+        loadTrace();
       } catch (e) { toast(e.message); }
     });
   }
