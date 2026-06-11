@@ -54,11 +54,22 @@ function renderShiftBadge(shift) {
 const callsModule = createCallsModule({ api, toast, switchView, loadClientDetail: clientsModule.loadClientDetail });
 
 const VIEW_TITLES = {
-  dashboard: "Dashboard", venta: "Venta", turnos: "Turnos de caja", cierre: "Cierre diario", provisiones: "Provisiones",
-  consolidado: "Consolidado", cartera: "Cartera", pagoconv: "Pagos a convenios", clientes: "Clientes",
-  llamadas: "Llamadas / vencimientos", convenios: "Convenios", facturaelec: "Factura electronica",
-  proveedores: "Proveedores", ventas: "Ventas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA",
+  dashboard: "Dashboard", venta: "Facturar (nueva venta)", turnos: "Turnos de caja", cierre: "Cierre del día", provisiones: "Provisiones",
+  consolidado: "Consolidado", cartera: "Cartera (por cobrar)", pagoconv: "Pagar comisiones a convenios", clientes: "Clientes",
+  llamadas: "Llamadas / vencimientos RTM", convenios: "Convenios / aliados", facturaelec: "Factura electronica",
+  proveedores: "Proveedores", ventas: "Ventas hechas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA",
   dian: "Facturacion DIAN", config: "Configuracion", payables: "Caja y cuentas por pagar", ingresos: "Ingresos"
+};
+
+// Seccion del menu a la que pertenece cada vista (se muestra sobre el titulo).
+const VIEW_GROUPS = {
+  venta: "Operación del día", ventas: "Operación del día", turnos: "Operación del día", cierre: "Operación del día",
+  payables: "Dinero", provisiones: "Dinero", ingresos: "Dinero", gastos: "Dinero", cartera: "Dinero",
+  convenios: "Convenios / referidos", pagoconv: "Convenios / referidos",
+  clientes: "Clientes", llamadas: "Clientes",
+  dashboard: "Reportes", consolidado: "Reportes",
+  fupa: "Administración", facturaelec: "Administración", proveedores: "Administración",
+  dian: "Administración", usuarios: "Administración", config: "Administración"
 };
 
 // Salta a la vista Ventas y abre la venta para corregirla (usado desde el cierre diario).
@@ -71,6 +82,7 @@ function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
   $("pageTitle").textContent = VIEW_TITLES[view] || "";
+  $("pageGroup").textContent = VIEW_GROUPS[view] || "";
 
   if (view === "venta") { saleModule.render(); shiftsModule.refresh(); }
   if (view === "turnos") shiftsModule.renderShifts($("shiftsRoot"));

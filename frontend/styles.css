@@ -49,13 +49,19 @@ h3 { margin: 14px 0 8px; font-size: 14px; font-weight: 700; }
 }
 /* nav ocupa el espacio disponible y hace scroll si hay muchas pestañas;
    asi el pie (usuario / cerrar sesion) queda siempre abajo sin huecos raros. */
-.nav { display: grid; gap: 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
+.nav { display: grid; gap: 3px; flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
 .nav::-webkit-scrollbar { width: 6px; }
 .nav::-webkit-scrollbar-thumb { background: #2a3d5a; border-radius: 3px; }
+/* Titulo de seccion del menu: agrupa las pestañas por tema para no perderse. */
+.nav-sec {
+  margin: 12px 6px 3px; font-size: 10px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: #5f7392; font-weight: 800;
+}
+.nav-sec:first-child { margin-top: 2px; }
 .tab {
   display: flex; align-items: center; gap: 10px;
   text-align: left; color: #cfdbeb; background: transparent; border: 0;
-  padding: 9px 12px; border-radius: 8px; cursor: pointer; font-weight: 600;
+  padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 600;
   border-left: 4px solid transparent; transition: background 0.15s;
 }
 .tab .ico { font-size: 15px; filter: grayscale(0.2); }

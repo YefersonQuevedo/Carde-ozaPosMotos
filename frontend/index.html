@@ -47,27 +47,38 @@
         </div>
 
         <nav class="nav" id="tabs">
-          <button class="tab" data-view="dashboard"><span class="ico">📋</span> Dashboard</button>
-          <button class="tab active" data-view="venta"><span class="ico">🧾</span> Venta</button>
+          <div class="nav-sec">Operación del día</div>
+          <button class="tab active" data-view="venta"><span class="ico">🧾</span> Facturar</button>
+          <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas hechas</button>
           <button class="tab" data-view="turnos"><span class="ico">🕐</span> Turnos</button>
-          <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre diario</button>
+          <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre del día</button>
+
+          <div class="nav-sec">Dinero</div>
+          <button class="tab" data-view="payables"><span class="ico">💼</span> Caja y por pagar</button>
           <button class="tab" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
           <button class="tab" data-view="ingresos"><span class="ico">📥</span> Ingresos</button>
-          <button class="tab" data-view="gastos"><span class="ico">🧾</span> Gastos</button>
-          <button class="tab" data-view="payables"><span class="ico">📌</span> Caja / x pagar</button>
-          <button class="tab" data-view="fupa"><span class="ico">🎟️</span> Pines/FUPA</button>
-          <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
-          <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera</button>
-          <button class="tab" data-view="pagoconv"><span class="ico">💸</span> Pagos conv.</button>
-          <button class="tab" data-view="clientes"><span class="ico">👤</span> Clientes</button>
-          <button class="tab" data-view="llamadas"><span class="ico">📞</span> Llamadas</button>
+          <button class="tab" data-view="gastos"><span class="ico">📤</span> Gastos</button>
+          <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera (por cobrar)</button>
+
+          <div class="nav-sec">Convenios / referidos</div>
           <button class="tab" data-view="convenios"><span class="ico">🤝</span> Convenios</button>
-          <button class="tab" data-view="facturaelec"><span class="ico">🧮</span> Factura elec.</button>
+          <button class="tab" data-view="pagoconv"><span class="ico">💸</span> Pagar comisiones</button>
+
+          <div class="nav-sec">Clientes</div>
+          <button class="tab" data-view="clientes"><span class="ico">👤</span> Clientes</button>
+          <button class="tab" data-view="llamadas"><span class="ico">📞</span> Llamadas RTM</button>
+
+          <div class="nav-sec">Reportes</div>
+          <button class="tab" data-view="dashboard"><span class="ico">📋</span> Dashboard</button>
+          <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
+
+          <div class="nav-sec">Administración</div>
+          <button class="tab" data-view="fupa"><span class="ico">🎟️</span> Pines / FUPA</button>
+          <button class="tab" data-view="facturaelec"><span class="ico">🧮</span> Factura electrónica</button>
           <button class="tab" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
-          <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas</button>
           <button class="tab admin-only" data-view="dian"><span class="ico">🏛️</span> DIAN</button>
-          <button class="tab admin-only" data-view="config"><span class="ico">⚙️</span> Configuracion</button>
           <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
+          <button class="tab admin-only" data-view="config"><span class="ico">⚙️</span> Configuración</button>
         </nav>
 
         <div class="sidebar-foot">
@@ -81,8 +92,8 @@
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Punto de venta</p>
-            <h1 id="pageTitle">Venta</h1>
+            <p class="eyebrow" id="pageGroup">Operación del día</p>
+            <h1 id="pageTitle">Facturar</h1>
           </div>
           <div class="row" style="gap:12px;align-items:center">
             <span id="shiftBadge" class="pill" style="cursor:pointer" title="Ir a turnos"></span>
