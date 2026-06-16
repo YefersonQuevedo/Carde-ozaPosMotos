@@ -32,7 +32,8 @@ async function accruedByAlly() {
 }
 
 async function paidByAlly() {
-  const pays = await prisma.allyPayment.findMany({ select: { allyId: true, allyName: true, amount: true } });
+  // Solo pagos activos: los anulados quedan en el historial pero no suman.
+  const pays = await prisma.allyPayment.findMany({ where: { status: "activa" }, select: { allyId: true, allyName: true, amount: true } });
   const map = {};
   for (const p of pays) {
     const k = allyKey(p.allyId, p.allyName);
@@ -103,7 +104,7 @@ router.get("/:name", async (req, res, next) => {
       };
     });
     const accrued = sales.reduce((s, v) => s + v.deduction, 0);
-    const paid = payments.reduce((s, v) => s + v.amount, 0);
+    const paid = payments.filter((p) => p.status !== "anulada").reduce((s, v) => s + v.amount, 0);
     const accruedPaid = sales.filter((s) => s.paid).reduce((s, v) => s + v.deduction, 0);
     const plates = [...new Set(sales.map((s) => s.plate).filter(Boolean))];
     res.json({
@@ -201,16 +202,18 @@ router.post("/", async (req, res, next) => {
       };
       await tx.sale.updateMany({ where: markWhere, data: { commissionPaidBy: payment.id } });
 
+      // El dinero para pagar convenios SALE de la provision de convenios
+      // (PROV_CONV recibe sus ingresos en el cierre del dia, no aqui).
       if (b.sendToProvision !== false) {
         await tx.cashMovement.create({
           data: {
             boxCode: "PROV_CONV",
-            type: "ingreso",
+            type: "egreso",
             amount,
             refType: "ally_payment",
             refId: payment.id,
             date: paidDate,
-            note: `Convenio ${b.allyName}`
+            note: `Pago convenio ${b.allyName}`
           }
         });
       }
@@ -223,19 +226,84 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-// DELETE /api/ally-payments/:id  -> corregir/eliminar un pago (libera sus comisiones).
+// Reversa los movimientos de caja de un pago (crea el movimiento contrario, nada se borra).
+async function reverseMovements(tx, paymentId, reason) {
+  const movs = await tx.cashMovement.findMany({ where: { refType: "ally_payment", refId: paymentId } });
+  const reversed = movs.filter((m) => m.refType === "ally_payment");
+  // Resta las reversas ya hechas para no duplicar.
+  const voids = await tx.cashMovement.findMany({ where: { refType: { in: ["ally_payment_void", "ally_payment_edit"] }, refId: paymentId } });
+  const net = {};
+  for (const m of movs) net[m.boxCode] = (net[m.boxCode] || 0) + (m.type === "egreso" ? -m.amount : m.amount);
+  for (const m of voids) net[m.boxCode] = (net[m.boxCode] || 0) + (m.type === "egreso" ? -m.amount : m.amount);
+  for (const [boxCode, saldo] of Object.entries(net)) {
+    if (!saldo) continue;
+    await tx.cashMovement.create({
+      data: {
+        boxCode,
+        type: saldo < 0 ? "ingreso" : "egreso",
+        amount: Math.abs(saldo),
+        refType: reason,
+        refId: paymentId,
+        date: today(),
+        note: `${reason === "ally_payment_void" ? "Reversa por anulacion" : "Reversa por edicion"} pago convenio #${paymentId}`
+      }
+    });
+  }
+  return reversed.length > 0 || voids.length > 0;
+}
+
+// PUT /api/ally-payments/:id  -> editar un pago (queda marcado como modificado).
+router.put("/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const prev = await prisma.allyPayment.findUnique({ where: { id } });
+    if (!prev) return res.status(404).json({ error: "Pago no encontrado" });
+    if (prev.status === "anulada") return res.status(400).json({ error: "El pago esta anulado: no se puede editar" });
+    const amount = b.amount != null ? toInt(b.amount) : prev.amount;
+    if (amount <= 0) return res.status(400).json({ error: "Valor invalido" });
+    const paidDate = b.paidDate || prev.paidDate;
+
+    const payment = await prisma.$transaction(async (tx) => {
+      const hadMovement = await reverseMovements(tx, id, "ally_payment_edit");
+      if (hadMovement) {
+        // Registra el egreso nuevo con el valor/fecha corregidos.
+        await tx.cashMovement.create({
+          data: { boxCode: "PROV_CONV", type: "egreso", amount, refType: "ally_payment", refId: id, date: paidDate, note: `Pago convenio ${prev.allyName} (editado)` }
+        });
+      }
+      return tx.allyPayment.update({
+        where: { id },
+        data: {
+          amount,
+          paidDate,
+          note: b.note !== undefined ? (b.note || null) : prev.note,
+          voucherPath: b.voucherPath !== undefined ? (b.voucherPath || prev.voucherPath) : prev.voucherPath,
+          invoiceNumber: b.invoiceNumber !== undefined ? (b.invoiceNumber || null) : prev.invoiceNumber,
+          editedAt: new Date()
+        }
+      });
+    });
+    res.json({ payment });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE /api/ally-payments/:id  -> ANULA el pago (queda trackeado, no se borra):
+// libera sus comisiones y devuelve el dinero a la provision con una reversa.
 router.delete("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const prev = await prisma.allyPayment.findUnique({ where: { id } });
+    if (!prev) return res.status(404).json({ error: "Pago no encontrado" });
+    if (prev.status === "anulada") return res.status(400).json({ error: "El pago ya esta anulado" });
     await prisma.$transaction(async (tx) => {
       // Las comisiones que cubria vuelven a "pendiente".
       await tx.sale.updateMany({ where: { commissionPaidBy: id }, data: { commissionPaidBy: null } });
-      // Revierte el ingreso a PROV_CONV si lo genero.
-      const movs = await tx.cashMovement.findMany({ where: { refType: "ally_payment", refId: id, type: "ingreso" } });
-      for (const m of movs) {
-        await tx.cashMovement.create({ data: { boxCode: m.boxCode, type: "egreso", amount: m.amount, refType: "ally_payment_void", refId: id, date: today(), note: `Reversa pago convenio #${id}` } });
-      }
-      await tx.allyPayment.delete({ where: { id } });
+      // El dinero vuelve a PROV_CONV (movimiento contrario, nada se borra).
+      await reverseMovements(tx, id, "ally_payment_void");
+      await tx.allyPayment.update({ where: { id }, data: { status: "anulada", editedAt: new Date() } });
     });
     res.json({ ok: true });
   } catch (e) {

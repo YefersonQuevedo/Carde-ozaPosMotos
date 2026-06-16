@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { $, esc, todayIso } from "./utils.js";
+import { $, esc, money, readCop, todayIso } from "./utils.js";
 import { createSaleModule } from "./modules/sale-wizard.js";
 import { createClosingReportModule } from "./modules/closing-report.js";
 import { createShiftsModule } from "./modules/shifts.js";
@@ -17,6 +17,8 @@ import { createManualInvoicesModule } from "./modules/manual-invoices.js";
 import { createSuppliersModule } from "./modules/suppliers.js";
 import { createUsersModule } from "./modules/users.js";
 import { createClientsModule } from "./modules/clients.js";
+import { createSimpleModule } from "./modules/simple-view.js";
+import { createNominaModule } from "./modules/nomina.js";
 
 const catalog = { products: [], packages: [], componentsByPackage: {}, paymentMethods: [] };
 const productByCode = {};
@@ -37,6 +39,8 @@ const manualInvoicesModule = createManualInvoicesModule({ api, toast });
 const suppliersModule = createSuppliersModule({ api, toast });
 const usersModule = createUsersModule({ api, toast });
 const clientsModule = createClientsModule({ api, toast });
+const simpleModule = createSimpleModule({ api, toast, go: switchView });
+const nominaModule = createNominaModule({ api, toast });
 const shiftsModule = createShiftsModule({ api, toast, onShiftChange: renderShiftBadge });
 
 // Indicador de turno en la barra superior (clic -> vista de turnos).
@@ -50,6 +54,49 @@ function renderShiftBadge(shift) {
     el.textContent = "Sin turno abierto";
     el.className = "pill danger";
   }
+  renderShiftNotice(shift);
+}
+
+// Aviso grande al abrir el programa sin turno abierto: muestra con cuanto cerro el
+// turno anterior (sugerencia de base) y abre el turno a nombre del usuario logueado.
+let shiftNoticeDismissed = false;
+let currentView = "venta";
+function renderShiftNotice(shift) {
+  const box = $("shiftNotice");
+  if (!box) return;
+  // El aviso de "abrir turno" solo aparece en la vista de Facturar (venta): es el unico
+  // sitio donde se necesita un turno abierto. En el resto de pantallas no estorba.
+  if (currentView !== "venta" || (shift && shift.status === "abierto") || shiftNoticeDismissed || !api.currentUser()) { box.innerHTML = ""; return; }
+  const last = shiftsModule.getCurrent()?.lastClosed || null;
+  const baseSugerida = last ? (last.countedCash ?? last.expectedCash ?? 0) : 0;
+  const user = api.currentUser();
+  box.innerHTML = `
+    <div class="card" style="border:2px solid #e67e22;background:#fff8f0;margin-bottom:14px">
+      <div class="card-head">
+        <h2>⚠️ No hay turno abierto</h2>
+        <button class="link" id="snLater">abrir más tarde ✕</button>
+      </div>
+      <div class="kpis">
+        ${last ? `
+        <div class="kpi"><span>Último turno</span><b>#${last.number} · ${esc(last.businessDate)}</b></div>
+        <div class="kpi"><span>Cerró con (efectivo contado)</span><b>${money(last.countedCash ?? last.expectedCash ?? 0)}</b></div>
+        <div class="kpi"><span>Cerró</span><b>${esc(last.closedBy || last.openedBy || "-")}</b></div>` : '<div class="kpi"><span>Historial</span><b>Sin turnos anteriores</b></div>'}
+        <div class="kpi"><span>Responsable (sesión)</span><b>${esc(user?.name || "")}</b></div>
+      </div>
+      <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap;align-items:end">
+        <label class="fld">Base inicial (efectivo)<input id="snOpenCash" inputmode="numeric" value="${baseSugerida || ""}" placeholder="$ con cuánto abre la caja" style="max-width:200px" /></label>
+        <button class="btn success" id="snOpenBtn">Abrir turno como ${esc(user?.name || "")}</button>
+      </div>
+      <p class="hint">La base sugerida es el efectivo con el que cerró el turno anterior. Sin turno abierto no se puede facturar.</p>
+    </div>`;
+  $("snLater").addEventListener("click", () => { shiftNoticeDismissed = true; box.innerHTML = ""; });
+  $("snOpenBtn").addEventListener("click", async () => {
+    try {
+      await api.openShift({ openingCash: readCop("snOpenCash"), openedBy: user?.name || "" });
+      toast("Turno abierto");
+      await shiftsModule.refresh();
+    } catch (e) { toast(e.message); }
+  });
 }
 const callsModule = createCallsModule({ api, toast, switchView, loadClientDetail: clientsModule.loadClientDetail });
 
@@ -58,18 +105,20 @@ const VIEW_TITLES = {
   consolidado: "Consolidado", cartera: "Cartera (por cobrar)", pagoconv: "Pagar comisiones a convenios", clientes: "Clientes",
   llamadas: "Llamadas / vencimientos RTM", convenios: "Convenios / aliados", facturaelec: "Factura electronica",
   proveedores: "Proveedores", ventas: "Ventas hechas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA",
-  dian: "Facturacion DIAN", config: "Configuracion", payables: "Caja y cuentas por pagar", ingresos: "Ingresos"
+  dian: "Facturacion DIAN", config: "Configuracion", payables: "Tablero de caja", obligaciones: "Obligaciones / cuentas por pagar", ingresos: "Ingresos",
+  simple: "Vista simple", nomina: "Nómina"
 };
 
 // Seccion del menu a la que pertenece cada vista (se muestra sobre el titulo).
 const VIEW_GROUPS = {
+  simple: "Vista simple",
   venta: "Operación del día", ventas: "Operación del día", turnos: "Operación del día", cierre: "Operación del día",
-  payables: "Dinero", provisiones: "Dinero", ingresos: "Dinero", gastos: "Dinero", cartera: "Dinero",
+  payables: "Dinero", obligaciones: "Dinero", provisiones: "Dinero", ingresos: "Dinero", gastos: "Dinero", cartera: "Dinero",
   convenios: "Convenios / referidos", pagoconv: "Convenios / referidos",
   clientes: "Clientes", llamadas: "Clientes",
   dashboard: "Reportes", consolidado: "Reportes",
   fupa: "Administración", facturaelec: "Administración", proveedores: "Administración",
-  dian: "Administración", usuarios: "Administración", config: "Administración"
+  dian: "Administración", usuarios: "Administración", config: "Administración", nomina: "Administración"
 };
 
 // Salta a la vista Ventas y abre la venta para corregirla (usado desde el cierre diario).
@@ -79,10 +128,14 @@ function editSale(id) {
 }
 
 function switchView(view) {
+  currentView = view;
+  document.body.dataset.view = view;
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
   $("pageTitle").textContent = VIEW_TITLES[view] || "";
   $("pageGroup").textContent = VIEW_GROUPS[view] || "";
+  // Muestra/oculta el aviso de turno segun la vista (solo en Facturar).
+  renderShiftNotice(shiftsModule.getCurrent()?.shift ?? null);
 
   if (view === "venta") { saleModule.render(); shiftsModule.refresh(); }
   if (view === "turnos") shiftsModule.renderShifts($("shiftsRoot"));
@@ -99,9 +152,12 @@ function switchView(view) {
   if (view === "gastos") cashflowModule.renderGastos($("gastosRoot"));
   if (view === "ingresos") cashflowModule.renderIngresos($("ingresosRoot"));
   if (view === "payables") payablesModule.renderPayables($("payablesRoot"));
+  if (view === "obligaciones") payablesModule.renderObligaciones($("obligacionesRoot"));
   if (view === "fupa") fupaModule.renderFupa($("fupaRoot"));
   if (view === "dian") adminConfigModule.renderDian($("dianRoot"));
   if (view === "config") adminConfigModule.renderConfig($("configRoot"));
+  if (view === "simple") simpleModule.renderSimple($("simpleRoot"));
+  if (view === "nomina") nominaModule.renderNomina($("nominaRoot"));
   if (view === "llamadas") callsModule.renderLlamadas($("llamadasRoot"));
   if (view === "facturaelec") manualInvoicesModule.renderFacturaElec($("facturaelecRoot"));
   if (view === "proveedores") suppliersModule.renderProveedores($("proveedoresRoot"));
@@ -119,7 +175,7 @@ function toast(msg) {
 function applyRole() {
   const u = api.currentUser();
   $("userBox").innerHTML = u
-    ? `<div class="uname">${esc(u.name)}</div><div class="urole">${esc(u.role)}</div><button class="link" id="logoutBtn">Cerrar sesion</button>`
+    ? `<div class="uname">${esc(u.name)}</div><div class="urole">${esc(u.role)}${u.companyName ? " · " + esc(u.companyName) : ""}</div><button class="link" id="logoutBtn">Cerrar sesion</button>`
     : "";
   $("logoutBtn")?.addEventListener("click", logout);
   const isAdmin = u?.role === "admin";

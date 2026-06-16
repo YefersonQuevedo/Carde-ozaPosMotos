@@ -39,7 +39,7 @@ export function createSalesListModule(context) {
         <th>Fecha</th><th>Venta</th><th>Factura</th><th>Cliente</th><th>Doc</th>
         <th>Placa</th><th>Modelo</th><th>Tipo</th><th>Convenio</th><th>RTM</th>
         <th>Medios</th><th class="r">Base</th><th class="r">IVA</th><th class="r">Total</th>
-        <th>Estado</th></tr></thead><tbody>${items.map((s) => {
+        <th>Estado</th><th>Imprimir</th></tr></thead><tbody>${items.map((s) => {
         const anulada = s.status === "anulada";
         return `<tr
             class="${anulada ? "" : "clickable"}"
@@ -60,8 +60,9 @@ export function createSalesListModule(context) {
             <td class="r">${money(s.totalIva)}</td>
             <td class="r"><b>${money(s.total)}</b></td>
             <td><span class="pill ${anulada ? "danger" : "ok"}">${anulada ? "anulada" : "activa"}</span></td>
+            <td><button class="link" data-print="${s.id}" title="Reimprimir ${esc(s.invoiceNumber || s.saleNumber)}">🖨️ ${esc(s.invoiceNumber ? "factura" : "venta")}</button></td>
           </tr>`;
-      }).join("") || '<tr><td class="hint" colspan="15">Sin ventas</td></tr>'
+      }).join("") || '<tr><td class="hint" colspan="16">Sin ventas</td></tr>'
         }</tbody></table></div>`;
 
       $("ventasBody").querySelectorAll("[data-id]").forEach((tr) => {
@@ -70,7 +71,79 @@ export function createSalesListModule(context) {
           tr.addEventListener("click", () => openDetail(sale));
         }
       });
+      // Reimprimir cualquier venta (VTA o factura), incluso anuladas. stopPropagation
+      // para que el clic en el boton no abra el panel de edicion de la fila.
+      $("ventasBody").querySelectorAll("[data-print]").forEach((b) => b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        printSale(Number(b.dataset.print));
+      }));
     } catch (e) { toast(e.message); }
+  }
+
+  // ─── Reimprimir comprobante / factura de una venta ya hecha ──────────────────
+  async function printSale(id) {
+    try {
+      const { sale: s, lines } = await api.getSale(id);
+      if (!s) return toast("Venta no encontrada");
+      printSaleDoc(s, lines || []);
+    } catch (e) { toast(e.message); }
+  }
+
+  // Misma plantilla del comprobante del asistente de venta. Si la venta esta facturada
+  // muestra "Factura"; si no, "Comprobante de venta (documento interno)".
+  function printSaleDoc(s, lines) {
+    const facturada = s.dianStatus === "facturada";
+    const rows = (lines || []).map((l) => `<tr><td>${esc(l.description)}</td><td class="c">${l.quantity || 1}</td><td class="r">${money(l.unitPrice)}</td><td class="r">${money(l.total)}</td></tr>`).join("");
+    const fecha = new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${facturada && s.invoiceNumber ? "Factura " + esc(s.invoiceNumber) : "Venta " + esc(s.saleNumber)}</title>
+      <style>
+        *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
+        body{margin:0;padding:16px;color:#111}
+        .doc{max-width:520px;margin:0 auto}
+        h1{font-size:18px;margin:0}
+        .muted{color:#555;font-size:12px}
+        .head{border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}
+        .grid{display:flex;justify-content:space-between;font-size:13px;margin:2px 0}
+        table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+        th,td{padding:6px 4px;border-bottom:1px solid #ddd;text-align:left}
+        th{border-bottom:1px solid #111}
+        td.r,th.r{text-align:right} td.c,th.c{text-align:center}
+        .tot{display:flex;justify-content:space-between;font-size:14px;margin:3px 0}
+        .tot.big{font-weight:bold;font-size:16px;border-top:2px solid #111;padding-top:6px;margin-top:6px}
+        .foot{margin-top:18px;font-size:11px;color:#666;text-align:center}
+        .copy{margin-top:6px;font-size:10px;color:#999;text-align:center}
+        @media print{body{padding:0}}
+      </style></head>
+      <body onload="window.print()">
+        <div class="doc">
+          <div class="head">
+            <h1>RTM Motos · Girardot</h1>
+            <div class="muted">Revisión Tecnomecánica</div>
+            <div class="muted">${facturada && s.invoiceNumber ? "Factura " + esc(s.invoiceNumber) : "Comprobante de venta (documento interno)"} · ${esc(s.saleNumber)}</div>
+          </div>
+          <div class="grid"><span>Fecha venta</span><b>${esc(s.saleDate)}${s.saleTime ? " " + esc(s.saleTime) : ""}</b></div>
+          <div class="grid"><span>Cliente</span><b>${esc(s.clientName)}</b></div>
+          <div class="grid"><span>Documento</span><b>${esc(s.clientDoc || "")}</b></div>
+          ${s.plate ? `<div class="grid"><span>Placa / modelo</span><b>${esc(s.plate)}${s.modelYear ? " · " + s.modelYear : ""}</b></div>` : ""}
+          <table>
+            <thead><tr><th>Concepto</th><th class="c">Cant.</th><th class="r">V. unit.</th><th class="r">Total</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4">—</td></tr>'}</tbody>
+          </table>
+          <div style="margin-top:10px">
+            <div class="tot"><span>Base</span><span>${money(s.totalBase)}</span></div>
+            <div class="tot"><span>IVA</span><span>${money(s.totalIva)}</span></div>
+            <div class="tot big"><span>Total</span><span>${money(s.total)}</span></div>
+          </div>
+          ${s.pinNumber ? `<div class="muted" style="margin-top:10px">PIN RUNT: ${esc(s.pinNumber)}</div>` : ""}
+          <div class="foot">Gracias por su visita</div>
+          <div class="copy">Reimpresión · ${esc(fecha)}${s.status === "anulada" ? " · VENTA ANULADA" : ""}</div>
+        </div>
+      </body></html>`;
+    const w = window.open("", "_blank", "width=560,height=720");
+    if (!w) { toast("Permite las ventanas emergentes para imprimir"); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
   }
 
   // Abre el panel de edición por id (lo usa el cierre diario para corregir rápido).
@@ -143,6 +216,7 @@ export function createSalesListModule(context) {
 
       <div class="row form-actions" style="margin-top:16px;flex-wrap:wrap;gap:8px">
         <button class="btn success" id="ve_save">💾 Guardar cambios</button>
+        <button class="btn primary" id="ve_print">🖨️ Reimprimir</button>
         <button class="btn" id="ve_void">⛔ Anular venta</button>
         ${isAdmin ? `<button class="btn danger" id="ve_delete">🗑️ Eliminar</button>` : ""}
       </div>
@@ -163,6 +237,7 @@ export function createSalesListModule(context) {
       if (e.target.value === "usuario") $("ve_allyName").value = "USUARIO";
     });
     $("ve_save").addEventListener("click", saveSale);
+    $("ve_print").addEventListener("click", () => printSale(sale.id));
     $("ve_void").addEventListener("click", () => voidSaleUI(sale.id));
     if (isAdmin) $("ve_delete").addEventListener("click", () => deleteSaleUI(sale.id));
   }

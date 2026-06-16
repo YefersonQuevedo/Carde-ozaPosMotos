@@ -1,4 +1,4 @@
-import { $, esc, money, readCop, todayIso } from "../utils.js";
+import { $, esc, money, readCop, todayIso, confirmDialog } from "../utils.js";
 
 export function createAlliesModule(context) {
   const { api, toast } = context;
@@ -99,9 +99,48 @@ export function createAlliesModule(context) {
     } catch (e) { toast(e.message); }
   }
   async function delPagoConv(id, name) {
-    if (!confirm("¿Eliminar este pago?")) return;
-    try { await api.deleteAllyPayment(id); toast("Pago eliminado"); await loadPagoConvDetail(name); loadPagoConv(); }
+    if (!(await confirmDialog("El dinero vuelve a la provisión de convenios, las comisiones quedan pendientes y el pago queda en el historial marcado como ANULADO.", { title: "¿Anular este pago?", okText: "Anular pago", danger: true }))) return;
+    try { await api.deleteAllyPayment(id); toast("Pago anulado · dinero devuelto a la provisión"); await loadPagoConvDetail(name); loadPagoConv(); }
     catch (e) { toast(e.message); }
+  }
+
+  // Editar un pago ya registrado (queda marcado como "modificado" y la caja se ajusta con reversas).
+  function editPagoConv(d, paymentId, name) {
+    const p = (d.payments || []).find((x) => x.id === paymentId);
+    const box = $("pc_editbox");
+    if (!p || !box) return;
+    box.innerHTML = `
+      <div class="card" style="background:#f7f9fc;border:1px solid #d8e2ee;margin-bottom:10px">
+        <div class="card-head"><h4>Editar pago #${p.id} · ${esc(p.paidDate)}</h4><button class="link" id="pce_cancel">cancelar</button></div>
+        <div class="form-grid">
+          <label class="fld">Valor<input id="pce_amount" inputmode="numeric" value="${p.amount}" /></label>
+          <label class="fld">Fecha<input type="date" id="pce_date" value="${esc(p.paidDate)}" /></label>
+          <label class="fld">Factura / soporte<input id="pce_invoice" value="${esc(p.invoiceNumber || "")}" /></label>
+          <label class="fld">Comprobante nuevo<input id="pce_voucher" type="file" accept="image/*,.pdf" /></label>
+          <label class="fld">Nota<input id="pce_note" value="${esc(p.note || "")}" /></label>
+        </div>
+        <p class="hint">El cambio queda trackeado: el pago se marca como "modificado" y en la caja quedan la reversa y el movimiento nuevo (nada se borra).</p>
+        <div class="row form-actions"><button class="btn success" id="pce_save">Guardar cambios</button></div>
+      </div>`;
+    $("pce_cancel").addEventListener("click", () => { box.innerHTML = ""; });
+    $("pce_save").addEventListener("click", async () => {
+      const amount = readCop("pce_amount");
+      if (amount <= 0) return toast("Valor invalido");
+      try {
+        let voucherPath;
+        const file = $("pce_voucher")?.files?.[0];
+        if (file) {
+          const up = await api.uploadFile(file);
+          voucherPath = up.url || up.path;
+        }
+        const body = { amount, paidDate: $("pce_date").value || p.paidDate, note: $("pce_note").value.trim(), invoiceNumber: $("pce_invoice").value.trim() };
+        if (voucherPath) body.voucherPath = voucherPath;
+        await api.updateAllyPayment(p.id, body);
+        toast("Pago actualizado (queda marcado como modificado)");
+        await loadPagoConvDetail(name);
+        loadPagoConv();
+      } catch (e) { toast(e.message); }
+    });
   }
 
   // Implementacion extendida de pagos a convenios (revision 2026-06-04).
@@ -127,7 +166,14 @@ export function createAlliesModule(context) {
       const pays = d.payments.map((p) => {
         const payPlates = Array.isArray(p.plates) ? p.plates : [];
         const voucher = p.voucherPath ? `<a class="link" href="${esc(p.voucherPath)}" target="_blank">ver</a>` : "-";
-        return `<tr><td>${esc(p.paidDate)}</td><td>${esc(p.invoiceNumber || "-")}</td><td>${voucher}</td><td class="r">${p.convenioCount || payPlates.length || 0}</td><td class="r">${money(p.amount)}</td><td>${esc(p.note || "")}</td><td><button class="link" data-printpay="${p.id}">imprimir</button> <button class="link" data-delpay="${p.id}">eliminar</button></td></tr>`;
+        const anulada = p.status === "anulada";
+        const estado = anulada
+          ? '<span class="pill danger">anulado</span>'
+          : p.editedAt ? '<span class="pill warn" title="Este pago fue editado">modificado</span>' : '<span class="pill ok">activo</span>';
+        const acciones = anulada
+          ? ""
+          : `<button class="link" data-printpay="${p.id}">imprimir</button> <button class="link" data-editpay="${p.id}">editar</button> <button class="link" data-delpay="${p.id}">anular</button>`;
+        return `<tr style="${anulada ? "opacity:.55;text-decoration:line-through" : ""}"><td>${esc(p.paidDate)}</td><td>${esc(p.invoiceNumber || "-")}</td><td>${voucher}</td><td class="r">${p.convenioCount || payPlates.length || 0}</td><td class="r">${money(p.amount)}</td><td>${esc(p.note || "")}</td><td style="text-decoration:none">${estado}</td><td>${acciones}</td></tr>`;
       }).join("");
       $("pagoconvDetail").innerHTML = `
         <div class="kpis">
@@ -148,7 +194,7 @@ export function createAlliesModule(context) {
         </div>
         <div class="row form-checks">
           <label class="chk"><input type="checkbox" id="pc_manual_invoice" ${d.pending <= 0 ? 'disabled' : ''} /> Facturar a la cedula/NIT</label>
-          <label class="chk"><input type="checkbox" id="pc_send_prov" checked ${d.pending <= 0 ? 'disabled' : ''} /> Enviar a PROV_CONV</label>
+          <label class="chk"><input type="checkbox" id="pc_send_prov" checked ${d.pending <= 0 ? 'disabled' : ''} /> Descontar de provisión convenios (PROV_CONV)</label>
         </div>
         <div class="row form-actions">
           <button class="btn success" id="pc_save" ${d.pending <= 0 ? 'disabled title="Sin saldo pendiente"' : ''}>Pagar</button>
@@ -156,13 +202,15 @@ export function createAlliesModule(context) {
         </div>
         <p class="hint">Placas incluidas: ${plates.map(esc).join(", ") || "sin placas"}</p>
         <h3>Historial de pagos</h3>
-        <table class="data"><thead><tr><th>Fecha</th><th>Factura</th><th>Comprobante</th><th class="r">RTM</th><th class="r">Valor</th><th>Nota</th><th></th></tr></thead><tbody>${pays || '<tr><td class="hint" colspan="7">Sin pagos registrados</td></tr>'}</tbody></table>
+        <div id="pc_editbox"></div>
+        <table class="data"><thead><tr><th>Fecha</th><th>Factura</th><th>Comprobante</th><th class="r">RTM</th><th class="r">Valor</th><th>Nota</th><th>Estado</th><th></th></tr></thead><tbody>${pays || '<tr><td class="hint" colspan="8">Sin pagos registrados</td></tr>'}</tbody></table>
         <h3>Comisiones pendientes y pagadas (${d.sales.length})</h3>
         <div id="pc_commissions"></div>`;
       refreshCommissions();
       $("pc_save").addEventListener("click", () => addPagoConv(name));
       $("pc_print_pending").addEventListener("click", () => printPagoConvProof(d));
       $("pagoconvDetail").querySelectorAll("[data-delpay]").forEach((b) => b.addEventListener("click", () => delPagoConv(Number(b.dataset.delpay), name)));
+      $("pagoconvDetail").querySelectorAll("[data-editpay]").forEach((b) => b.addEventListener("click", () => editPagoConv(d, Number(b.dataset.editpay), name)));
       $("pagoconvDetail").querySelectorAll("[data-printpay]").forEach((b) => b.addEventListener("click", () => {
         const payment = d.payments.find((p) => p.id === Number(b.dataset.printpay));
         printPagoConvProof(d, payment);

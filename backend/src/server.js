@@ -29,6 +29,9 @@ import payables from "./routes/payables.js";
 import income from "./routes/income.js";
 import reports from "./routes/reports.js";
 import { auth } from "./auth.js";
+import { tenantMiddleware } from "./tenant.js";
+import companies from "./routes/companies.js";
+import nomina from "./routes/nomina.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -39,8 +42,11 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRoutes); // publico (login)
 
-// A partir de aqui todo exige sesion valida.
+// A partir de aqui todo exige sesion valida y corre en el contexto de SU empresa
+// (multi-tenant: la extension de Prisma filtra todo por req.companyId).
 app.use("/api", auth());
+app.use("/api", tenantMiddleware);
+app.use("/api/companies", companies);
 app.use("/api/clients", clients);
 app.use("/api/vehicles", vehicles);
 app.use("/api/allies", allies);
@@ -54,16 +60,17 @@ app.use("/api/users", users);
 app.use("/api/uploads", uploads);
 app.use("/api/calls", calls);
 app.use("/api/provisions", provisions);
-app.use("/api/dashboard", dashboard);
+app.use("/api/dashboard", auth(["admin"]), dashboard);
 app.use("/api/expenses", expenses);
 app.use("/api/manual-invoices", manualInvoices);
 app.use("/api/suppliers", suppliers);
 app.use("/api/purchase-orders", purchaseOrders);
-app.use("/api/fupa", fupa);
+app.use("/api/fupa", auth(["admin"]), fupa);
 app.use("/api/dian", dian);
 app.use("/api/settings", settings);
 app.use("/api/payables", payables);
 app.use("/api/income", income);
+app.use("/api/nomina", nomina);
 app.use("/api/reports", reports);
 
 // Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).

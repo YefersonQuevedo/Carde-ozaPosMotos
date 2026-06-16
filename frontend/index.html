@@ -47,6 +47,8 @@
         </div>
 
         <nav class="nav" id="tabs">
+          <button class="tab" data-view="simple"><span class="ico">✨</span> Vista simple</button>
+
           <div class="nav-sec">Operación del día</div>
           <button class="tab active" data-view="venta"><span class="ico">🧾</span> Facturar</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas hechas</button>
@@ -54,7 +56,8 @@
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre del día</button>
 
           <div class="nav-sec">Dinero</div>
-          <button class="tab" data-view="payables"><span class="ico">💼</span> Caja y por pagar</button>
+          <button class="tab" data-view="payables"><span class="ico">💼</span> Caja</button>
+          <button class="tab" data-view="obligaciones"><span class="ico">📒</span> Obligaciones / por pagar</button>
           <button class="tab" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
           <button class="tab" data-view="ingresos"><span class="ico">📥</span> Ingresos</button>
           <button class="tab" data-view="gastos"><span class="ico">📤</span> Gastos</button>
@@ -69,14 +72,15 @@
           <button class="tab" data-view="llamadas"><span class="ico">📞</span> Llamadas RTM</button>
 
           <div class="nav-sec">Reportes</div>
-          <button class="tab" data-view="dashboard"><span class="ico">📋</span> Dashboard</button>
+          <button class="tab admin-only" data-view="dashboard"><span class="ico">📋</span> Dashboard</button>
           <button class="tab" data-view="consolidado"><span class="ico">📈</span> Consolidado</button>
 
           <div class="nav-sec">Administración</div>
-          <button class="tab" data-view="fupa"><span class="ico">🎟️</span> Pines / FUPA</button>
+          <button class="tab admin-only" data-view="fupa"><span class="ico">🎟️</span> Pines / FUPA</button>
           <button class="tab" data-view="facturaelec"><span class="ico">🧮</span> Factura electrónica</button>
           <button class="tab" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
           <button class="tab admin-only" data-view="dian"><span class="ico">🏛️</span> DIAN</button>
+          <button class="tab admin-only" data-view="nomina"><span class="ico">🧑‍💼</span> Nómina</button>
           <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
           <button class="tab admin-only" data-view="config"><span class="ico">⚙️</span> Configuración</button>
         </nav>
@@ -100,6 +104,19 @@
             <div class="topbar-meta" id="topbarMeta"></div>
           </div>
         </header>
+
+        <!-- Aviso de turno sin abrir (se llena desde app.js al iniciar sesion) -->
+        <div id="shiftNotice"></div>
+
+        <!-- VISTA SIMPLE (modo secretaria, en evaluacion) -->
+        <section class="view" id="view-simple">
+          <div id="simpleRoot"></div>
+        </section>
+
+        <!-- NOMINA -->
+        <section class="view" id="view-nomina">
+          <div id="nominaRoot"></div>
+        </section>
 
         <!-- VENTA -->
         <section class="view active" id="view-venta">
@@ -245,9 +262,14 @@
           <div id="gastosRoot"></div>
         </section>
 
-        <!-- CUENTAS POR PAGAR (Claude) -->
+        <!-- TABLERO DE CAJA (Claude) -->
         <section class="view" id="view-payables">
           <div id="payablesRoot"></div>
+        </section>
+
+        <!-- OBLIGACIONES / CUENTAS POR PAGAR (Claude) -->
+        <section class="view" id="view-obligaciones">
+          <div id="obligacionesRoot"></div>
         </section>
 
         <!-- PINES / FUPA (Claude · T2) -->

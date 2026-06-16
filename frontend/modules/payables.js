@@ -1,10 +1,11 @@
-import { $, esc, money, readCop, todayIso, downloadBlob } from "../utils.js";
+import { $, esc, money, readCop, todayIso, downloadBlob, confirmDialog } from "../utils.js";
 
 export function createPayablesModule(context) {
   const { api, toast, editSale } = context;
   let expenseNatures = [];
   let boxes = [];
   let creditors = [];
+  let ivaDian = 0; // IVA recaudado de facturas enviadas a la DIAN (se muestra en la caja IVA)
   const PAY_FREQ = ["unico", "mensual", "bimestral", "cuotas"];
   const PAY_BADGE = { pagado: "ok", parcial: "warn", pendiente: "danger" };
 
@@ -24,6 +25,11 @@ export function createPayablesModule(context) {
     const b = boxes.find((x) => x.code === code);
     return b ? b.balance : 0;
   }
+  function isIncomeBox(b) {
+    const kind = String(b.kind || "");
+    const name = String(b.name || "").toLowerCase();
+    return kind === "caja_menor" || kind === "otra" || kind.startsWith("provision_") || name.includes("provision");
+  }
 
   async function renderPayables(c) {
     if (!c) return;
@@ -33,7 +39,7 @@ export function createPayablesModule(context) {
     c.innerHTML = `
       <div class="card">
         <div class="card-head"><h2>Tablero de caja</h2>
-          <button class="btn success" id="cmIngresoBtn">+ Ingresar dinero a caja menor</button>
+          <button class="btn success" id="cmIngresoBtn">+ Registrar ingreso a caja</button>
         </div>
         <div id="pyKpis" class="kpis"></div>
         <div id="cmIngresoForm"></div>
@@ -61,6 +67,22 @@ export function createPayablesModule(context) {
         <div id="ledTotals" class="pill"></div>
         <div id="ledBody"></div>
       </div>
+      <p class="hint">Las obligaciones y cuentas por pagar se manejan en su propia pestaña: <b>Obligaciones / por pagar</b>.</p>`;
+    $("ledLoad").addEventListener("click", loadLedger);
+    $("dcLoad").addEventListener("click", loadDayClose);
+    $("cmIngresoBtn").addEventListener("click", toggleCmIngreso);
+    await loadPayables();
+    await loadDayClose();
+    await loadLedger();
+  }
+
+  // Vista propia de obligaciones / cuentas por pagar (separada del tablero de caja).
+  async function renderObligaciones(c) {
+    if (!c) return;
+    try { expenseNatures = ((await api.expenseNatures()).items) || expenseNatures || []; } catch { expenseNatures = expenseNatures || []; }
+    try { boxes = ((await api.cashBoxes()).boxes) || boxes || []; } catch { boxes = boxes || []; }
+    const natOpts = (expenseNatures || []).map((n) => `<option value="${esc(n.code)}">${esc(n.name)}</option>`).join("");
+    c.innerHTML = `
       <div class="card">
         <div class="card-head"><h2>Nueva obligacion</h2></div>
         <div class="form-grid">
@@ -91,12 +113,7 @@ export function createPayablesModule(context) {
     $("pySave").addEventListener("click", addPayableUI);
     $("pyFilter").addEventListener("click", loadPayables);
     $("pyExport").addEventListener("click", async () => { try { await downloadBlob(await api.exportPayables(cleanFilters()), "cuentas-por-pagar.xlsx"); } catch (e) { toast(e.message); } });
-    $("ledLoad").addEventListener("click", loadLedger);
-    $("dcLoad").addEventListener("click", loadDayClose);
-    $("cmIngresoBtn").addEventListener("click", toggleCmIngreso);
     await loadPayables();
-    await loadDayClose();
-    await loadLedger();
   }
 
   // Consolidado de los turnos del día + estado de la dispersión (cuadre con Jasper).
@@ -172,17 +189,25 @@ export function createPayablesModule(context) {
   }
 
   async function closeDayUI(date, openCount) {
-    if (openCount > 0 && !confirm(`Hay ${openCount} turno(s) abierto(s). Las ventas que entren después NO quedarán en esta dispersión (tocaría re-cerrar el día). ¿Cerrar el día igual?`)) return;
-    if (!confirm(`¿Cerrar el día ${date}? El efectivo a entregar entra a caja menor y el Jasper queda como deuda con Supergiros.`)) return;
+    if (openCount > 0 && !(await confirmDialog(
+      `Hay ${openCount} turno(s) abierto(s). Las ventas que entren después NO quedarán en esta dispersión (tocaría re-cerrar el día).\n\n¿Cerrar el día igual?`,
+      { title: "Turnos sin cerrar", okText: "Cerrar igual", danger: true }
+    ))) return;
+    if (!(await confirmDialog(
+      `El efectivo a entregar entra a caja menor y el Jasper queda como deuda con Supergiros.`,
+      { title: `¿Cerrar y dispersar el día ${date}?`, okText: "Cerrar y dispersar" }
+    ))) return;
     try {
       await api.saveClosing({ date });
       toast("Día cerrado · efectivo a caja menor · deuda Jasper creada");
       await loadPayables();
       await loadDayClose();
+      await loadLedger();
     } catch (e) { toast(e.message); }
   }
 
   async function loadLedger() {
+    if (!$("ledBody")) return; // solo existe en la vista de caja
     const params = { boxCode: $("ledBox")?.value || "CAJA_MENOR" };
     if ($("ledFrom")?.value) params.from = $("ledFrom").value;
     if ($("ledTo")?.value) params.to = $("ledTo").value;
@@ -201,7 +226,7 @@ export function createPayablesModule(context) {
         </tr>`).join("") || '<tr><td class="hint" colspan="8">Sin movimientos en el rango</td></tr>'
       }</tbody></table>`;
       $("ledBody").querySelectorAll("[data-ledvoid]").forEach((b) => b.addEventListener("click", async () => {
-        if (!confirm("¿Anular este movimiento? Se crea una reversa por el mismo valor (nada se borra).")) return;
+        if (!(await confirmDialog("Se crea una reversa por el mismo valor (nada se borra).", { title: "¿Anular este movimiento?", okText: "Anular", danger: true }))) return;
         try { await api.voidCashMovement(Number(b.dataset.ledvoid)); toast("Movimiento anulado"); await loadPayables(); await loadLedger(); }
         catch (e) { toast(e.message); }
       }));
@@ -264,38 +289,56 @@ export function createPayablesModule(context) {
   }
 
   function renderKpis() {
+    if (!$("pyKpis")) return; // solo existe en la vista de caja
     const saldoCaja = boxBalanceOf("CAJA_MENOR");
     const debeSG = (window.__pyItems || []).filter((p) => (p.creditor || "").toUpperCase() === "SUPERGIROS" && p.status !== "pagado").reduce((a, p) => a + p.pending, 0);
     const pendienteTotal = (window.__pyTotals || {}).pending || 0;
     const faltante = Math.max(0, pendienteTotal - saldoCaja);
-    const boxPills = boxes.filter((b) => b.code !== "CAJA_MENOR").map((b) => `<div class="kpi"><span>${esc(b.name)}</span><b>${money(b.balance)}</b></div>`).join("");
+    const boxPills = boxes.filter((b) => b.code !== "CAJA_MENOR").map((b) => {
+      // La caja de IVA no muestra su saldo de movimientos: muestra el IVA recaudado de las
+      // facturas enviadas a la DIAN (factura interna PENDIENTE no cuenta; solo ENVIADA/ACEPTADA).
+      const isIva = String(b.kind) === "iva" || /iva/i.test(b.name);
+      if (isIva) return `<div class="kpi"><span>${esc(b.name)}</span><b>${money(ivaDian)}</b><span class="hint" style="margin:2px 0 0">IVA de facturas emitidas</span></div>`;
+      return `<div class="kpi"><span>${esc(b.name)}</span><b>${money(b.balance)}</b></div>`;
+    }).join("");
     $("pyKpis").innerHTML = `
       <div class="kpi" style="border:2px solid ${saldoCaja < 0 ? "#c0392b" : "#1e7e34"};border-radius:8px"><span>💵 Saldo caja menor</span><b style="font-size:1.3em;color:${saldoCaja < 0 ? "#c0392b" : "#1e7e34"}">${money(saldoCaja)}</b></div>
       <div class="kpi"><span>Debo a Supergiros</span><b>${money(debeSG)}</b></div>
-      <div class="kpi"><span>Total por pagar</span><b>${money(pendienteTotal)}</b></div>
       <div class="kpi"><span>Faltante p/ cubrir</span><b style="${faltante > 0 ? "color:#c0392b" : ""}">${money(faltante)}</b></div>
       ${boxPills}`;
   }
 
-  // Ingreso rapido de dinero a caja menor (retiro del banco / reposicion):
+  // Ingreso rapido de dinero a una caja permitida (retiro del banco / reposicion):
   // "cuando yo saco plata del banco no figura en el cierre, toca poderle hacer un ingreso".
   function toggleCmIngreso() {
     const box = $("cmIngresoForm");
     if (box.innerHTML) { box.innerHTML = ""; return; }
+    const incomeBoxes = boxes.filter(isIncomeBox);
+    const opts = incomeBoxes.map((b) => `<option value="${esc(b.code)}"${b.code === "CAJA_MENOR" ? " selected" : ""}>${esc(b.name)}</option>`).join("");
+    const incomeNatureOpts = (expenseNatures || [])
+      .filter((n) => ["ingreso", "ambos"].includes(String(n.kind || "").toLowerCase()))
+      .map((n) => `<option value="${esc(n.code)}">${esc(n.name)}</option>`)
+      .join("");
     box.innerHTML = `
       <div class="row" style="margin:8px 0;flex-wrap:wrap;gap:8px">
         <input id="cmAmount" inputmode="numeric" placeholder="Monto $" style="max-width:160px" />
         <input type="date" id="cmDate" value="${todayIso()}" />
-        <input id="cmNote" placeholder="Nota (ej: retiro del banco para pagar Supergiros)" style="flex:1;min-width:220px" />
-        <button class="btn success" id="cmSave">Ingresar a caja menor</button>
+        <select id="cmBox">${opts}</select>
+        <select id="cmNature" title="Naturaleza de ingreso"><option value="">Sin naturaleza</option>${incomeNatureOpts}</select>
+        <input id="cmNote" placeholder="Concepto / motivo (ej: retiro del banco)" style="flex:1;min-width:220px" />
+        <button class="btn success" id="cmSave">Registrar ingreso</button>
       </div>`;
     $("cmSave").addEventListener("click", async () => {
       const amount = readCop("cmAmount");
       if (amount <= 0) return toast("Ingresa el monto");
+      const observation = ($("cmNote").value || "").trim();
+      if (!observation) return toast("El concepto o motivo es obligatorio");
       try {
-        await api.addCashMovement({ boxCode: "CAJA_MENOR", type: "ingreso", amount, note: ($("cmNote").value || "").trim() || "Ingreso a caja menor", date: $("cmDate").value || todayIso() });
-        toast(`Ingresaron ${money(amount)} a caja menor`);
+        const boxCode = $("cmBox").value || "CAJA_MENOR";
+        await api.addIncome({ date: $("cmDate").value || todayIso(), value: amount, observation, natureCode: $("cmNature").value || null, boxCode });
+        toast(`Ingreso registrado: ${money(amount)}`);
         box.innerHTML = "";
+        if ($("ledBox")) $("ledBox").value = boxCode;
         await loadPayables();
         await loadLedger();
       } catch (e) { toast(e.message); }
@@ -305,6 +348,7 @@ export function createPayablesModule(context) {
   async function loadPayables() {
     try {
       try { boxes = ((await api.cashBoxes()).boxes) || boxes; } catch { /* mantiene */ }
+      try { ivaDian = (await api.dianIva()).iva || 0; } catch { /* mantiene */ }
       const res = await api.payables(cleanFilters());
       const { items, totals } = res;
       window.__pyItems = items; window.__pyTotals = totals;
@@ -319,6 +363,7 @@ export function createPayablesModule(context) {
         }
       }
       renderKpis();
+      if (!$("pyBody")) return; // la tabla solo existe en la vista de obligaciones
       $("pyTotals").textContent = `Pendiente ${money(totals.pending)} · Total ${money(totals.total)} · Pagado ${money(totals.paid)}`;
       $("pyBody").innerHTML = `<table class="data"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Naturaleza</th><th>Frec.</th><th>Vence</th><th>Estado</th><th class="r">Total</th><th class="r">Pendiente</th><th></th></tr></thead><tbody>${
         items.map((p) => {
@@ -369,7 +414,7 @@ export function createPayablesModule(context) {
         <td>${a.voucherPath ? `<a class="link" href="${esc(a.voucherPath)}" target="_blank">ver comprobante</a>` : '<span class="hint">sin archivo</span>'}</td>
         <td>${esc(a.note || "")}</td>
         <td class="r"><b>${money(a.amount)}</b></td>
-        <td><button class="link" data-delabono="${a.id}">anular</button></td>
+        <td><button class="link" data-editabono="${a.id}">editar</button> <button class="link" data-delabono="${a.id}">anular</button></td>
       </tr>`).join("");
       const isSG = (p.creditor || "").toUpperCase() === "SUPERGIROS";
       box.innerHTML = `
@@ -392,12 +437,14 @@ export function createPayablesModule(context) {
             <label class="fld">Nota<input id="ppNote" placeholder="Opcional" /></label>
           </div>
           <div class="row form-actions"><button class="btn success" id="ppPay">Pagar</button></div>` : '<p class="hint">✓ Cuenta pagada por completo.</p>'}
+          <div id="ppEditBox"></div>
           <h4 style="margin:14px 0 6px">Historial de abonos</h4>
           <table class="data"><thead><tr><th>Fecha</th><th>Quién</th><th>Comprobante</th><th>Nota</th><th class="r">Valor</th><th></th></tr></thead>
           <tbody>${pays || '<tr><td class="hint" colspan="6">Sin abonos</td></tr>'}</tbody></table>
         </div>`;
       $("ppClose").addEventListener("click", () => { box.innerHTML = ""; });
       $("ppPay")?.addEventListener("click", () => payPayableUI(p));
+      box.querySelectorAll("[data-editabono]").forEach((b) => b.addEventListener("click", () => editAbonoUI(p, Number(b.dataset.editabono))));
       box.querySelectorAll("[data-delabono]").forEach((b) => b.addEventListener("click", () => delAbonoUI(id, Number(b.dataset.delabono))));
     } catch (e) { toast(e.message); }
   }
@@ -405,7 +452,7 @@ export function createPayablesModule(context) {
   async function payPayableUI(p) {
     const amount = readCop("ppAmount");
     if (amount <= 0) return toast("Valor invalido");
-    if (amount > p.pending && !confirm(`El valor supera el pendiente (${money(p.pending)}). ¿Registrar igual?`)) return;
+    if (amount > p.pending && !(await confirmDialog(`El valor supera el pendiente (${money(p.pending)}).`, { title: "¿Registrar igual?", okText: "Registrar", danger: true }))) return;
     const body = { amount, paidDate: $("ppDate")?.value || todayIso(), boxCode: "CAJA_MENOR", paidBy: ($("ppBy")?.value || "").trim() || null, note: ($("ppNote")?.value || "").trim() || null };
     try {
       const file = $("ppVoucher")?.files?.[0];
@@ -416,29 +463,86 @@ export function createPayablesModule(context) {
       await api.payPayable(p.id, body);
       toast("Pago registrado (egreso de caja menor)");
       await loadPayables();
+      await loadLedger();
       openPayablePanel(p.id);
     } catch (e) {
-      if (/insuficientes/i.test(e.message) && confirm(`${e.message}.\n¿Registrar el pago de todos modos (caja menor quedará en negativo)?`)) {
-        try { await api.payPayable(p.id, { ...body, force: true }); toast("Pago registrado (forzado)"); await loadPayables(); openPayablePanel(p.id); }
+      if (/insuficientes/i.test(e.message) && (await confirmDialog(`${e.message}.\n¿Registrar el pago de todos modos? Caja menor quedará en negativo.`, { title: "Fondos insuficientes", okText: "Registrar igual", danger: true }))) {
+        try { await api.payPayable(p.id, { ...body, force: true }); toast("Pago registrado (forzado)"); await loadPayables(); await loadLedger(); openPayablePanel(p.id); }
         catch (e2) { toast(e2.message); }
       } else { toast(e.message); }
     }
   }
 
+  function editAbonoUI(p, paymentId) {
+    const a = (p.payments || []).find((pay) => pay.id === paymentId);
+    const box = $("ppEditBox");
+    if (!a || !box) return;
+    box.innerHTML = `
+      <div class="card" style="margin-top:10px;background:#fff;border:1px solid #d8e2ee">
+        <div class="card-head"><h4>Editar abono #${a.id}</h4><button class="link" id="ppEditCancel">cancelar</button></div>
+        <div class="form-grid">
+          <label class="fld">Valor<input id="ppeAmount" inputmode="numeric" value="${a.amount}" /></label>
+          <label class="fld">Fecha<input type="date" id="ppeDate" value="${esc(a.paidDate || todayIso())}" /></label>
+          <label class="fld">Quien paga<input id="ppeBy" value="${esc(a.paidBy || "")}" /></label>
+          <label class="fld">Comprobante nuevo<input id="ppeVoucher" type="file" accept="image/*,.pdf" /></label>
+          <label class="fld">Nota<input id="ppeNote" value="${esc(a.note || "")}" /></label>
+        </div>
+        ${a.voucherPath ? `<p class="hint">Comprobante actual: <a class="link" href="${esc(a.voucherPath)}" target="_blank">ver archivo</a>. Si no eliges archivo nuevo, se conserva.</p>` : '<p class="hint">Puedes guardar solo el comprobante, sin tocar el valor.</p>'}
+        <div class="row form-actions"><button class="btn success" id="ppEditSave">Guardar cambios</button></div>
+      </div>`;
+    $("ppEditCancel").addEventListener("click", () => { box.innerHTML = ""; });
+    $("ppEditSave").addEventListener("click", () => saveAbonoEditUI(p, a));
+  }
+
+  async function saveAbonoEditUI(p, a) {
+    const body = {
+      amount: readCop("ppeAmount"),
+      paidDate: $("ppeDate")?.value || todayIso(),
+      paidBy: ($("ppeBy")?.value || "").trim() || null,
+      note: ($("ppeNote")?.value || "").trim() || null,
+      boxCode: "CAJA_MENOR"
+    };
+    if (body.amount <= 0) return toast("Valor invalido");
+    try {
+      const file = $("ppeVoucher")?.files?.[0];
+      if (file) {
+        const up = await api.uploadFile(file);
+        body.voucherPath = up.url || up.path;
+      }
+      await api.updatePayablePayment(p.id, a.id, body);
+      toast("Abono actualizado");
+      await loadPayables();
+      await loadLedger();
+      openPayablePanel(p.id);
+    } catch (e) {
+      if (/insuficientes/i.test(e.message) && (await confirmDialog(`${e.message}.\n¿Guardar el cambio de todos modos? Caja menor quedará en negativo.`, { title: "Fondos insuficientes", okText: "Guardar igual", danger: true }))) {
+        try {
+          await api.updatePayablePayment(p.id, a.id, { ...body, force: true });
+          toast("Abono actualizado (forzado)");
+          await loadPayables();
+          await loadLedger();
+          openPayablePanel(p.id);
+        } catch (e2) { toast(e2.message); }
+      } else { toast(e.message); }
+    }
+  }
+
   async function delAbonoUI(id, paymentId) {
-    if (!confirm("¿Anular este abono? El dinero vuelve a la caja y la cuenta queda pendiente por ese valor.")) return;
+    if (!(await confirmDialog("El dinero vuelve a la caja y la cuenta queda pendiente por ese valor.", { title: "¿Anular este abono?", okText: "Anular", danger: true }))) return;
     try {
       await api.deletePayablePayment(id, paymentId);
       toast("Abono anulado · dinero devuelto a la caja");
+      if ($("pyfStatus")?.value === "pagado") $("pyfStatus").value = "";
       await loadPayables();
+      await loadLedger();
       openPayablePanel(id);
     } catch (e) { toast(e.message); }
   }
 
   async function delPayableUI(id) {
-    if (!confirm("¿Eliminar esta obligacion y sus abonos? Se revierte el egreso de caja.")) return;
-    try { await api.deletePayable(id); toast("Eliminada"); loadPayables(); }
+    if (!(await confirmDialog("Se eliminan también sus abonos y se revierte el egreso de caja.", { title: "¿Eliminar esta obligación?", okText: "Eliminar", danger: true }))) return;
+    try { await api.deletePayable(id); toast("Eliminada"); await loadPayables(); await loadLedger(); await loadDayClose(); }
     catch (e) { toast(e.message); }
   }
-  return { renderPayables };
+  return { renderPayables, renderObligaciones };
 }

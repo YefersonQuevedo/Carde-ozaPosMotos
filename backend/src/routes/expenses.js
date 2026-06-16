@@ -2,7 +2,9 @@
 // y alimenta el "gastos" del cierre diario. Anular un gasto revierte su egreso.
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
+import { auth } from "../auth.js";
 
 const router = Router();
 const iso = () => new Date().toISOString().slice(0, 10);
@@ -56,28 +58,81 @@ async function natureRows(from, to) {
     .sort((a, b) => (b.expenses + b.invoiceTotal) - (a.expenses + a.invoiceTotal));
 }
 
-// GET /api/expenses/natures -> catalogo de naturalezas.
-router.get("/natures", async (_req, res, next) => {
+// GET /api/expenses/natures -> catalogo de naturalezas (solo activas).
+// GET /api/expenses/natures?all=1 -> incluye inactivas (para el CRUD de configuracion).
+router.get("/natures", async (req, res, next) => {
   try {
-    const items = await prisma.expenseNature.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+    const where = req.query.all ? {} : { active: true };
+    const items = await prisma.expenseNature.findMany({ where, orderBy: { name: "asc" } });
     res.json({ items });
   } catch (e) {
     next(e);
   }
 });
 
-router.post("/natures", async (req, res, next) => {
+// POST /api/expenses/natures -> crear/actualizar una naturaleza (solo admin).
+router.post("/natures", auth(["admin"]), async (req, res, next) => {
   try {
     const b = req.body || {};
     const code = normalizeNatureCode(b.code || b.name);
     const name = String(b.name || "").trim();
+    const kind = ["ingreso", "gasto", "ambos"].includes(b.kind) ? b.kind : "gasto";
     if (!code || !name) return res.status(400).json({ error: "Codigo/nombre de naturaleza obligatorio" });
     const item = await prisma.expenseNature.upsert({
-      where: { code },
-      update: { name, kind: b.kind || "gasto", taxRelevant: b.taxRelevant === true, active: b.active !== false },
-      create: { code, name, kind: b.kind || "gasto", taxRelevant: b.taxRelevant === true, active: b.active !== false }
+      where: { companyId_code: { companyId: currentCompanyId(), code } },
+      update: { name, kind, taxRelevant: b.taxRelevant === true, active: b.active !== false },
+      create: { code, name, kind, taxRelevant: b.taxRelevant === true, active: b.active !== false }
     });
     res.status(201).json({ item });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PUT /api/expenses/natures/:code -> editar nombre/tipo/estado (solo admin).
+// El codigo no cambia: es la referencia guardada en ingresos/gastos/facturas.
+router.put("/natures/:code", auth(["admin"]), async (req, res, next) => {
+  try {
+    const code = normalizeNatureCode(req.params.code);
+    const prev = await prisma.expenseNature.findFirst({ where: { code } });
+    if (!prev) return res.status(404).json({ error: "No existe la naturaleza" });
+    const b = req.body || {};
+    const item = await prisma.expenseNature.update({
+      where: { id: prev.id },
+      data: {
+        name: b.name !== undefined ? String(b.name).trim() || prev.name : prev.name,
+        kind: ["ingreso", "gasto", "ambos"].includes(b.kind) ? b.kind : prev.kind,
+        taxRelevant: b.taxRelevant !== undefined ? b.taxRelevant === true : prev.taxRelevant,
+        active: b.active !== undefined ? b.active !== false : prev.active
+      }
+    });
+    res.json({ item });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE /api/expenses/natures/:code -> eliminar (solo admin).
+// Si ya tiene movimientos (ingresos/gastos/facturas de proveedor) NO se borra:
+// se desactiva, para no dejar registros apuntando a una naturaleza fantasma.
+router.delete("/natures/:code", auth(["admin"]), async (req, res, next) => {
+  try {
+    const code = normalizeNatureCode(req.params.code);
+    const prev = await prisma.expenseNature.findFirst({ where: { code } });
+    if (!prev) return res.status(404).json({ error: "No existe la naturaleza" });
+    const [nInc, nExp, nInv, nPay] = await Promise.all([
+      prisma.income.count({ where: { natureCode: code } }),
+      prisma.expense.count({ where: { category: code } }),
+      prisma.supplierInvoice.count({ where: { natureCode: code } }),
+      prisma.payable.count({ where: { category: code } })
+    ]);
+    const used = nInc + nExp + nInv + nPay;
+    if (used > 0) {
+      const item = await prisma.expenseNature.update({ where: { id: prev.id }, data: { active: false } });
+      return res.json({ ok: true, deactivated: true, used, item, message: `Tiene ${used} registro(s) asociados: se desactivó (no se borra para conservar el historial).` });
+    }
+    await prisma.expenseNature.delete({ where: { id: prev.id } });
+    res.json({ ok: true, deleted: true });
   } catch (e) {
     next(e);
   }
@@ -154,25 +209,102 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// GET /api/expenses/export?from=&to=  -> Excel
+// GET /api/expenses/export?from=&to=  -> workbook EN EL FORMATO DE MAYO del cliente:
+// Hoja 1 "Consolidado Egresos" (por naturaleza, Bancos/Efectivo/Total/%/#),
+// Hoja 2 "Egresos" (planilla: FECHA, VALOR, OBSERVACIÓN, NATURALEZA, FUENTE).
 router.get("/export", async (req, res, next) => {
   try {
+    const from = req.query.from, to = req.query.to;
+    const label = periodLabel(from, to);
+    const { rows: consol, totals, bankCodes, nameByCode } = await buildExpenseConsolidado(from, to);
     const where = { status: "activa" };
-    if (req.query.from || req.query.to) where.date = { gte: String(req.query.from || "0000"), lte: String(req.query.to || "9999") };
-    const items = await prisma.expense.findMany({ where, orderBy: [{ date: "desc" }, { id: "desc" }], take: 5000 });
-    const total = items.reduce((a, e) => a + e.amount, 0);
+    if (from || to) where.date = { gte: String(from || "0000"), lte: String(to || "9999") };
+    const items = await prisma.expense.findMany({ where, orderBy: [{ date: "asc" }, { id: "asc" }], take: 10000 });
+    const planilla = items.map((e) => ({
+      date: e.date, value: e.amount, observation: e.concept + (e.note ? " · " + e.note : ""),
+      naturaleza: nameByCode[normalizeNatureCode(e.category)] || e.category || "",
+      fuente: bankCodes.has(e.boxCode) ? "Bancos" : "Efectivo"
+    }));
+    const consolRows = consol.map((r) => ({ ...r, pctTxt: (r.pct || 0).toString().replace(".", ",") + "%" }));
     const buf = await toWorkbook({
-      sheets: [{
-        name: "Gastos", title: "Gastos",
-        columns: [
-          { header: "Fecha", key: "date", width: 12 }, { header: "Concepto", key: "concept", width: 30 },
-          { header: "Categoria", key: "category", width: 18 }, { header: "Caja", key: "boxCode", width: 16 },
-          { header: "Nota", key: "note", width: 24 }, { header: "Monto", key: "amount", width: 14, money: true }
-        ],
-        rows: items, totals: { amount: total }
-      }]
+      sheets: [
+        {
+          name: "Consolidado Egresos", title: `CONSOLIDADO DE EGRESOS — ${label}`,
+          columns: [
+            { header: "NATURALEZA (TIPO DE GASTO)", key: "name", width: 34 },
+            { header: "BANCOS", key: "bancos", width: 16, money: true },
+            { header: "EFECTIVO", key: "efectivo", width: 16, money: true },
+            { header: "TOTAL", key: "total", width: 16, money: true },
+            { header: "% DEL TOTAL", key: "pctTxt", width: 12 },
+            { header: "# MOVIMIENTOS", key: "count", width: 14, number: true }
+          ],
+          rows: consolRows,
+          totals: { bancos: totals.bancos, efectivo: totals.efectivo, total: totals.total, count: totals.count }
+        },
+        {
+          name: "Egresos", title: `EGRESOS — Planillas Bancos y Efectivo (${label})`,
+          columns: [
+            { header: "FECHA", key: "date", width: 12 },
+            { header: "VALOR", key: "value", width: 16, money: true },
+            { header: "OBSERVACIÓN", key: "observation", width: 38 },
+            { header: "NATURALEZA", key: "naturaleza", width: 26 },
+            { header: "FUENTE", key: "fuente", width: 12 }
+          ],
+          rows: planilla, totals: { value: totals.total }
+        }
+      ]
     });
-    sendXlsx(res, buf, "gastos.xlsx");
+    sendXlsx(res, buf, `egresos-${label.replace(/\s+/g, "_")}.xlsx`);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Una caja es "banco" (fuente Bancos) por tipo o nombre; el resto es Efectivo.
+const isBankBox = (box) => {
+  const kind = String(box?.kind || "").toLowerCase();
+  return kind === "banco" || kind === "bancos" || String(box?.name || "").toLowerCase().includes("banco");
+};
+
+// Etiqueta del periodo para titulos del Excel ("MAYO 2026" si cae en un mes).
+function periodLabel(from, to) {
+  const f = String(from || ""), t = String(to || "");
+  const meses = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+  if (/^\d{4}-\d{2}/.test(f) && f.slice(0, 7) === t.slice(0, 7)) return `${meses[Number(f.slice(5, 7)) - 1]} ${f.slice(0, 4)}`;
+  return `${f || "inicio"} a ${t || "hoy"}`;
+}
+
+// Consolidado de egresos por naturaleza, separado Bancos/Efectivo (formato del cliente).
+async function buildExpenseConsolidado(from, to) {
+  const where = { status: "activa" };
+  if (from || to) where.date = { gte: String(from || "0000"), lte: String(to || "9999") };
+  const [items, natures, boxes] = await Promise.all([
+    prisma.expense.findMany({ where }),
+    prisma.expenseNature.findMany(),
+    prisma.cashBox.findMany()
+  ]);
+  const bankCodes = new Set(boxes.filter(isBankBox).map((b) => b.code));
+  const nameByCode = Object.fromEntries(natures.map((n) => [n.code, n.name]));
+  const rows = {};
+  const ensure = (code, name) => (rows[code] ||= { code, name: name || nameByCode[code] || code, bancos: 0, efectivo: 0, total: 0, count: 0 });
+  for (const n of natures) if (["gasto", "ambos"].includes(String(n.kind || "").toLowerCase())) ensure(n.code, n.name);
+  for (const e of items) {
+    const code = normalizeNatureCode(e.category) || "SIN_NATURALEZA";
+    const row = ensure(code, code === "SIN_NATURALEZA" ? "Sin naturaleza" : null);
+    if (bankCodes.has(e.boxCode)) row.bancos += e.amount; else row.efectivo += e.amount;
+    row.total += e.amount; row.count += 1;
+  }
+  const list = Object.values(rows).sort((a, b) => b.total - a.total);
+  const totals = list.reduce((t, r) => ({ bancos: t.bancos + r.bancos, efectivo: t.efectivo + r.efectivo, total: t.total + r.total, count: t.count + r.count }), { bancos: 0, efectivo: 0, total: 0, count: 0 });
+  for (const r of list) r.pct = totals.total ? Math.round((r.total / totals.total) * 1000) / 10 : 0;
+  return { rows: list, totals, bankCodes, nameByCode };
+}
+
+// GET /api/expenses/consolidado?from=&to=
+router.get("/consolidado", async (req, res, next) => {
+  try {
+    const { rows, totals } = await buildExpenseConsolidado(req.query.from, req.query.to);
+    res.json({ rows, totals });
   } catch (e) {
     next(e);
   }

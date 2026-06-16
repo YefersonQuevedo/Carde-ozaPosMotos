@@ -52,10 +52,12 @@ async function rangeReport(from, to) {
     orderBy: [{ saleDate: "asc" }, { id: "asc" }]
   });
   const ids = sales.map((s) => s.id);
-  const [payments, receivables, costs] = await Promise.all([
+  const [payments, receivables, costs, payablesFijos, employees] = await Promise.all([
     ids.length ? prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [],
     ids.length ? prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [],
-    ids.length ? prisma.saleCost.findMany({ where: { saleId: { in: ids } } }) : []
+    ids.length ? prisma.saleCost.findMany({ where: { saleId: { in: ids } } }) : [],
+    prisma.payable.findMany({ where: { frequency: "mensual" } }),
+    prisma.employee.findMany({ where: { active: true } })
   ]);
 
   const closing = computeClosing({ sales, payments, receivables });
@@ -80,6 +82,15 @@ async function rangeReport(from, to) {
   const referredSales = sales.length - directSales;
   const ticketPromedio = sales.length ? Math.round(closing.salesTotal / sales.length) : 0;
   const utilidadBruta = closing.salesTotal - costsTotal - closing.deducciones;
+
+  // KPIs gerenciales (referencia MENSUAL, independiente del rango):
+  // costos fijos = obligaciones mensuales + nomina mensual (salario + auxilios de activos).
+  const nominaMensual = employees.reduce((s, e) => s + money(e.salaryBase) + money(e.auxTransporte) + money(e.auxAlimentacion), 0);
+  const obligacionesMensual = payablesFijos.reduce((s, p) => s + money(p.totalAmount), 0);
+  const costosFijosMensuales = nominaMensual + obligacionesMensual;
+  const margen = closing.salesTotal ? Math.round((utilidadBruta / closing.salesTotal) * 1000) / 10 : 0;
+  // Punto de equilibrio: RTMs/mes necesarias para cubrir los costos fijos al ticket promedio.
+  const puntoEquilibrio = ticketPromedio ? Math.ceil(costosFijosMensuales / ticketPromedio) : 0;
 
   const byDay = {};
   for (const s of sales) {
@@ -114,7 +125,14 @@ async function rangeReport(from, to) {
       costosTransaccion: transactionCosts,
       ivaFacturacion,
       ivaVentas,
-      ivaProvision: ivaVentas + ivaFacturacion,
+      // IVA facturado = IVA cobrado al cliente en las facturas emitidas (lo que se le debe a
+      // la DIAN). NO se suma el IVA de facturacion (ivaFacturacion), que es un costo aparte.
+      ivaProvision: ivaVentas,
+      nominaMensual,
+      obligacionesMensual,
+      costosFijosMensuales,
+      margen,
+      puntoEquilibrio,
       dispersionBruta: dispersionTotals.recaudoBruto,
       dispersionNeta: dispersionTotals.netoEstimado,
       dispersionDeducciones: dispersionTotals.deducciones,

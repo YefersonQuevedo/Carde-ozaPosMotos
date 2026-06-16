@@ -14,8 +14,14 @@ router.post("/login", async (req, res, next) => {
     if (!user || !user.active) return res.status(401).json({ error: "Usuario o clave incorrectos" });
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: "Usuario o clave incorrectos" });
+    const companyId = user.companyId || 1;
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    if (company && company.active === false) return res.status(403).json({ error: "La empresa está desactivada" });
     const token = signToken(user);
-    res.json({ token, user: { id: user.id, username: user.username, name: user.name, role: user.role } });
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, name: user.name, role: user.role, companyId, companyName: company?.name || "" }
+    });
   } catch (e) {
     next(e);
   }

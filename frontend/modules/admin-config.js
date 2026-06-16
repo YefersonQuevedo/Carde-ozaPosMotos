@@ -1,4 +1,4 @@
-import { $, esc, money, downloadBlob } from "../utils.js";
+import { $, esc, money, downloadBlob, confirmDialog } from "../utils.js";
 
 export function createAdminConfigModule(context) {
   const { api, toast } = context;
@@ -72,10 +72,228 @@ export function createAdminConfigModule(context) {
           <label class="fld">Phone Number ID<input id="nf_whatsappPhoneId" value="${esc(notif.whatsappPhoneId ?? "")}" /></label>
         </div>
         <div class="row form-actions"><button class="btn ghost" data-test="whatsapp">Probar WhatsApp</button></div>
-      </div>`;
+      </div>
+
+      ${(api.currentUser?.()?.role === "admin" && (api.currentUser?.()?.companyId ?? 1) === 1) ? `
+      <div class="card">
+        <div class="card-head"><h2>Empresas (multi-CDA)</h2></div>
+        <p class="hint">Cada empresa tiene sus propios datos: ventas, turnos, cajas, clientes, convenios, tarifas y configuración DIAN. Al crear una empresa se le copia el catálogo base (productos, paquetes, métodos de pago, tarifas, cajas y naturalezas) y se crea su usuario administrador.</p>
+        <div class="form-grid">
+          <label class="fld">Nombre de la empresa *<input id="coName" placeholder="Ej: CDA MOTOS DEL SUR" /></label>
+          <label class="fld">NIT<input id="coNit" placeholder="900123456" /></label>
+          <label class="fld">Ciudad<input id="coCity" placeholder="Ibagué" /></label>
+          <label class="fld">Usuario admin *<input id="coAdminUser" autocomplete="off" placeholder="admin.motosur" /></label>
+          <label class="fld">Nombre del admin *<input id="coAdminName" placeholder="Quién administra ese CDA" /></label>
+          <label class="fld">Clave del admin *<input id="coAdminPass" type="password" autocomplete="new-password" placeholder="Clave inicial" /></label>
+        </div>
+        <div class="row form-actions"><button class="btn success" id="coCreate">Crear empresa</button></div>
+        <div id="coBody"></div>
+      </div>` : ""}
+
+      ${(api.currentUser?.()?.role === "admin") ? `
+      <div class="card">
+        <div class="card-head"><h2>Naturalezas de ingresos y gastos</h2></div>
+        <p class="hint">Clasifican los ingresos, gastos, obligaciones y facturas de proveedor para los reportes gerenciales. Las inactivas dejan de salir en los formularios pero conservan su historial.</p>
+        <div class="form-grid">
+          <label class="fld">Nombre *<input id="natName" placeholder="Ej: Retiro del banco, Arriendo, Nómina…" /></label>
+          <label class="fld">Tipo<select id="natKind">
+            <option value="ingreso">Ingreso</option>
+            <option value="gasto">Gasto</option>
+            <option value="ambos">Ambos</option>
+          </select></label>
+          <label class="chk" style="align-self:end"><input type="checkbox" id="natTax" /> Relevante para impuestos (IVA)</label>
+        </div>
+        <div class="row form-actions">
+          <button class="btn success" id="natSave">Agregar naturaleza</button>
+          <button class="btn ghost hidden" id="natCancel">Cancelar edición</button>
+        </div>
+        <div id="natBody"></div>
+      </div>` : ""}
+
+      ${(api.currentUser?.()?.role === "admin") ? `
+      <div class="card danger-zone">
+        <div class="card-head"><h2>⚠️ Zona peligrosa — Borrar turnos y ventas</h2></div>
+        <p class="hint">Borra <b>toda la operación</b>: ventas, turnos, cierres diarios, movimientos de caja (las cajas quedan en cero), pagos de convenio, cartera, facturas, ingresos/gastos, cuentas por pagar, facturas de proveedor, órdenes de compra, FUPA, llamadas e historial de cliente.</p>
+        <p class="hint"><b>Se conservan:</b> clientes, vehículos, convenios, proveedores, catálogo, tarifas, usuarios, cajas y configuración.</p>
+        <p class="hint" style="color:var(--red)"><b>Esta acción es IRREVERSIBLE.</b> Para habilitar el botón, escribe <b>BORRAR</b> en mayúsculas.</p>
+        <div class="form-grid">
+          <label class="fld">Confirmación<input id="resetConfirm" autocomplete="off" placeholder="Escribe BORRAR para habilitar" /></label>
+        </div>
+        <div class="row form-actions"><button class="btn danger" id="resetOpsBtn" disabled>Borrar turnos y ventas</button></div>
+      </div>` : ""}`;
     $("cfgDianSave").addEventListener("click", saveDianConfigUI);
     $("cfgNotifSave").addEventListener("click", saveNotifConfigUI);
     c.querySelectorAll("[data-test]").forEach((b) => b.addEventListener("click", () => testNotifUI(b.dataset.test)));
+    wireCompanies();
+    wireNatures();
+    wireResetOps();
+  }
+
+  // ---------- Gestion de empresas (multi-CDA, solo admin de la empresa principal) ----------
+  function wireCompanies() {
+    if (!$("coCreate")) return; // la tarjeta solo existe para el admin de la empresa 1
+    $("coCreate").addEventListener("click", createCompanyUI);
+    loadCompanies();
+  }
+
+  async function loadCompanies() {
+    const box = $("coBody");
+    if (!box) return;
+    try {
+      const { items } = await api.companies();
+      box.innerHTML = `<table class="data"><thead><tr><th>#</th><th>Empresa</th><th>NIT</th><th>Ciudad</th><th>Usuarios</th><th>Estado</th><th></th></tr></thead><tbody>${
+        items.map((co) => `<tr style="${co.active ? "" : "opacity:.55"}">
+          <td>${co.id}</td>
+          <td><b>${esc(co.name)}</b>${co.id === 1 ? ' <span class="pill">principal</span>' : ""}</td>
+          <td>${esc(co.nit || "")}</td>
+          <td>${esc(co.city || "")}</td>
+          <td>${co.users}</td>
+          <td><span class="pill ${co.active ? "ok" : "danger"}">${co.active ? "activa" : "inactiva"}</span></td>
+          <td>${co.id !== 1 ? `<button class="link" data-cotoggle="${co.id}" data-active="${co.active ? 1 : 0}">${co.active ? "desactivar" : "activar"}</button>` : ""}</td>
+        </tr>`).join("")
+      }</tbody></table>`;
+      box.querySelectorAll("[data-cotoggle]").forEach((b) => b.addEventListener("click", async () => {
+        const turnOff = b.dataset.active === "1";
+        if (turnOff && !(await confirmDialog("Sus usuarios no podrán iniciar sesión hasta reactivarla. Los datos no se borran.", { title: "¿Desactivar esta empresa?", okText: "Desactivar", danger: true }))) return;
+        try {
+          await api.updateCompany(Number(b.dataset.cotoggle), { active: !turnOff });
+          toast(turnOff ? "Empresa desactivada" : "Empresa activada");
+          loadCompanies();
+        } catch (e) { toast(e.message); }
+      }));
+    } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+  }
+
+  async function createCompanyUI() {
+    const body = {
+      name: $("coName").value.trim(),
+      nit: $("coNit").value.trim() || null,
+      city: $("coCity").value.trim() || null,
+      adminUsername: $("coAdminUser").value.trim(),
+      adminName: $("coAdminName").value.trim(),
+      adminPassword: $("coAdminPass").value
+    };
+    if (!body.name) return toast("El nombre de la empresa es obligatorio");
+    if (!body.adminUsername || !body.adminName || !body.adminPassword) return toast("Completa el usuario administrador (usuario, nombre y clave)");
+    try {
+      const r = await api.createCompany(body);
+      toast(`Empresa "${r.company.name}" creada · catálogo copiado · admin: ${r.admin.username}`);
+      ["coName", "coNit", "coCity", "coAdminUser", "coAdminName", "coAdminPass"].forEach((id) => { $(id).value = ""; });
+      loadCompanies();
+    } catch (e) { toast(e.message); }
+  }
+
+  // ---------- CRUD de naturalezas de ingreso/gasto ----------
+  const NAT_KIND = { ingreso: "Ingreso", gasto: "Gasto", ambos: "Ambos" };
+  let editingNature = null; // code en edicion (null = creando)
+
+  function wireNatures() {
+    if (!$("natSave")) return; // la tarjeta solo existe para admin
+    $("natSave").addEventListener("click", saveNatureUI);
+    $("natCancel").addEventListener("click", () => resetNatureForm());
+    loadNatures();
+  }
+
+  function resetNatureForm() {
+    editingNature = null;
+    $("natName").value = "";
+    $("natKind").value = "ingreso";
+    $("natTax").checked = false;
+    $("natSave").textContent = "Agregar naturaleza";
+    $("natCancel").classList.add("hidden");
+  }
+
+  async function loadNatures() {
+    const box = $("natBody");
+    if (!box) return;
+    try {
+      const { items } = await api.expenseNaturesAll();
+      box.innerHTML = `<table class="data"><thead><tr><th>Nombre</th><th>Código</th><th>Tipo</th><th>Impuestos</th><th>Estado</th><th></th></tr></thead><tbody>${
+        items.map((n) => `<tr style="${n.active ? "" : "opacity:.55"}">
+          <td><b>${esc(n.name)}</b></td>
+          <td class="hint">${esc(n.code)}</td>
+          <td>${esc(NAT_KIND[n.kind] || n.kind)}</td>
+          <td>${n.taxRelevant ? "✓ IVA" : ""}</td>
+          <td><span class="pill ${n.active ? "ok" : "danger"}">${n.active ? "activa" : "inactiva"}</span></td>
+          <td>
+            <button class="link" data-natedit="${esc(n.code)}">editar</button>
+            <button class="link" data-nattoggle="${esc(n.code)}" data-active="${n.active ? 1 : 0}">${n.active ? "desactivar" : "activar"}</button>
+            <button class="link" data-natdel="${esc(n.code)}">eliminar</button>
+          </td>
+        </tr>`).join("") || '<tr><td class="hint" colspan="6">Sin naturalezas. Agrega la primera arriba.</td></tr>'
+      }</tbody></table>`;
+      const byCode = Object.fromEntries(items.map((n) => [n.code, n]));
+      box.querySelectorAll("[data-natedit]").forEach((b) => b.addEventListener("click", () => {
+        const n = byCode[b.dataset.natedit];
+        if (!n) return;
+        editingNature = n.code;
+        $("natName").value = n.name;
+        $("natKind").value = n.kind;
+        $("natTax").checked = !!n.taxRelevant;
+        $("natSave").textContent = `Guardar cambios (${n.code})`;
+        $("natCancel").classList.remove("hidden");
+        $("natName").focus();
+      }));
+      box.querySelectorAll("[data-nattoggle]").forEach((b) => b.addEventListener("click", async () => {
+        try {
+          await api.updateExpenseNature(b.dataset.nattoggle, { active: b.dataset.active !== "1" });
+          toast(b.dataset.active === "1" ? "Naturaleza desactivada" : "Naturaleza activada");
+          loadNatures();
+        } catch (e) { toast(e.message); }
+      }));
+      box.querySelectorAll("[data-natdel]").forEach((b) => b.addEventListener("click", async () => {
+        const n = byCode[b.dataset.natdel];
+        if (!(await confirmDialog(
+          `Si "${n?.name || b.dataset.natdel}" ya tiene movimientos asociados no se borra: se desactiva (conserva el historial).`,
+          { title: "¿Eliminar esta naturaleza?", okText: "Eliminar", danger: true }
+        ))) return;
+        try {
+          const r = await api.deleteExpenseNature(b.dataset.natdel);
+          toast(r.deactivated ? r.message : "Naturaleza eliminada");
+          loadNatures();
+        } catch (e) { toast(e.message); }
+      }));
+    } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+  }
+
+  async function saveNatureUI() {
+    const name = $("natName").value.trim();
+    if (!name) return toast("El nombre es obligatorio");
+    const body = { name, kind: $("natKind").value, taxRelevant: $("natTax").checked };
+    try {
+      if (editingNature) await api.updateExpenseNature(editingNature, body);
+      else await api.saveExpenseNature(body);
+      toast(editingNature ? "Naturaleza actualizada" : "Naturaleza agregada");
+      resetNatureForm();
+      loadNatures();
+    } catch (e) { toast(e.message); }
+  }
+
+  // Zona peligrosa: el boton solo se habilita si se escribe BORRAR, y aun asi pide
+  // una confirmacion final antes de ejecutar el reset operacional.
+  function wireResetOps() {
+    const input = $("resetConfirm");
+    const btn = $("resetOpsBtn");
+    if (!input || !btn) return;
+    input.addEventListener("input", () => { btn.disabled = input.value.trim().toUpperCase() !== "BORRAR"; });
+    btn.addEventListener("click", async () => {
+      if (input.value.trim().toUpperCase() !== "BORRAR") return;
+      const ok = await confirmDialog(
+        "Se borrará TODA la operación (ventas, turnos, cierres, movimientos de caja, convenios, cartera, facturas…).\n\nSe conservan clientes, convenios, catálogo, tarifas, usuarios y configuración.\n\nEsta acción NO se puede deshacer. ¿Continuar?",
+        { title: "Borrar turnos y ventas", okText: "Sí, borrar todo", cancelText: "Cancelar", danger: true }
+      );
+      if (!ok) return;
+      btn.disabled = true;
+      toast("Borrando data operacional…");
+      try {
+        const r = await api.resetOperacional("BORRAR");
+        toast(`Listo · ${r.total} registros borrados. Las cajas quedaron en cero.`);
+        input.value = "";
+      } catch (e) {
+        toast(e.message);
+        btn.disabled = false;
+      }
+    });
   }
   async function saveDianConfigUI() {
     const body = { environment: $("dn_environment").value, active: $("dn_active").checked };

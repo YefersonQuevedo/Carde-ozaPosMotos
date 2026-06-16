@@ -13,11 +13,29 @@ datasource db {
   relationMode = "prisma"
 }
 
+/// Empresa (CDA). Multi-tenant por fila: cada tabla de negocio lleva companyId.
+/// La empresa 1 es la original (Certimotos); las demas se crean desde Configuracion.
+model Company {
+  id             Int      @id @default(autoincrement())
+  nit            String?
+  dv             String?
+  name           String
+  commercialName String?
+  address        String?
+  city           String?
+  phone          String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  @@map("companies")
+}
+
 /// Terceros / clientes. La placa NO vive aqui (va en Vehicle).
 model Client {
   id             Int      @id @default(autoincrement())
+  companyId      Int      @default(1)
   docType        String   @default("CC")
-  docNumber      String   @unique
+  docNumber      String
   dv             String?
   personType     String   @default("NATURAL")
   name           String
@@ -30,6 +48,8 @@ model Client {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@unique([companyId, docNumber])
+  @@index([companyId])
   @@index([name])
   @@map("clients")
 }
@@ -37,6 +57,7 @@ model Client {
 /// Motos. Un cliente puede tener varias (referencia por clientDoc, sin FK).
 model Vehicle {
   id          Int      @id @default(autoincrement())
+  companyId   Int      @default(1)
   clientDoc   String
   plate       String
   modelYear   Int?
@@ -45,6 +66,7 @@ model Vehicle {
   status      String   @default("ACTIVO")
   createdAt   DateTime @default(now())
 
+  @@index([companyId])
   @@index([clientDoc])
   @@index([plate])
   @@map("vehicles")
@@ -53,6 +75,7 @@ model Vehicle {
 /// Convenios / aliados / referidos. "USUARIO" = cliente directo (fidelizado).
 model Ally {
   id            Int      @id @default(autoincrement())
+  companyId     Int      @default(1)
   name          String
   contactPhone  String?
   altPhone      String?
@@ -72,6 +95,7 @@ model Ally {
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
 
+  @@index([companyId])
   @@index([name])
   @@map("allies")
 }
@@ -80,13 +104,16 @@ model Ally {
 /// unitPrice es IVA-incluido (precio final); taxRate es el % embebido.
 model Product {
   id          Int     @id @default(autoincrement())
-  code        String  @unique
+  companyId   Int     @default(1)
+  code        String
   name        String
   unitPrice   Int
   taxRate     Int     @default(0)
   vehicleType String  @default("MOTO")
   active      Boolean @default(true)
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@map("products")
 }
 
@@ -96,6 +123,7 @@ model Product {
 /// (para IVA_RATE, value = porcentaje, ej. 19).
 model Tariff {
   id          Int     @id @default(autoincrement())
+  companyId   Int     @default(1)
   vehicleType String  @default("MOTO")
   concept     String
   value       Int
@@ -104,6 +132,7 @@ model Tariff {
   validFrom   String  @default("2026-01-01")
   active      Boolean @default(true)
 
+  @@index([companyId])
   @@index([vehicleType, concept])
   @@map("tariffs")
 }
@@ -111,23 +140,28 @@ model Tariff {
 /// Combos RTM visibles para la venta (uno por rango de modelo).
 model Package {
   id          Int     @id @default(autoincrement())
-  code        String  @unique
+  companyId   Int     @default(1)
+  code        String
   name        String
   rangeName   String
   vehicleType String  @default("MOTO")
   active      Boolean @default(true)
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@map("packages")
 }
 
 /// Relacion paquete -> componentes (por valor de codigo, sin FK).
 model PackageComponent {
   id            Int    @id @default(autoincrement())
+  companyId     Int    @default(1)
   packageCode   String
   productCode   String
   quantity      Int    @default(1)
   priceOverride Int?
 
+  @@index([companyId])
   @@index([packageCode])
   @@map("package_components")
 }
@@ -137,7 +171,8 @@ model PackageComponent {
 /// costType: none | percent | fixed | percent_plus_tax
 model PaymentMethod {
   id                  Int     @id @default(autoincrement())
-  code                String  @unique
+  companyId           Int     @default(1)
+  code                String
   name                String
   groupCode           String
   isCredit            Boolean @default(false)
@@ -149,13 +184,16 @@ model PaymentMethod {
   costTaxRate         Float   @default(0)
   active              Boolean @default(true)
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@map("payment_methods")
 }
 
 /// Cabecera de venta/servicio. Columnas planas indexadas para buscar/cuadrar.
 model Sale {
   id                   Int      @id @default(autoincrement())
-  saleNumber           String   @unique
+  companyId            Int      @default(1)
+  saleNumber           String
   saleDate             String // YYYY-MM-DD (dia operativo del cierre)
   saleTime             String?
   shiftId              Int? // turno en el que se factura (null para ventas previas a turnos)
@@ -194,6 +232,8 @@ model Sale {
   observaciones        String?  @db.Text
   createdAt            DateTime @default(now())
 
+  @@unique([companyId, saleNumber])
+  @@index([companyId])
   @@index([saleDate])
   @@index([clientDoc])
   @@index([plate])
@@ -209,8 +249,9 @@ model Sale {
 /// solo uno abierto a la vez. `number` es un consecutivo GLOBAL unico (no se repite).
 model Shift {
   id           Int       @id @default(autoincrement())
+  companyId    Int       @default(1)
   businessDate String // YYYY-MM-DD (dia en que se abrio)
-  number       Int       @unique // consecutivo global unico del turno
+  number       Int // consecutivo unico del turno POR EMPRESA
   status       String    @default("abierto") // abierto | cerrado
   openingCash  Int       @default(0) // base de efectivo con la que abre
   openedBy     String?
@@ -226,6 +267,8 @@ model Shift {
   note         String?
   createdAt    DateTime  @default(now())
 
+  @@unique([companyId, number])
+  @@index([companyId])
   @@index([businessDate])
   @@index([status])
   @@map("shifts")
@@ -234,6 +277,7 @@ model Shift {
 /// Lineas fiscales internas de la venta (referencia por saleId, sin FK).
 model SaleLine {
   id          Int    @id @default(autoincrement())
+  companyId   Int    @default(1)
   saleId      Int
   productCode String
   description String
@@ -252,6 +296,7 @@ model SaleLine {
 /// costAmount / costTax quedan CONGELADOS al registrar (no se recalculan).
 model SalePayment {
   id         Int    @id @default(autoincrement())
+  companyId  Int    @default(1)
   saleId     Int
   methodCode String
   methodName String
@@ -269,6 +314,7 @@ model SalePayment {
 /// Costos operativos congelados por venta (formato de cierre del Excel).
 model SaleCost {
   id               Int @id @default(autoincrement())
+  companyId        Int @default(1)
   saleId           Int @unique
   sicov            Int @default(0)
   ivaSicov         Int @default(0)
@@ -287,6 +333,7 @@ model SaleCost {
 /// Cartera: ADDI, GORA o credito propio. Saldo pendiente por venta.
 model Receivable {
   id            Int       @id @default(autoincrement())
+  companyId     Int       @default(1)
   saleId        Int
   provider      String
   clientDoc     String
@@ -311,6 +358,7 @@ model Receivable {
 /// Abonos de cartera por factura (Gora/Addi pagan por # de factura, con ICA y retefuente).
 model ReceivablePayment {
   id            Int      @id @default(autoincrement())
+  companyId     Int      @default(1)
   receivableId  Int
   provider      String
   invoiceNumber String?
@@ -327,8 +375,11 @@ model ReceivablePayment {
 }
 
 /// Usuarios del sistema. role: admin | vendedor
+/// El username es unico GLOBAL (el login no pide empresa); companyId define a que
+/// empresa pertenece y por tanto que datos ve.
 model User {
   id           Int      @id @default(autoincrement())
+  companyId    Int      @default(1)
   username     String   @unique
   name         String
   passwordHash String
@@ -336,6 +387,7 @@ model User {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  @@index([companyId])
   @@map("users")
 }
 
@@ -343,8 +395,9 @@ model User {
 /// La venta es el hecho; la factura es su emision fiscal.
 model Invoice {
   id         Int      @id @default(autoincrement())
+  companyId  Int      @default(1)
   saleId     Int      @unique
-  number     String   @unique
+  number     String
   cufe       String?
   dianStatus String   @default("emitida_local") // emitida_local | aceptada | rechazada
   base       Int      @default(0)
@@ -370,6 +423,8 @@ model Invoice {
   retries      Int      @default(0)
   sourceSystem String?
 
+  @@unique([companyId, number])
+  @@index([companyId])
   @@index([sendStatus])
   @@map("invoices")
 }
@@ -378,7 +433,8 @@ model Invoice {
 /// Email y Telegram replican las claves de easyerpweb (EmailApiUrl, TelegramBotToken,
 /// TelegramHabilitado); WhatsApp se agrega para envios por la API de WhatsApp.
 model NotificationConfig {
-  id               Int      @id @default(1)
+  id               Int      @id @default(autoincrement())
+  companyId        Int      @unique @default(1) // una fila por empresa
   emailEnabled     Boolean  @default(false)
   emailApiUrl      String?  // endpoint que envia el correo (POST { to, subject, message })
   emailFrom        String?
@@ -397,7 +453,8 @@ model NotificationConfig {
 /// Configuracion de la API DIAN (apidian). Fila unica (singleton, id=1).
 /// Espejo de las claves del programa C#: NIT, token, URL apidian, set de pruebas, software.
 model DianConfig {
-  id           Int      @id @default(1)
+  id           Int      @id @default(autoincrement())
+  companyId    Int      @unique @default(1) // una fila por empresa
   companyNit   String?
   companyDv    String?
   companyName  String?
@@ -420,6 +477,7 @@ model DianConfig {
 /// status: pendiente | llamado | no_contesta | numero_errado | contestado | agendado | vino | no_vino
 model CallLog {
   id           Int      @id @default(autoincrement())
+  companyId    Int      @default(1)
   clientDoc    String?
   clientName   String?
   plate        String?
@@ -441,6 +499,7 @@ model CallLog {
 /// Cuentas por pagar / obligaciones (modulo gerencial). frequency: unico | mensual | bimestral | cuotas
 model Payable {
   id                Int      @id @default(autoincrement())
+  companyId         Int      @default(1)
   concept           String
   creditor          String?  // a quien se le debe
   category          String?  // naturaleza: arriendo, nomina, cesantias, retencion, parafiscales, cuota, proveedor...
@@ -466,6 +525,7 @@ model Payable {
 /// Abonos a una cuenta por pagar.
 model PayablePayment {
   id          Int      @id @default(autoincrement())
+  companyId   Int      @default(1)
   payableId   Int
   amount      Int
   paidDate    String // YYYY-MM-DD
@@ -481,6 +541,7 @@ model PayablePayment {
 /// Anulacion de una venta (append-only: la venta no se borra, se reversa).
 model Reversal {
   id           Int      @id @default(autoincrement())
+  companyId    Int      @default(1)
   saleId       Int
   saleNumber   String
   reason       String?
@@ -494,6 +555,7 @@ model Reversal {
 /// Pagos hechos a los convenios/referidos (control de comisiones liquidadas).
 model AllyPayment {
   id            Int      @id @default(autoincrement())
+  companyId     Int      @default(1)
   allyId        Int?
   allyName      String
   amount        Int
@@ -503,6 +565,8 @@ model AllyPayment {
   invoiceNumber String? // factura emitida a la cedula por el dinero de convenios
   plates        Json? // placas cubiertas por este pago
   convenioCount Int      @default(0) // cantidad de convenios/placas liquidados
+  status        String   @default("activa") // activa | anulada (no se borra: trazabilidad)
+  editedAt      DateTime? // ultima modificacion manual (queda marcado como "modificado")
   createdAt     DateTime @default(now())
 
   @@index([allyName])
@@ -513,6 +577,7 @@ model AllyPayment {
 /// No es parte del perfil; se consulta como una bitacora. Sirve para detectar directo->referido.
 model ClientHistory {
   id        Int      @id @default(autoincrement())
+  companyId Int      @default(1)
   clientDoc String
   saleId    Int?
   plate     String?
@@ -532,18 +597,22 @@ model ClientHistory {
 /// kind: caja_menor | provision_rtm | provision_convenio | iva | otra
 model CashBox {
   id        Int      @id @default(autoincrement())
-  code      String   @unique
+  companyId Int      @default(1)
+  code      String
   name      String
   kind      String   @default("otra")
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@map("cash_boxes")
 }
 
 /// Movimientos de caja (ingreso/egreso). Egreso+ingreso de provision al hacer RTM, dinero de convenios, etc.
 model CashMovement {
   id        Int      @id @default(autoincrement())
+  companyId Int      @default(1)
   boxCode   String
   type      String // ingreso | egreso
   amount    Int
@@ -554,6 +623,7 @@ model CashMovement {
   createdBy String? // usuario que hizo el movimiento (trazabilidad)
   createdAt DateTime @default(now())
 
+  @@index([companyId])
   @@index([boxCode])
   @@index([date])
   @@map("cash_movements")
@@ -565,6 +635,7 @@ model CashMovement {
 /// asi se puede comparar stock teorico vs conteo real (detectar pines "quemados").
 model FupaMovement {
   id        Int      @id @default(autoincrement())
+  companyId Int      @default(1)
   date      String   // YYYY-MM-DD
   type      String   // compra | ajuste
   quantity  Int      // compra: + ; ajuste: delta (+/-)
@@ -581,6 +652,7 @@ model FupaMovement {
 /// Opcionalmente acredita una caja (afectaCaja => CashMovement ingreso).
 model Income {
   id          Int      @id @default(autoincrement())
+  companyId   Int      @default(1)
   date        String   // YYYY-MM-DD
   value       Int
   observation String?
@@ -601,6 +673,7 @@ model Income {
 /// Alimenta el "gastos" del cierre diario.
 model Expense {
   id        Int      @id @default(autoincrement())
+  companyId Int      @default(1)
   date      String   // YYYY-MM-DD
   concept   String
   category  String?
@@ -621,13 +694,16 @@ model Expense {
 /// kind: ingreso | gasto | ambos
 model ExpenseNature {
   id          Int      @id @default(autoincrement())
-  code        String   @unique
+  companyId   Int      @default(1)
+  code        String
   name        String
   kind        String   @default("gasto")
   taxRelevant Boolean  @default(false)
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@index([kind])
   @@map("expense_natures")
 }
@@ -635,8 +711,9 @@ model ExpenseNature {
 /// Proveedores (para ordenes de compra). Distintos de convenios/aliados.
 model Supplier {
   id            Int      @id @default(autoincrement())
+  companyId     Int      @default(1)
   docType       String   @default("NIT")
-  docNumber     String   @unique
+  docNumber     String
   name          String
   email         String?
   phone         String?
@@ -645,6 +722,8 @@ model Supplier {
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
 
+  @@unique([companyId, docNumber])
+  @@index([companyId])
   @@index([name])
   @@map("suppliers")
 }
@@ -652,6 +731,7 @@ model Supplier {
 /// Facturas recibidas de proveedores. Base para cuentas por pagar e IVA descontable.
 model SupplierInvoice {
   id            Int      @id @default(autoincrement())
+  companyId     Int      @default(1)
   supplierId    Int?
   supplierDoc   String?
   supplierName  String
@@ -684,6 +764,7 @@ model SupplierInvoice {
 /// Pagos/abonos hechos a facturas recibidas. Cada pago genera egreso de caja.
 model SupplierInvoicePayment {
   id        Int      @id @default(autoincrement())
+  companyId Int      @default(1)
   invoiceId Int
   amount    Int
   paidDate  String   // YYYY-MM-DD
@@ -699,7 +780,8 @@ model SupplierInvoicePayment {
 /// Orden de compra a un proveedor (cabecera). Lineas en PurchaseOrderLine.
 model PurchaseOrder {
   id           Int      @id @default(autoincrement())
-  number       String   @unique
+  companyId    Int      @default(1)
+  number       String
   supplierId   Int?
   supplierName String
   date         String // YYYY-MM-DD
@@ -711,12 +793,15 @@ model PurchaseOrder {
   note         String?
   createdAt    DateTime @default(now())
 
+  @@unique([companyId, number])
+  @@index([companyId])
   @@index([supplierId])
   @@map("purchase_orders")
 }
 
 model PurchaseOrderLine {
   id          Int    @id @default(autoincrement())
+  companyId   Int    @default(1)
   orderId     Int
   description String
   quantity    Int    @default(1)
@@ -733,7 +818,8 @@ model PurchaseOrderLine {
 /// Factura electronica manual tipo POS (no la venta diaria de RTM): cualquier item.
 model ManualInvoice {
   id         Int      @id @default(autoincrement())
-  number     String   @unique
+  companyId  Int      @default(1)
+  number     String
   clientDoc  String
   clientName String
   date       String // YYYY-MM-DD
@@ -747,12 +833,15 @@ model ManualInvoice {
   status     String   @default("activa") // activa | anulada
   createdAt  DateTime @default(now())
 
+  @@unique([companyId, number])
+  @@index([companyId])
   @@index([clientDoc])
   @@map("manual_invoices")
 }
 
 model ManualInvoiceLine {
   id          Int    @id @default(autoincrement())
+  companyId   Int    @default(1)
   invoiceId   Int
   description String
   quantity    Int    @default(1)
@@ -766,10 +855,32 @@ model ManualInvoiceLine {
   @@map("manual_invoice_lines")
 }
 
+/// Empleado (nomina). Pago quincenal. Salud+pension (8%) se descuentan del IBC (salario).
+/// paymentMethod: banco | efectivo (a que caja sale su pago).
+model Employee {
+  id              Int      @id @default(autoincrement())
+  companyId       Int      @default(1)
+  name            String
+  docNumber       String?
+  role            String? // cargo
+  salaryBase      Int      @default(0) // salario base mensual
+  auxTransporte   Int      @default(0) // auxilio de transporte mensual
+  auxAlimentacion Int      @default(0) // auxilio de alimentacion mensual (voluntario)
+  paymentMethod   String   @default("banco") // banco | efectivo
+  active          Boolean  @default(true)
+  startDate       String? // YYYY-MM-DD
+  note            String?
+  createdAt       DateTime @default(now())
+
+  @@index([companyId])
+  @@map("employees")
+}
+
 /// Snapshot congelado del cierre diario (alimenta el consolidado).
 model DailyClosing {
   id             Int      @id @default(autoincrement())
-  closingDate    String   @unique
+  companyId      Int      @default(1)
+  closingDate    String
   salesTotal     Int      @default(0)
   byMethod       Json
   provision      Int      @default(0)
@@ -781,5 +892,7 @@ model DailyClosing {
   recibe         String?
   createdAt      DateTime @default(now())
 
+  @@unique([companyId, closingDate])
+  @@index([companyId])
   @@map("daily_closings")
 }

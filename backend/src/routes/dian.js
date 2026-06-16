@@ -3,14 +3,16 @@
 // rechazadas) y el detalle (CUFE, track id, mensajes, reintentos).
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { sendInvoiceToApidian } from "../services/dian.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 
+// Config DIAN de LA EMPRESA del request (una fila por empresa).
 async function getConfig() {
-  let cfg = await prisma.dianConfig.findUnique({ where: { id: 1 } });
-  if (!cfg) cfg = await prisma.dianConfig.create({ data: { id: 1 } });
+  let cfg = await prisma.dianConfig.findFirst();
+  if (!cfg) cfg = await prisma.dianConfig.create({ data: {} });
   return cfg;
 }
 
@@ -34,8 +36,27 @@ router.put("/config", async (req, res, next) => {
       environment: Number(b.environment) || 2, resolution: b.resolution ?? null, prefix: b.prefix ?? null,
       emailApiUrl: b.emailApiUrl ?? null, active: !!b.active
     };
-    const cfg = await prisma.dianConfig.upsert({ where: { id: 1 }, update: data, create: { id: 1, ...data } });
+    const cfg = await prisma.dianConfig.upsert({ where: { companyId: currentCompanyId() }, update: data, create: data });
     res.json(cfg);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/dian/iva  -> IVA cobrado en las facturas EMITIDAS electronicamente.
+// Cada Invoice es una factura emitida (al registrar la venta con facturacion); las ventas
+// sin facturar no generan Invoice y las anuladas borran el suyo, asi que basta sumar todas.
+// Es lo que se muestra en el tablero de caja como "Provision IVA" / "IVA facturado".
+router.get("/iva", async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.from || req.query.to) {
+      where.issuedAt = {};
+      if (req.query.from) where.issuedAt.gte = new Date(String(req.query.from));
+      if (req.query.to) where.issuedAt.lte = new Date(String(req.query.to) + "T23:59:59");
+    }
+    const agg = await prisma.invoice.aggregate({ where, _sum: { iva: true, base: true, total: true }, _count: true });
+    res.json({ iva: agg._sum.iva || 0, base: agg._sum.base || 0, total: agg._sum.total || 0, count: agg._count || 0 });
   } catch (e) {
     next(e);
   }
@@ -75,7 +96,7 @@ router.post("/invoices/:id/send", async (req, res, next) => {
       prisma.sale.findUnique({ where: { id: invoice.saleId } }),
       prisma.saleLine.findMany({ where: { saleId: invoice.saleId } })
     ]);
-    const client = sale ? await prisma.client.findUnique({ where: { docNumber: sale.clientDoc } }) : null;
+    const client = sale ? await prisma.client.findFirst({ where: { docNumber: sale.clientDoc } }) : null;
 
     let result;
     try {

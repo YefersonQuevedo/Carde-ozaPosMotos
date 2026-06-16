@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { computeClosing } from "../services/closing.js";
-import { gatherDay, gatherDayAudit, money } from "../services/dayAudit.js";
+import { gatherDay, gatherDayAudit, money, effectivePaymentsForSale, compactPaymentSummary } from "../services/dayAudit.js";
 import { applyDailyDispersion } from "../services/dispersion.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
@@ -27,7 +28,7 @@ router.get("/day", async (req, res, next) => {
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
     const { closing } = await gatherDay(date, 0);
     const shifts = await prisma.shift.findMany({ where: { businessDate: date }, orderBy: { id: "asc" } });
-    const snapshot = await prisma.dailyClosing.findUnique({ where: { closingDate: date } });
+    const snapshot = await prisma.dailyClosing.findFirst({ where: { closingDate: date } });
     const payable = snapshot
       ? await prisma.payable.findFirst({ where: { refType: "closing", refId: snapshot.id } })
       : null;
@@ -141,12 +142,31 @@ const dispersionDetailColumns = [
   { header: "Neto estimado", key: "netoEstimado", width: 16, money: true }
 ];
 
+// Stock de pines (FUPA) al inicio y al final del dia: compras+ajustes − RTM realizadas.
+// Alimenta las filas "FUPAS INICIO DIA / FUPAS FINAL DIA" de la planilla de cierre.
+async function fupaStockForDay(date) {
+  const [movs, rtm] = await Promise.all([
+    prisma.fupaMovement.findMany({ select: { date: true, quantity: true } }),
+    prisma.sale.findMany({ where: { status: "activa", pinAdquirido: { gt: 0 } }, select: { saleDate: true } })
+  ]);
+  let inicio = 0, delDia = 0;
+  for (const m of movs) {
+    if (m.date < date) inicio += m.quantity;
+    else if (m.date === date) delDia += m.quantity;
+  }
+  for (const s of rtm) {
+    if (s.saleDate < date) inicio -= 1;
+    else if (s.saleDate === date) delDia -= 1;
+  }
+  return { inicio, fin: inicio + delDia };
+}
+
 // GET /api/closings/detail?date=&gastos= -> planilla auditable del dia.
 router.get("/detail", async (req, res, next) => {
   try {
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
     const gastos = Number(req.query.gastos) || 0;
-    const audit = await gatherDayAudit(date, gastos);
+    const [audit, fupas] = await Promise.all([gatherDayAudit(date, gastos), fupaStockForDay(date)]);
     res.json({
       date,
       closing: audit.closing,
@@ -155,7 +175,8 @@ router.get("/detail", async (req, res, next) => {
       dispersion: audit.dispersionSummary,
       dispersionDetail: audit.dispersionRows,
       movements: audit.movementRows,
-      expenses: audit.expenseRows
+      expenses: audit.expenseRows,
+      fupas
     });
   } catch (e) {
     next(e);
@@ -347,7 +368,11 @@ router.post("/", async (req, res, next) => {
       recibe: req.body?.recibe || null
     };
     const snapshot = await prisma.$transaction(async (tx) => {
-      const snap = await tx.dailyClosing.upsert({ where: { closingDate: date }, update: data, create: data });
+      const snap = await tx.dailyClosing.upsert({
+        where: { companyId_closingDate: { companyId: currentCompanyId(), closingDate: date } },
+        update: data,
+        create: data
+      });
       await applyDailyDispersion(tx, { snapshotId: snap.id, closing, date });
       return snap;
     });
@@ -430,6 +455,140 @@ router.get("/report/export", async (req, res, next) => {
       }]
     });
     sendXlsx(res, buf, `consolidado-${from}_${to}.xlsx`);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Planilla venta por venta en el formato del Excel del cliente (consolidado detallado).
+// Dispersion = total − (sicov + ivaSicov + recaudo + ivaRecaudo + FNSV + coste transaccion):
+// lo que Supergiros le devuelve al CDA; FUPA, sustratos e IVA de factura no restan ahi.
+async function buildConsolidadoDetalle(from, to) {
+  const sales = await prisma.sale.findMany({
+    where: { saleDate: { gte: from, lte: to }, status: "activa" },
+    orderBy: [{ saleDate: "asc" }, { saleNumber: "asc" }]
+  });
+  const ids = sales.map((s) => s.id);
+  const docs = [...new Set(sales.map((s) => s.clientDoc))];
+  const [payments, costs, clients] = await Promise.all([
+    ids.length ? prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [],
+    ids.length ? prisma.saleCost.findMany({ where: { saleId: { in: ids } } }) : [],
+    docs.length ? prisma.client.findMany({ where: { docNumber: { in: docs } } }) : []
+  ]);
+  const paymentsBySale = {};
+  for (const p of payments) (paymentsBySale[p.saleId] ||= []).push(p);
+  const costBySale = Object.fromEntries(costs.map((c) => [c.saleId, c]));
+  const clientByDoc = Object.fromEntries(clients.map((c) => [c.docNumber, c]));
+
+  return sales.map((s) => {
+    const cost = costBySale[s.id] || {};
+    const cli = clientByDoc[s.clientDoc] || {};
+    const extraPhones = Array.isArray(cli.phones) ? cli.phones.filter(Boolean) : [];
+    const telefonos = [cli.phone, ...extraPhones].filter(Boolean).join(" / ");
+    const summary = compactPaymentSummary(effectivePaymentsForSale(s, paymentsBySale[s.id] || []));
+    const dispersion = money(s.total) - money(cost.sicov) - money(cost.ivaSicov) - money(cost.recaudo)
+      - money(cost.ivaRecaudo) - money(cost.ansv) - money(cost.costeTransaccion);
+    return {
+      id: s.id,
+      fecha: s.saleDate,
+      factura: s.invoiceNumber || "",
+      tipoDoc: cli.docType || "CC",
+      numDoc: s.clientDoc,
+      cliente: s.clientName,
+      telefonos,
+      referidos: s.allyType === "usuario" ? "USUARIO" : (s.allyName || "REFERIDO"),
+      placa: s.plate || "",
+      modelo: s.modelYear || "",
+      pin: s.pinNumber || "",
+      total: money(s.total),
+      metodoPago: summary.metodos,
+      deduccionesConvenios: money(s.deduction),
+      sicov: money(cost.sicov),
+      ivaSicov: money(cost.ivaSicov),
+      recaudo: money(cost.recaudo),
+      ivaRecaudo: money(cost.ivaRecaudo),
+      fnsv: money(cost.ansv),
+      fupa: money(cost.fupa),
+      costeTransaccion: money(cost.costeTransaccion),
+      ivaFact: money(cost.ivaFact),
+      sustratos: money(cost.sustratos),
+      costosTotal: money(cost.costosTotal),
+      observaciones: s.observaciones || "",
+      dispersion
+    };
+  });
+}
+
+const consolidadoDetalleColumns = [
+  { header: "FECHA", key: "fecha", width: 12 },
+  { header: "FACT", key: "factura", width: 13 },
+  { header: "TIPO DOC", key: "tipoDoc", width: 9 },
+  { header: "NUM. DOC", key: "numDoc", width: 13 },
+  { header: "CLIENTE", key: "cliente", width: 30 },
+  { header: "TELEFONOS", key: "telefonos", width: 14 },
+  { header: "REFERIDOS", key: "referidos", width: 20 },
+  { header: "PLACA", key: "placa", width: 9 },
+  { header: "MODELO", key: "modelo", width: 8 },
+  { header: "N°PIN ADQUIRIDO", key: "pin", width: 22 },
+  { header: "TOTAL", key: "total", width: 12, money: true },
+  { header: "METODO DE PAGO", key: "metodoPago", width: 24 },
+  { header: "DEDUCCIONES CONVENIOS", key: "deduccionesConvenios", width: 14, money: true },
+  { header: "SICOV SERV HOM", key: "sicov", width: 12, money: true },
+  { header: "IVA SICOV", key: "ivaSicov", width: 12, money: true },
+  { header: "RECAUDO", key: "recaudo", width: 12, money: true },
+  { header: "IVA RECAUDO", key: "ivaRecaudo", width: 12, money: true },
+  { header: "FNSV", key: "fnsv", width: 10, money: true },
+  { header: "FUPA", key: "fupa", width: 10, money: true },
+  { header: "COSTE TRANSACCION", key: "costeTransaccion", width: 13, money: true },
+  { header: "IVA de FACT", key: "ivaFact", width: 12, money: true },
+  { header: "Sustratos", key: "sustratos", width: 10, money: true },
+  { header: "COSTOS TOTAL", key: "costosTotal", width: 13, money: true },
+  { header: "OBSERVACIONES", key: "observaciones", width: 24 },
+  { header: "Dispersion", key: "dispersion", width: 13, money: true }
+];
+
+// GET /api/closings/report/detail?from=&to=  -> planilla por venta (vista Consolidado).
+router.get("/report/detail", async (req, res, next) => {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const from = String(req.query.from || `${month}-01`);
+    const to = String(req.query.to || `${month}-31`);
+    const rows = await buildConsolidadoDetalle(from, to);
+    const sum = (k) => rows.reduce((a, r) => a + money(r[k]), 0);
+    res.json({
+      from, to, rows,
+      totals: {
+        total: sum("total"), deduccionesConvenios: sum("deduccionesConvenios"), costosTotal: sum("costosTotal"), dispersion: sum("dispersion")
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/closings/report/detail/export?from=&to=  -> misma planilla en Excel.
+router.get("/report/detail/export", async (req, res, next) => {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const from = String(req.query.from || `${month}-01`);
+    const to = String(req.query.to || `${month}-31`);
+    const rows = await buildConsolidadoDetalle(from, to);
+    const sum = (k) => rows.reduce((a, r) => a + money(r[k]), 0);
+    const buf = await toWorkbook({
+      sheets: [{
+        name: "Consolidado detallado",
+        title: `Consolidado venta por venta ${from} a ${to}`,
+        columns: consolidadoDetalleColumns,
+        rows,
+        totals: {
+          total: sum("total"), deduccionesConvenios: sum("deduccionesConvenios"),
+          sicov: sum("sicov"), ivaSicov: sum("ivaSicov"), recaudo: sum("recaudo"), ivaRecaudo: sum("ivaRecaudo"),
+          fnsv: sum("fnsv"), fupa: sum("fupa"), costeTransaccion: sum("costeTransaccion"),
+          ivaFact: sum("ivaFact"), sustratos: sum("sustratos"), costosTotal: sum("costosTotal"), dispersion: sum("dispersion")
+        }
+      }]
+    });
+    sendXlsx(res, buf, `consolidado-detallado-${from}_${to}.xlsx`);
   } catch (e) {
     next(e);
   }

@@ -1,4 +1,4 @@
-import { $, esc, money, readCop, todayIso, downloadBlob } from "../utils.js";
+import { $, esc, money, readCop, todayIso, downloadBlob, confirmDialog } from "../utils.js";
 
 export function createShiftsModule(context) {
   const { api, toast, onShiftChange } = context;
@@ -41,10 +41,13 @@ export function createShiftsModule(context) {
   }
 
   function closedHtml() {
-    return `<p class="hint">No hay ningún turno abierto. Abre uno para poder facturar.</p>
+    const last = current?.lastClosed || null;
+    const baseSugerida = last ? (last.countedCash ?? last.expectedCash ?? 0) : "";
+    const user = api.currentUser?.();
+    return `<p class="hint">No hay ningún turno abierto. Abre uno para poder facturar.${last ? ` El turno #${last.number} (${esc(last.businessDate)}) cerró con ${money(last.countedCash ?? last.expectedCash ?? 0)} contados.` : ""}</p>
       <div class="form-grid">
-        <label class="fld">Base inicial (efectivo)<input id="shOpenCash" inputmode="numeric" placeholder="$ con cuánto abre la caja" /></label>
-        <label class="fld">Responsable<input id="shOpenBy" placeholder="Quién abre el turno" /></label>
+        <label class="fld">Base inicial (efectivo)<input id="shOpenCash" inputmode="numeric" value="${baseSugerida}" placeholder="$ con cuánto abre la caja" /></label>
+        <label class="fld">Responsable<input id="shOpenBy" value="${esc(user?.name || "")}" placeholder="Quién abre el turno" /></label>
       </div>
       <div class="row form-actions"><button class="btn success" id="shOpenBtn">Abrir turno</button></div>`;
   }
@@ -66,7 +69,7 @@ export function createShiftsModule(context) {
       <h3>Cerrar turno (arqueo)</h3>
       <div class="form-grid">
         <label class="fld">Efectivo contado físicamente<input id="shCountCash" inputmode="numeric" placeholder="$ lo que hay en caja" /></label>
-        <label class="fld">Cierra (responsable)<input id="shCloseBy" placeholder="Quién cierra" /></label>
+        <label class="fld">Cierra (responsable)<input id="shCloseBy" value="${esc(api.currentUser?.()?.name || "")}" placeholder="Quién cierra" /></label>
         <div class="fld" style="align-self:end"><div id="shArqueo" class="hint">Esperado a entregar: ${money(k.efectivoEntregar || 0)}</div></div>
       </div>
       <div class="row form-actions"><button class="btn danger" id="shCloseBtn">Cerrar turno (arqueo)</button></div>
@@ -81,10 +84,18 @@ export function createShiftsModule(context) {
     const count = $("shCountCash");
     if (count) count.addEventListener("input", () => {
       const exp = (current.closing && current.closing.efectivoEntregar) || 0;
-      const got = Math.round(Number(String(count.value).replace(/[^\d]/g, "")) || 0);
+      const raw = String(count.value).replace(/[^\d]/g, "");
+      const box = $("shArqueo");
+      if (raw === "") {
+        box.className = "hint";
+        box.innerHTML = `Esperado a entregar: ${money(exp)}`;
+        return;
+      }
+      const got = Math.round(Number(raw) || 0);
       const diff = got - exp;
-      const txt = diff === 0 ? "cuadra exacto" : diff > 0 ? `sobran ${money(diff)}` : `faltan ${money(-diff)}`;
-      $("shArqueo").innerHTML = `Esperado: ${money(exp)} · Contado: ${money(got)} · <b>${txt}</b>`;
+      const txt = diff === 0 ? "cuadra exacto" : diff > 0 ? `sobran ${money(diff)}` : `⚠️ faltan ${money(-diff)}`;
+      box.className = diff < 0 ? "hint arqueo-faltante" : "hint";
+      box.innerHTML = `Esperado: ${money(exp)} · Contado: ${money(got)} · <b>${txt}</b>`;
     });
   }
 
@@ -99,12 +110,37 @@ export function createShiftsModule(context) {
   async function closeShiftUI() {
     const s = current.shift;
     if (!s) return;
-    if (!confirm("¿Cerrar el turno? Se hará el arqueo (esperado vs contado). La dispersión a caja menor se hace aparte, en el cierre del día.")) return;
+    const expected = Math.max(0, Math.round((current.closing && current.closing.efectivoEntregar) || 0));
+    const raw = String($("shCountCash")?.value || "").replace(/[^\d]/g, "");
+    const counted = raw === "" ? null : Math.round(Number(raw) || 0);
+    const diff = counted == null ? null : counted - expected;
+
+    // Aviso claro segun el arqueo: sin dinero / faltante / sobrante / cuadra.
+    let title = "¿Cerrar el turno?", okText = "Cerrar turno", danger = false, msg;
+    const cola = "\n\nLa dispersión del dinero (caja menor + deuda Supergiros) se hace aparte, en el cierre del día.";
+    if (counted == null) {
+      danger = true;
+      title = "No ingresaste el efectivo contado";
+      okText = "Cerrar sin arqueo";
+      msg = `No escribiste cuánto efectivo hay físicamente en la caja.\n\nEsperado a entregar: ${money(expected)}\n\nSi cierras así, el turno quedará SIN arqueo (no se compara esperado vs contado). ¿Cerrar de todos modos?`;
+    } else if (diff < 0) {
+      danger = true;
+      title = "Faltante en caja";
+      okText = "Cerrar con faltante";
+      msg = `El efectivo contado es MENOR que el esperado.\n\nEsperado: ${money(expected)}\nContado: ${money(counted)}\nFaltante: ${money(-diff)}\n\nRevisa la caja antes de cerrar.${cola}`;
+    } else if (diff > 0) {
+      title = "Sobrante en caja";
+      okText = "Cerrar con sobrante";
+      msg = `El efectivo contado es MAYOR que el esperado.\n\nEsperado: ${money(expected)}\nContado: ${money(counted)}\nSobrante: ${money(diff)}${cola}`;
+    } else {
+      msg = `El arqueo cuadra exacto.\n\nEsperado: ${money(expected)}\nContado: ${money(counted)}${cola}`;
+    }
+    if (!(await confirmDialog(msg, { title, okText, danger }))) return;
     try {
-      const r = await api.closeShift(s.id, { countedCash: readCop("shCountCash") || null, closedBy: ($("shCloseBy").value || "").trim() });
+      const r = await api.closeShift(s.id, { countedCash: counted, closedBy: ($("shCloseBy").value || "").trim() });
       const a = r.arqueo || {};
-      const diff = a.cashDiff || 0;
-      toast(diff === 0 ? "Turno cerrado · arqueo cuadra" : diff > 0 ? `Turno cerrado · sobran ${money(diff)}` : `Turno cerrado · faltan ${money(-diff)}`);
+      const d = a.cashDiff || 0;
+      toast(a.countedCash == null ? "Turno cerrado · sin arqueo" : d === 0 ? "Turno cerrado · arqueo cuadra" : d > 0 ? `Turno cerrado · sobran ${money(d)}` : `Turno cerrado · faltan ${money(-d)}`);
       await renderShifts($("shiftsRoot"));
     } catch (e) { toast(e.message); }
   }

@@ -1,16 +1,18 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/costs.js";
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { auth } from "../auth.js";
 import { openShift } from "./shifts.js";
+import { refreshAfterSaleChange } from "../services/consistency.js";
 
 const router = Router();
 
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
 const MOTO_PLATE_RE = /^[A-Z]{3}\d{2}[A-Z]$/;
-const PIN_RE = /^\d{19}$/;
+const PIN_RE = /^\d{19,20}$/; // SICOV: 19 o 20 digitos
 
 function rangeFromModel(year) {
   const y = Number(year) || 0;
@@ -74,7 +76,7 @@ router.post("/", async (req, res, next) => {
     // telefono/email/direccion existentes con null si la venta no los reenvia.
     const clientDoc = String(c.docNumber).trim();
     await prisma.client.upsert({
-      where: { docNumber: clientDoc },
+      where: { companyId_docNumber: { companyId: currentCompanyId(), docNumber: clientDoc } },
       update: {
         name: c.name,
         ...(c.phone ? { phone: c.phone } : {}),
@@ -114,13 +116,15 @@ router.post("/", async (req, res, next) => {
     const pinAdquirido = rtmToday ? 1 : 0;
     const pinNumber = String(b.pinNumber || "").trim();
     if (rtmToday && !PIN_RE.test(pinNumber)) {
-      return res.status(400).json({ error: "El PIN es obligatorio cuando la RTM se realiza hoy y debe tener 19 digitos numericos" });
+      return res.status(400).json({ error: "El PIN es obligatorio cuando la RTM se realiza hoy y debe tener 19 o 20 digitos numericos" });
     }
 
     // 4) Convenio / comision (DEDUCCIONES CONVENIOS).
     const allyName = b.ally?.name || "USUARIO";
     const allyType = b.ally?.type || (allyName.toUpperCase() === "USUARIO" ? "usuario" : "referido");
-    const discountApplied = b.ally?.discountApplied !== false;
+    // Venta directa (usuario): NUNCA descuento automatico de fidelizacion; el descuento
+    // solo aplica via cupon (DESCUENTO_FENIX). Referido: comision del convenio por defecto.
+    const discountApplied = allyType === "usuario" ? false : (b.ally?.discountApplied !== false);
     const ally = await prisma.ally.findFirst({ where: { name: allyName } });
     const baseCommission = ally?.commission ?? (allyType === "usuario" ? 20000 : 40000);
     // Si la venta lleva un descuento Fénix/cupón, ese descuento ES la deducción (no se
@@ -152,6 +156,13 @@ router.post("/", async (req, res, next) => {
           _method: m
         };
       });
+
+    // Regla de negocio: si el pago es por SuperGiros (grupo SG = Datafono SG / QR SG),
+    // la RTM NO puede quedar pendiente; se realiza hoy (con PIN). SG pasa por SICOV.
+    const hasSupergiros = payments.some((p) => p._method.groupCode === "SG");
+    if (hasSupergiros && !rtmToday) {
+      return res.status(400).json({ error: "Si el pago es por SuperGiros (Datáfono SG / QR SG), la RTM no puede quedar pendiente: debe realizarse hoy con su PIN." });
+    }
 
     const paidAmount = payments.reduce((s, p) => s + p.amount, 0);
     // Solo el efectivo puede exceder el total (vueltas); los demas metodos no.
@@ -275,6 +286,7 @@ router.post("/", async (req, res, next) => {
       return created;
     });
 
+    await refreshAfterSaleChange(sale);
     res.status(201).json({ sale, lines, payments: payments.map(({ _method, ...p }) => p), costs });
   } catch (e) {
     next(e);
@@ -294,8 +306,23 @@ router.post("/:id/void", auth(["admin"]), async (req, res, next) => {
         data: { saleId: id, saleNumber: sale.saleNumber, reason: req.body?.reason || null, authorizedBy: req.body?.authorizedBy || null }
       });
       await tx.receivable.updateMany({ where: { saleId: id, status: "abierta" }, data: { status: "anulada", pending: 0 } });
+      const movements = await tx.cashMovement.findMany({ where: { refType: "sale", refId: id } });
+      for (const m of movements) {
+        await tx.cashMovement.create({
+          data: {
+            boxCode: m.boxCode,
+            type: m.type === "ingreso" ? "egreso" : "ingreso",
+            amount: m.amount,
+            refType: "sale_void",
+            refId: id,
+            date: new Date().toISOString().slice(0, 10),
+            note: `Anula venta ${sale.saleNumber}${m.note ? `: ${m.note}` : ""}`
+          }
+        });
+      }
       return s;
     });
+    await refreshAfterSaleChange(sale);
     res.json({ sale: updated });
   } catch (e) {
     next(e);
@@ -417,7 +444,10 @@ router.put("/:id", auth(["admin"]), async (req, res, next) => {
       const allyType = b.allyType !== undefined
         ? b.allyType
         : (allyName.toUpperCase() === "USUARIO" ? "usuario" : "referido");
-      const discountApplied = b.discountApplied !== undefined ? !!b.discountApplied : sale.discountApplied;
+      // Venta directa (usuario): nunca deduccion automatica (solo via cupon). Referido: segun flag.
+      const discountApplied = allyType === "usuario"
+        ? false
+        : (b.discountApplied !== undefined ? !!b.discountApplied : sale.discountApplied);
       const ally = await prisma.ally.findFirst({ where: { name: allyName } });
       const baseCommission = ally?.commission ?? (allyType === "usuario" ? 20000 : 40000);
       data.allyName = allyName;
@@ -434,6 +464,7 @@ router.put("/:id", auth(["admin"]), async (req, res, next) => {
     }
 
     const updated = await prisma.sale.update({ where: { id }, data });
+    await refreshAfterSaleChange(updated);
     res.json({ sale: updated });
   } catch (e) { next(e); }
 });
@@ -462,11 +493,12 @@ router.delete("/:id", auth(["admin"]), async (req, res, next) => {
       await tx.reversal.deleteMany({ where: { saleId: id } });
       await tx.receivable.deleteMany({ where: { saleId: id } });
       await tx.invoice.deleteMany({ where: { saleId: id } });
-      // Limpia los movimientos de caja de la venta (provision RTM) para no dejar saldos huerfanos.
-      await tx.cashMovement.deleteMany({ where: { refType: "sale", refId: id } });
+      // Limpia los movimientos de caja de la venta y sus reversas para no dejar saldos huerfanos.
+      await tx.cashMovement.deleteMany({ where: { refType: { in: ["sale", "sale_void"] }, refId: id } });
       await tx.sale.delete({ where: { id } });
     });
 
+    await refreshAfterSaleChange(sale);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

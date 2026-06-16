@@ -22,7 +22,12 @@ export async function openShift() {
 router.get("/current", async (_req, res, next) => {
   try {
     const shift = await openShift();
-    if (!shift) return res.json({ shift: null });
+    if (!shift) {
+      // Sin turno abierto: se manda el ultimo cerrado para sugerir la base inicial
+      // (con cuanto cerro la caja) en el aviso de apertura del frontend.
+      const lastClosed = await prisma.shift.findFirst({ where: { status: "cerrado" }, orderBy: { id: "desc" } });
+      return res.json({ shift: null, lastClosed });
+    }
     const { closing } = await gatherShift(shift.id);
     res.json({ shift, closing });
   } catch (e) {

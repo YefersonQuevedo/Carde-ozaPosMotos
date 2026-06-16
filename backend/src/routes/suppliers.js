@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { sendXlsx, toWorkbook } from "../services/excel.js";
 
 const router = Router();
@@ -73,7 +74,7 @@ router.post("/", async (req, res, next) => {
     const data = supplierData(req.body);
     if (!data.docNumber || !data.name) return res.status(400).json({ error: "docNumber y name son obligatorios" });
     const supplier = await prisma.supplier.upsert({
-      where: { docNumber: data.docNumber },
+      where: { companyId_docNumber: { companyId: currentCompanyId(), docNumber: data.docNumber } },
       update: data,
       create: data
     });

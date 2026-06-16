@@ -16,6 +16,26 @@ function statusFor(total, paid) {
   return "parcial";
 }
 
+async function findPaymentCashOut(client, { payableId, paymentId, payment }) {
+  const modern = await client.cashMovement.findFirst({
+    where: { refType: "payable_payment", refId: paymentId, type: "egreso" }
+  });
+  if (modern) return modern;
+
+  // Compatibilidad con pagos creados antes de ligar el movimiento al abono:
+  // el egreso quedaba como refType="payable" y refId=<cuenta>.
+  return client.cashMovement.findFirst({
+    where: {
+      refType: "payable",
+      refId: payableId,
+      type: "egreso",
+      amount: payment?.amount,
+      date: payment?.paidDate
+    },
+    orderBy: { id: "desc" }
+  });
+}
+
 // Filtros compartidos por la lista y el export: status, category, creditor (proveedor)
 // y rango de fechas sobre dueDate (from/to).
 function payableWhere(query = {}) {
@@ -167,6 +187,69 @@ router.post("/:id/pay", async (req, res, next) => {
 
 // DELETE /api/payables/:id/payments/:paymentId -> anula UN abono (corrige errores).
 // Devuelve el dinero a la caja si el pago habia generado egreso y recalcula el estado.
+router.put("/:id/payments/:paymentId", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const paymentId = Number(req.params.paymentId);
+    const p = await prisma.payable.findUnique({ where: { id } });
+    if (!p) return res.status(404).json({ error: "No existe" });
+    const pay = await prisma.payablePayment.findUnique({ where: { id: paymentId } });
+    if (!pay || pay.payableId !== id) return res.status(404).json({ error: "No existe el abono" });
+
+    const b = req.body || {};
+    const amount = b.amount != null ? Math.round(Number(b.amount) || 0) : pay.amount;
+    if (amount <= 0) return res.status(400).json({ error: "amount > 0 obligatorio" });
+    const paidDate = b.paidDate != null ? String(b.paidDate || iso()) : pay.paidDate;
+    const paidBy = b.paidBy !== undefined ? (b.paidBy || null) : pay.paidBy;
+    const note = b.note !== undefined ? (b.note || null) : pay.note;
+    const voucherPath = b.voucherPath !== undefined ? (b.voucherPath || null) : pay.voucherPath;
+    const force = b.force === true;
+
+    const currentEgreso = await findPaymentCashOut(prisma, { payableId: id, paymentId, payment: pay });
+    if (currentEgreso && !force && amount > pay.amount) {
+      const saldoDisponible = await boxBalance(currentEgreso.boxCode) + pay.amount;
+      if (saldoDisponible < amount) {
+        return res.status(409).json({
+          error: `Fondos insuficientes en ${currentEgreso.boxCode}: saldo disponible ${saldoDisponible}, faltan ${amount - saldoDisponible}`,
+          saldo: saldoDisponible,
+          faltan: amount - saldoDisponible
+        });
+      }
+    } else if (!currentEgreso && b.boxCode && !force) {
+      const saldoDisponible = await boxBalance(String(b.boxCode));
+      if (saldoDisponible < amount) {
+        return res.status(409).json({
+          error: `Fondos insuficientes en ${String(b.boxCode)}: saldo ${saldoDisponible}, faltan ${amount - saldoDisponible}`,
+          saldo: saldoDisponible,
+          faltan: amount - saldoDisponible
+        });
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payablePayment.update({
+        where: { id: paymentId },
+        data: { amount, paidDate, paidBy, note, voucherPath }
+      });
+      const egreso = await findPaymentCashOut(tx, { payableId: id, paymentId, payment: pay });
+      if (egreso) {
+        await tx.cashMovement.update({
+          where: { id: egreso.id },
+          data: { amount, date: paidDate, note: `Pago: ${p.concept}` }
+        });
+      } else if (b.boxCode) {
+        await tx.cashMovement.create({ data: { boxCode: String(b.boxCode), type: "egreso", amount, refType: "payable_payment", refId: paymentId, date: paidDate, note: `Pago: ${p.concept}` } });
+      }
+      const paidAmount = Math.max(0, p.paidAmount - pay.amount + amount);
+      const payable = await tx.payable.update({ where: { id }, data: { paidAmount, status: statusFor(p.totalAmount, paidAmount) } });
+      return { payment, payable };
+    });
+    res.json({ ...updated.payable, pending: Math.max(0, updated.payable.totalAmount - updated.payable.paidAmount), payment: updated.payment });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.delete("/:id/payments/:paymentId", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -178,7 +261,7 @@ router.delete("/:id/payments/:paymentId", async (req, res, next) => {
 
     const updated = await prisma.$transaction(async (tx) => {
       // Devuelve a la caja exactamente el egreso de ESTE abono (si lo genero).
-      const egreso = await tx.cashMovement.findFirst({ where: { refType: "payable_payment", refId: paymentId, type: "egreso" } });
+      const egreso = await findPaymentCashOut(tx, { payableId: id, paymentId, payment: pay });
       if (egreso) {
         await tx.cashMovement.create({ data: { boxCode: egreso.boxCode, type: "ingreso", amount: egreso.amount, refType: "payable_void", refId: id, date: iso(), note: `Anula abono #${paymentId} de: ${p.concept}` } });
       }

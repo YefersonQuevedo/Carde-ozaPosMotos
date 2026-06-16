@@ -10,13 +10,15 @@
 // Cajas: caja menor, provision RTM, provision convenios, IVA... (se pueden agregar mas).
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { buildTariffLookup, computeSaleCosts } from "../services/costs.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { auth } from "../auth.js";
+import { refreshAfterSaleChange } from "../services/consistency.js";
 
 const router = Router();
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
-const PIN_RE = /^\d{19}$/;
+const PIN_RE = /^\d{19,20}$/; // SICOV: 19 o 20 digitos
 
 // Saldo de cada caja = ingresos - egresos.
 async function boxesWithBalance() {
@@ -139,7 +141,7 @@ router.post("/boxes", async (req, res, next) => {
     const code = String(b.code || "").trim().toUpperCase().replace(/\s+/g, "_");
     if (!code || !b.name) return res.status(400).json({ error: "code y name son obligatorios" });
     const box = await prisma.cashBox.upsert({
-      where: { code },
+      where: { companyId_code: { companyId: currentCompanyId(), code } },
       update: { name: b.name, kind: b.kind || "otra", active: b.active !== false },
       create: { code, name: b.name, kind: b.kind || "otra", active: true }
     });
@@ -214,7 +216,7 @@ router.post("/:saleId/realize", async (req, res, next) => {
     if (sale.status !== "activa") return res.status(400).json({ error: "La venta no esta activa" });
     if (sale.rtmStatus !== "pending") return res.status(400).json({ error: "Esa venta no tiene provision pendiente" });
     const pinNumber = String(req.body?.pinNumber || "").trim();
-    if (!PIN_RE.test(pinNumber)) return res.status(400).json({ error: "El PIN es obligatorio para realizar la RTM y debe tener 19 digitos numericos" });
+    if (!PIN_RE.test(pinNumber)) return res.status(400).json({ error: "El PIN es obligatorio para realizar la RTM y debe tener 19 o 20 digitos numericos" });
 
     const amount = sale.provisionAmount || sale.total;
 
@@ -242,6 +244,7 @@ router.post("/:saleId/realize", async (req, res, next) => {
       });
       return s;
     });
+    await refreshAfterSaleChange(updated);
     res.json({ sale: updated, consumed: amount, costs });
   } catch (e) {
     next(e);

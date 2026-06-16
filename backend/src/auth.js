@@ -3,10 +3,15 @@ import jwt from "jsonwebtoken";
 const SECRET = process.env.JWT_SECRET || "dev-secret-motopos";
 
 export function signToken(user) {
-  return jwt.sign({ id: user.id, username: user.username, name: user.name, role: user.role }, SECRET, { expiresIn: "12h" });
+  return jwt.sign(
+    { id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId || 1 },
+    SECRET,
+    { expiresIn: "12h" }
+  );
 }
 
 /// Middleware: exige token valido. Si se pasan roles, exige uno de ellos.
+/// Deja en req.companyId la empresa del usuario (tokens viejos sin companyId -> 1).
 export function auth(roles = []) {
   return (req, res, next) => {
     const header = req.headers.authorization || "";
@@ -15,6 +20,7 @@ export function auth(roles = []) {
     try {
       const payload = jwt.verify(token, SECRET);
       req.user = payload;
+      req.companyId = Number(payload.companyId) || 1;
       if (roles.length && !roles.includes(payload.role)) {
         return res.status(403).json({ error: "No autorizado para esta accion" });
       }

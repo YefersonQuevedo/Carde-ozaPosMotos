@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { currentCompanyId } from "../tenant.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
@@ -58,7 +59,7 @@ async function computeDirectoReferido() {
       (e) => e.eventType === "referido" && (e.year > firstDirecto.year || (e.year === firstDirecto.year && e.id > firstDirecto.id))
     );
     if (!laterReferido) continue;
-    const client = await prisma.client.findUnique({ where: { docNumber: doc } });
+    const client = await prisma.client.findFirst({ where: { docNumber: doc } });
     result.push({
       docNumber: doc, name: client?.name || doc,
       directoYear: firstDirecto.year, referidoYear: laterReferido.year,
@@ -99,7 +100,7 @@ router.get("/reports/directo-referido/export", async (_req, res, next) => {
 
 router.get("/:docNumber", async (req, res, next) => {
   try {
-    const client = await prisma.client.findUnique({ where: { docNumber: req.params.docNumber } });
+    const client = await prisma.client.findFirst({ where: { docNumber: req.params.docNumber } });
     if (!client) return res.status(404).json({ error: "No existe" });
     const [vehicles, history] = await Promise.all([
       prisma.vehicle.findMany({ where: { clientDoc: client.docNumber } }),
@@ -131,7 +132,7 @@ router.post("/", async (req, res, next) => {
       status: b.status || "ACTIVO"
     };
     const client = await prisma.client.upsert({
-      where: { docNumber: data.docNumber },
+      where: { companyId_docNumber: { companyId: currentCompanyId(), docNumber: data.docNumber } },
       update: data,
       create: data
     });
@@ -146,7 +147,7 @@ router.delete("/:docNumber", async (req, res, next) => {
   try {
     const docNumber = req.params.docNumber;
     await prisma.vehicle.deleteMany({ where: { clientDoc: docNumber } });
-    await prisma.client.delete({ where: { docNumber } });
+    await prisma.client.deleteMany({ where: { docNumber } });
     res.json({ ok: true });
   } catch (e) {
     next(e);

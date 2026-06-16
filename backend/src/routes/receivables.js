@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { sendXlsx, toWorkbook } from "../services/excel.js";
+import { refreshAfterSaleChange } from "../services/consistency.js";
 
 const router = Router();
 
@@ -229,6 +230,8 @@ router.post("/:id/payments", async (req, res, next) => {
       });
       return { payment, receivable: updated };
     });
+    const sale = await prisma.sale.findUnique({ where: { id: receivable.saleId } });
+    await refreshAfterSaleChange(sale);
     res.status(201).json({ ok: true, ...result });
   } catch (e) {
     next(e);
@@ -239,10 +242,13 @@ router.post("/:id/payments", async (req, res, next) => {
 router.post("/:id/pay", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const previous = await prisma.receivable.findUnique({ where: { id } });
     const updated = await prisma.receivable.update({
       where: { id },
       data: { status: "pagada", pending: 0, paidAt: new Date() }
     });
+    const sale = previous ? await prisma.sale.findUnique({ where: { id: previous.saleId } }) : null;
+    await refreshAfterSaleChange(sale);
     res.json(updated);
   } catch (e) {
     next(e);

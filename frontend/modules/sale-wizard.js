@@ -71,6 +71,8 @@ export function createSaleModule(context) {
     };
   }
   const paidAmount = () => sale.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  // ¿Hay pago por SuperGiros (Datafono SG / QR SG)? Si lo hay, la RTM no puede quedar pendiente.
+  const hasSupergiros = () => sale.payments.some((p) => methodByCode[p.methodCode]?.groupCode === "SG");
 
   // Estado de pago: efectivo puede exceder (vueltas); los demas metodos no.
   function paymentState() {
@@ -164,7 +166,15 @@ export function createSaleModule(context) {
           </div>
           <div id="cResult" class="hint">Escribe documento o nombre; elige una sugerencia o registra uno nuevo.</div>
           <div id="cNew" class="grid2 hidden">
-            <input id="cNewDoc" placeholder="Documento (cedula / NIT)" />
+            <select id="cNewDocType" title="Tipo de documento">
+              <option value="CC">CC · Cédula de ciudadanía</option>
+              <option value="NIT">NIT · Empresa</option>
+              <option value="CE">CE · Cédula de extranjería</option>
+              <option value="TI">TI · Tarjeta de identidad</option>
+              <option value="PA">PA · Pasaporte</option>
+              <option value="PEP">PEP · Permiso especial</option>
+            </select>
+            <input id="cNewDoc" placeholder="Número de documento" />
             <input id="cName" placeholder="Nombre completo" />
             <input id="cPhone" placeholder="Telefono" />
             <button class="btn primary" id="cSave">Guardar y continuar</button>
@@ -244,18 +254,24 @@ export function createSaleModule(context) {
             <button class="btn primary" id="refSave">Continuar</button>
           </div>`, false);
       }
-      case "rtmHoy":
+      case "rtmHoy": {
+        const sg = hasSupergiros();
+        const pendienteBtn = sg
+          ? `<button class="bigchoice amber" disabled style="opacity:.45;cursor:not-allowed"><span class="bc-ico">⏳</span><span class="bc-main">QUEDA PENDIENTE</span><span class="bc-sub">No aplica con SuperGiros</span></button>`
+          : `<button class="bigchoice amber" data-today="no"><span class="bc-ico">⏳</span><span class="bc-main">QUEDA PENDIENTE</span><span class="bc-sub">Va a provisión</span></button>`;
         return card(key, "7 · ¿Cuándo hace la RTM?", `
+          ${sg ? `<div class="hint" style="margin-bottom:8px">💳 Pago por SuperGiros: la RTM debe realizarse <b>hoy</b> (genera PIN). No puede quedar pendiente.</div>` : ""}
           <div class="bigchoices">
             <button class="bigchoice green" data-today="si"><span class="bc-ico">✅</span><span class="bc-main">HOY MISMO</span><span class="bc-sub">Genera PIN ahora</span></button>
-            <button class="bigchoice amber" data-today="no"><span class="bc-ico">⏳</span><span class="bc-main">QUEDA PENDIENTE</span><span class="bc-sub">Va a provisión</span></button>
+            ${pendienteBtn}
           </div>`, false);
+      }
       case "pin":
         return card(key, "7b · PIN SuperFlex", `
-          <label class="fld">PIN generado (19 digitos)
-            <input id="pinNumber" inputmode="numeric" maxlength="19" placeholder="0000000000000000000" value="${esc(sale.pinNumber)}" />
+          <label class="fld">PIN generado (19 o 20 digitos)
+            <input id="pinNumber" inputmode="numeric" maxlength="20" placeholder="00000000000000000000" value="${esc(sale.pinNumber)}" />
           </label>
-          <div class="hint">Obligatorio porque la RTM se realiza hoy. Debe ser numerico de 19 digitos.</div>
+          <div class="hint">Obligatorio porque la RTM se realiza hoy. Debe ser numerico de 19 o 20 digitos (SICOV).</div>
           <button class="btn primary" id="pinNext">Continuar</button>`, false);
       case "provisionCheck": {
         const search = `
@@ -267,7 +283,7 @@ export function createSaleModule(context) {
           const rows = sale.provisionMatches.map((p) => `
             <div class="payrow">
               <span><b>${esc(p.plate)}</b> · ${esc(p.clientName)} · ${money(p.amount)}${p.allyType === "referido" ? " · ref: " + esc(p.allyName || "") : " · directo"} · ${esc(p.saleDate)}</span>
-              <input id="provPin_${p.saleId}" inputmode="numeric" maxlength="19" placeholder="PIN 19 digitos" style="max-width:180px" />
+              <input id="provPin_${p.saleId}" inputmode="numeric" maxlength="20" placeholder="PIN 19-20 digitos" style="max-width:180px" />
               <button class="btn success sm" data-consume="${p.saleId}">Realizar RTM</button>
             </div>`).join("");
           return card(key, "Provision encontrada ✓", `
@@ -578,7 +594,9 @@ export function createSaleModule(context) {
     // Tipo cliente
     document.querySelectorAll("[data-ally]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.ally === "usuario") {
-        sale.allyType = "usuario"; sale.allyName = "USUARIO"; sale.discountApplied = true; sale.allyAnswered = true; render();
+        // Venta directa: NO lleva descuento automatico. El descuento solo existe si la
+        // cajera agrego un cupon (DESCUENTO_FENIX) en los pagos.
+        sale.allyType = "usuario"; sale.allyName = "USUARIO"; sale.discountApplied = false; sale.allyAnswered = true; render();
       } else {
         sale.allyType = "referido";
         $("refBox").classList.remove("hidden");
@@ -594,12 +612,13 @@ export function createSaleModule(context) {
     });
 
     document.querySelectorAll("[data-today]").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.today === "no" && hasSupergiros()) { toast("Pago por SuperGiros: la RTM no puede quedar pendiente, debe hacerse hoy."); return; }
       sale.rtmToday = b.dataset.today === "si"; sale.rtmTodayAnswered = true; sale.pinNumber = ""; render();
     }));
 
     $("pinNext")?.addEventListener("click", () => {
       const pin = ($("pinNumber").value || "").trim();
-      if (!PIN_RE.test(pin)) return toast("El PIN debe tener 19 digitos numericos");
+      if (!PIN_RE.test(pin)) return toast("El PIN debe tener 19 o 20 digitos numericos");
       sale.pinNumber = pin;
       render();
     });
@@ -689,8 +708,12 @@ export function createSaleModule(context) {
       if (items.length === 1) return selectClient(items[0]);
       $("cResult").textContent = "No existe. Registra el cliente:";
       $("cNew").classList.remove("hidden");
-      if (/^\d+$/.test(val)) { $("cNewDoc").value = val; $("cName").focus(); }
-      else { $("cName").value = val; $("cNewDoc").focus(); }
+      if (/^\d+$/.test(val)) {
+        $("cNewDoc").value = val;
+        // Sugerencia de tipo: 6-10 digitos = CC, mas largo (NIT) = NIT. El usuario puede cambiarlo.
+        $("cNewDocType").value = /^\d{6,10}$/.test(val) ? "CC" : "NIT";
+        $("cName").focus();
+      } else { $("cName").value = val; $("cNewDoc").focus(); }
     } catch (e) { toast(e.message); }
   }
   async function saveNewClient() {
@@ -698,7 +721,8 @@ export function createSaleModule(context) {
     const name = $("cName").value.trim();
     if (!docNumber || !name) return toast("Documento y nombre obligatorios");
     try {
-      const c = await api.saveClient({ docNumber, name, phone: $("cPhone").value.trim(), docType: /^\d{6,10}$/.test(docNumber) ? "CC" : "NIT" });
+      const docType = $("cNewDocType")?.value || (/^\d{6,10}$/.test(docNumber) ? "CC" : "NIT");
+      const c = await api.saveClient({ docNumber, name, phone: $("cPhone").value.trim(), docType });
       selectClient(c);
     } catch (e) { toast(e.message); }
   }
@@ -725,7 +749,7 @@ export function createSaleModule(context) {
   async function consumeProvisionUI(saleId) {
     try {
       const pinNumber = ($(`provPin_${saleId}`)?.value || "").trim();
-      if (!PIN_RE.test(pinNumber)) return toast("El PIN debe tener 19 digitos numericos");
+      if (!PIN_RE.test(pinNumber)) return toast("El PIN debe tener 19 o 20 digitos numericos");
       const r = await api.realizeProvision(saleId, { date: todayIso(), pinNumber });
       sale.registered = { sale: r.sale, costs: r.costs };
       toast(`Provision consumida · RTM realizada (${r.sale.saleNumber})`);

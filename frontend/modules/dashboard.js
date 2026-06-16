@@ -51,7 +51,7 @@ export function createDashboardModule(context) {
         dashCompareRow("Dispersion neta esperada", k.dispersionNeta, p.dispersionNeta),
         dashCompareRow("Dispersion efectivo", k.dispersionEfectivoNeto, p.dispersionEfectivoNeto),
         dashCompareRow("Dispersion bancos/QR/tarjeta", k.dispersionBancosNeto, p.dispersionBancosNeto),
-        dashCompareRow("IVA provisionado", k.ivaProvision, p.ivaProvision),
+        dashCompareRow("IVA facturado", k.ivaProvision, p.ivaProvision),
         dashCompareRow("Utilidad bruta aprox.", k.utilidadBruta, p.utilidadBruta)
       ].join("");
       // Motos por rango: el cliente quiere el % (que % de motos viejas/nuevas entran).
@@ -84,8 +84,15 @@ export function createDashboardModule(context) {
           <div class="kpi"><span>Jasper estimado</span><b>${money(k.jasper)}</b></div>
           <div class="kpi"><span>Dispersion neta</span><b>${money(k.dispersionNeta)}</b></div>
           <div class="kpi"><span>Efectivo / bancos</span><b>${money(k.dispersionEfectivoNeto)} / ${money(k.dispersionBancosNeto)}</b></div>
-          <div class="kpi"><span>IVA provisionado</span><b>${money(k.ivaProvision)}</b></div>
+          <div class="kpi"><span>IVA facturado</span><b>${money(k.ivaProvision)}</b></div>
           <div class="kpi"><span>Utilidad bruta aprox.</span><b>${money(k.utilidadBruta)}</b></div>
+        </div>
+        <h3 style="margin-top:18px">Gerencial (referencia mensual)</h3>
+        <div class="kpis">
+          <div class="kpi"><span>Costos fijos / mes</span><b>${money(k.costosFijosMensuales || 0)}</b><small>nómina ${money(k.nominaMensual || 0)} + fijos ${money(k.obligacionesMensual || 0)}</small></div>
+          <div class="kpi"><span>Nómina / mes</span><b>${money(k.nominaMensual || 0)}</b></div>
+          <div class="kpi"><span>Margen bruto</span><b>${(k.margen || 0).toFixed ? k.margen.toFixed(1) : k.margen}%</b></div>
+          <div class="kpi"><span>Punto de equilibrio</span><b>${k.puntoEquilibrio || 0} RTM/mes</b><small>al ticket promedio actual</small></div>
         </div>
         <div class="split">
           <div>
