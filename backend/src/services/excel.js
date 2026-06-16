@@ -40,6 +40,44 @@ export async function toWorkbook({ sheets = [], creator = "MotoPOS" } = {}) {
       headerRowIdx = 3; // deja una fila en blanco bajo el titulo
     }
 
+    // --- Tabla nativa de Excel (filtros + franjas + fila de totales) ---
+    // Se activa con sheet.table = true. Da una tabla con autofiltro por columna.
+    if (sheet.table) {
+      const tableColumns = columns.map((c, i) => {
+        const col = { name: String(c.header ?? c.key ?? `Col${i + 1}`), filterButton: true };
+        if (sheet.totals) {
+          if (i === 0) col.totalsRowLabel = "TOTAL";
+          else if (c.money || c.number) col.totalsRowFunction = "sum";
+          else col.totalsRowFunction = "none";
+        }
+        return col;
+      });
+      const dataRows = (sheet.rows || []).map((row) => columns.map((c) => {
+        const v = row[c.key];
+        return v == null ? "" : v;
+      }));
+      const safeName = (sheet.name || "Tabla").replace(/[^A-Za-z0-9_]/g, "_").slice(0, 26) + "_tbl";
+      ws.addTable({
+        name: safeName,
+        ref: ws.getCell(headerRowIdx, 1).address,
+        headerRow: true,
+        totalsRow: !!sheet.totals,
+        style: { theme: "TableStyleMedium9", showRowStripes: true },
+        columns: tableColumns,
+        rows: dataRows
+      });
+      // Ancho + formato de moneda/numero por columna (datos + fila de totales).
+      const lastRow = headerRowIdx + dataRows.length + (sheet.totals ? 1 : 0);
+      columns.forEach((c, i) => {
+        ws.getColumn(i + 1).width = c.width || 16;
+        if (c.money || c.number) {
+          const fmt = c.money ? MONEY_FMT : "#,##0";
+          for (let rr = headerRowIdx + 1; rr <= lastRow; rr++) ws.getCell(rr, i + 1).numFmt = fmt;
+        }
+      });
+      continue; // la tabla ya escribió encabezados, filas y totales
+    }
+
     // Encabezados
     columns.forEach((c, i) => {
       const cell = ws.getCell(headerRowIdx, i + 1);

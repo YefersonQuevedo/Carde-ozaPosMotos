@@ -174,6 +174,7 @@ export const api = {
   closing: (date, gastos = 0) => req(`/closings?date=${date}&gastos=${gastos}`),
   exportClosing: (date, gastos = 0) => reqBlob(`/closings/export?date=${date}&gastos=${gastos}`),
   closingDay: (date) => req(`/closings/day?date=${date}`),
+  closingRange: (from, to) => req(`/closings/range?from=${from}&to=${to}`),
   closingDetail: (date, gastos = 0) => req(`/closings/detail?date=${date}&gastos=${gastos}`),
   exportClosingDetail: (date, gastos = 0) => reqBlob(`/closings/detail/export?date=${date}&gastos=${gastos}`),
   saveClosing: (body) => req("/closings", { method: "POST", body }),

@@ -52,20 +52,19 @@
           <div class="nav-sec">Operación del día</div>
           <button class="tab active" data-view="venta"><span class="ico">🧾</span> Facturar</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas hechas</button>
-          <button class="tab" data-view="turnos"><span class="ico">🕐</span> Turnos</button>
+          <button class="tab admin-only" data-view="turnos"><span class="ico">🕐</span> Turnos</button>
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre del día</button>
 
           <div class="nav-sec">Dinero</div>
           <button class="tab" data-view="payables"><span class="ico">💼</span> Caja</button>
-          <button class="tab" data-view="obligaciones"><span class="ico">📒</span> Obligaciones / por pagar</button>
-          <button class="tab" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
-          <button class="tab" data-view="ingresos"><span class="ico">📥</span> Ingresos</button>
-          <button class="tab" data-view="gastos"><span class="ico">📤</span> Gastos</button>
+          <button class="tab admin-only" data-view="obligaciones"><span class="ico">📒</span> Obligaciones / por pagar</button>
+          <button class="tab admin-only" data-view="provisiones"><span class="ico">🏦</span> Provisiones</button>
+          <button class="tab admin-only" data-view="ingresos"><span class="ico">📥</span> Ingresos</button>
+          <button class="tab admin-only" data-view="gastos"><span class="ico">📤</span> Gastos</button>
           <button class="tab" data-view="cartera"><span class="ico">💳</span> Cartera (por cobrar)</button>
 
           <div class="nav-sec">Convenios / referidos</div>
-          <button class="tab" data-view="convenios"><span class="ico">🤝</span> Convenios</button>
-          <button class="tab" data-view="pagoconv"><span class="ico">💸</span> Pagar comisiones</button>
+          <button class="tab" data-view="pagoconv"><span class="ico">🤝</span> Convenios</button>
 
           <div class="nav-sec">Clientes</div>
           <button class="tab" data-view="clientes"><span class="ico">👤</span> Clientes</button>
@@ -78,7 +77,7 @@
           <div class="nav-sec">Administración</div>
           <button class="tab admin-only" data-view="fupa"><span class="ico">🎟️</span> Pines / FUPA</button>
           <button class="tab" data-view="facturaelec"><span class="ico">🧮</span> Factura electrónica</button>
-          <button class="tab" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
+          <button class="tab admin-only" data-view="proveedores"><span class="ico">🚚</span> Proveedores</button>
           <button class="tab admin-only" data-view="dian"><span class="ico">🏛️</span> DIAN</button>
           <button class="tab admin-only" data-view="nomina"><span class="ico">🧑‍💼</span> Nómina</button>
           <button class="tab admin-only" data-view="usuarios"><span class="ico">👥</span> Usuarios</button>
@@ -208,36 +207,27 @@
           </div>
         </section>
 
-        <!-- PAGOS A CONVENIOS -->
+        <!-- CONVENIOS (gestion + pago de comisiones unificados) -->
         <section class="view" id="view-pagoconv">
           <div class="master-detail">
             <div class="card">
-              <div class="card-head"><h2>Pagos a convenios</h2><div id="pagoconvTotals" class="detail-meta"></div></div>
+              <div class="card-head">
+                <h2>Convenios</h2>
+                <div class="row">
+                  <input type="search" id="pcSearch" placeholder="Buscar convenio…" />
+                  <button class="btn primary" id="pcNew">+ Nuevo</button>
+                </div>
+              </div>
+              <div class="row filters" style="padding:0 2px 8px;gap:8px;flex-wrap:wrap">
+                <input id="pcBulkCommission" type="text" inputmode="numeric" placeholder="Comisión para todos" style="max-width:200px" />
+                <button class="btn ghost" id="pcBulkApply">Aplicar a todos</button>
+                <span id="pagoconvTotals" class="detail-meta" style="margin-left:auto"></span>
+              </div>
               <div id="pagoconvBody"></div>
             </div>
             <div class="card">
               <div class="card-head"><h2 id="pagoconvName">Detalle</h2></div>
               <div id="pagoconvDetail"><p class="hint">Selecciona un convenio para ver lo devengado, lo pagado y registrar pagos.</p></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- CONVENIOS -->
-        <section class="view" id="view-convenios">
-          <div class="master-detail">
-            <div class="card">
-              <div class="card-head">
-                <h2>Convenios / aliados</h2>
-                <div class="row">
-                  <input type="search" id="allySearch" placeholder="Buscar aliado…" />
-                  <button class="btn primary" id="allyNew">Nuevo</button>
-                </div>
-              </div>
-              <div id="conveniosBody"></div>
-            </div>
-            <div class="card">
-              <div class="card-head"><h2 id="allyFormTitle">Detalle del convenio</h2></div>
-              <div id="allyForm"><p class="hint">Selecciona un convenio o crea uno nuevo.</p></div>
             </div>
           </div>
         </section>

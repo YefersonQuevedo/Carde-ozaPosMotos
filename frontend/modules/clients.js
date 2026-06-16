@@ -43,10 +43,16 @@ export function createClientsModule(context) {
     return { phone, phones };
   }
   const HIST_LABEL = { directo: "Directo", referido: "Referido", rtm: "RTM", no_rtm: "Sin RTM" };
+  // Fecha + hora exactas del evento (momento en que se registró la venta).
+  function histFechaHora(h) {
+    const d = h.createdAt ? new Date(h.createdAt) : null;
+    if (!d || isNaN(d.getTime())) return String(h.year || "");
+    return d.toLocaleString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
   function historyTableHtml(history = []) {
     if (!history.length) return '<p class="hint">Sin historial todavia.</p>';
-    return `<table class="data"><thead><tr><th>Año</th><th>Como llego</th><th>Placa</th><th>Convenio</th><th>Nota</th></tr></thead><tbody>${
-      history.map((h) => `<tr><td>${h.year}</td><td><span class="pill ${h.eventType === "referido" ? "warn" : ""}">${esc(HIST_LABEL[h.eventType] || h.eventType)}</span></td><td>${esc(h.plate || "")}</td><td>${esc(h.allyName || "")}</td><td class="hint">${esc(h.note || "")}</td></tr>`).join("")
+    return `<table class="data"><thead><tr><th>Fecha y hora</th><th>Como llego</th><th>Placa</th><th>Convenio</th><th>Nota</th></tr></thead><tbody>${
+      history.map((h) => `<tr><td>${esc(histFechaHora(h))}</td><td><span class="pill ${h.eventType === "referido" ? "warn" : ""}">${esc(HIST_LABEL[h.eventType] || h.eventType)}</span></td><td>${esc(h.plate || "")}</td><td>${esc(h.allyName || "")}</td><td class="hint">${esc(h.note || "")}</td></tr>`).join("")
     }</tbody></table>`;
   }
 

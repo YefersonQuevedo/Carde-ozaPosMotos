@@ -18,6 +18,28 @@ export async function openShift() {
   return prisma.shift.findFirst({ where: { status: "abierto" }, orderBy: { id: "desc" } });
 }
 
+// Garantiza que exista un turno abierto: si no hay, abre uno AUTOMATICO (turnos
+// invisibles). Asi el usuario factura sin manejar turnos. `number` es consecutivo
+// unico por empresa (reintenta ante choques de unique).
+export async function ensureOpenShift({ openedBy = null } = {}) {
+  const existing = await openShift();
+  if (existing) return existing;
+  const businessDate = iso();
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const last = await prisma.shift.findFirst({ orderBy: { number: "desc" } });
+    const number = (last?.number || 0) + 1 + attempt;
+    try {
+      return await prisma.shift.create({
+        data: { businessDate, number, status: "abierto", openingCash: 0, openedBy: openedBy || "automático", note: "Turno automático" }
+      });
+    } catch (e) {
+      if (e?.code !== "P2002") throw e; // choque de unique -> reintenta con el siguiente numero
+    }
+  }
+  // Fallback: si no pudo crear, devuelve cualquier abierto que haya aparecido.
+  return openShift();
+}
+
 // GET /api/shifts/current -> turno abierto actual (con su cierre calculado en vivo).
 router.get("/current", async (_req, res, next) => {
   try {

@@ -5,7 +5,7 @@ import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/co
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { auth } from "../auth.js";
-import { openShift } from "./shifts.js";
+import { ensureOpenShift } from "./shifts.js";
 import { refreshAfterSaleChange } from "../services/consistency.js";
 
 const router = Router();
@@ -67,9 +67,10 @@ router.post("/", async (req, res, next) => {
     const v = b.vehicle || {};
     if (!c.docNumber || !c.name) return res.status(400).json({ error: "Cliente (docNumber, name) obligatorio" });
 
-    // Debe haber un turno ABIERTO para poder facturar. La venta queda atada a ese turno.
-    const shift = await openShift();
-    if (!shift) return res.status(409).json({ error: "No hay turno abierto. Abre un turno para poder facturar." });
+    // Turnos invisibles: si no hay turno abierto se abre uno AUTOMATICO (el usuario no
+    // gestiona turnos). La venta queda atada a ese turno igual que antes.
+    const shift = await ensureOpenShift({ openedBy: req.user?.name || req.user?.username || null });
+    if (!shift) return res.status(500).json({ error: "No se pudo iniciar el turno automático" });
 
     // 1) Cliente y moto (upsert / find-or-create, sin FK).
     // En update solo se tocan los campos que vienen en la venta: no se pisan
@@ -117,6 +118,13 @@ router.post("/", async (req, res, next) => {
     const pinNumber = String(b.pinNumber || "").trim();
     if (rtmToday && !PIN_RE.test(pinNumber)) {
       return res.status(400).json({ error: "El PIN es obligatorio cuando la RTM se realiza hoy y debe tener 19 o 20 digitos numericos" });
+    }
+    // El PIN es UNICO (SICOV asigna uno por vehiculo/año): no puede repetirse.
+    if (pinNumber) {
+      const dupPin = await prisma.sale.findFirst({ where: { pinNumber, status: "activa" }, select: { saleNumber: true, plate: true, saleDate: true } });
+      if (dupPin) {
+        return res.status(409).json({ error: `Ese PIN ya está registrado en la venta ${dupPin.saleNumber} (placa ${dupPin.plate || "-"}, ${dupPin.saleDate}). El PIN no se puede repetir.` });
+      }
     }
 
     // 4) Convenio / comision (DEDUCCIONES CONVENIOS).

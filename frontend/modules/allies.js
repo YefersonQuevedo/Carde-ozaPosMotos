@@ -14,6 +14,8 @@ export function createAlliesModule(context) {
   let currentAlly = { name: null, id: null };
   let currentAllyDetail = null;
   let commissionFilter = "todas"; // todas | pagadas | pendientes
+  let conveniosSearch = "";       // buscador de la lista de convenios
+  let conveniosRows = [];         // filas actuales (para editar por id)
 
   // Tabla de comisiones devengadas con estado de pago, comprobante y filtro.
   // Las pendientes traen checkbox para seleccionar cuáles se pagan.
@@ -21,20 +23,26 @@ export function createAlliesModule(context) {
     const all = (currentAllyDetail?.sales) || [];
     const filtered = all.filter((s) => commissionFilter === "todas" || (commissionFilter === "pagadas" ? s.paid : !s.paid));
     const tab = (key, label) => `<button class="btn ${commissionFilter === key ? "primary" : "ghost"} sm" data-commfilter="${key}">${label}</button>`;
+    const pendientes = filtered.filter((s) => !s.paid).length;
     const rows = filtered.map((s) => {
+      // Checkbox a la IZQUIERDA para elegir cuales comisiones se pagan (solo las pendientes).
+      const chk = s.paid
+        ? `<span class="pill ok" title="Ya pagada">✓</span>`
+        : `<input type="checkbox" class="comm-chk" data-comm="${esc(s.saleNumber)}" data-amt="${s.deduction}" checked />`;
       const comp = s.paid
         ? (s.voucherPath ? `<a class="link" href="${esc(s.voucherPath)}" target="_blank">comprobante</a>` : (s.paidInvoice ? esc(s.paidInvoice) : "sin archivo"))
-        : `<input type="checkbox" class="comm-chk" data-comm="${esc(s.saleNumber)}" data-amt="${s.deduction}" checked />`;
+        : "-";
       const estado = s.paid
         ? `<span class="pill ok">Pagada${s.paidDate ? " · " + esc(s.paidDate) : ""}</span>`
         : `<span class="pill danger">Pendiente</span>`;
-      return `<tr><td>${esc(s.saleDate)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.clientName)}</td><td>${esc(s.invoiceNumber || s.saleNumber || "")}</td><td>${s.pinAdquirido > 0 ? "Si" : "-"}</td><td class="r">${money(s.deduction)}</td><td>${estado}</td><td>${comp}</td></tr>`;
+      return `<tr class="${s.paid ? "" : "comm-row"}"><td style="text-align:center">${chk}</td><td>${esc(s.saleDate)}</td><td>${esc(s.plate || "")}</td><td>${esc(s.clientName)}</td><td>${esc(s.invoiceNumber || s.saleNumber || "")}</td><td>${s.pinAdquirido > 0 ? "Si" : "-"}</td><td class="r">${money(s.deduction)}</td><td>${estado}</td><td>${comp}</td></tr>`;
     }).join("");
+    const selAll = pendientes > 0 ? `<input type="checkbox" id="comm-all" checked title="Seleccionar / quitar todas las pendientes" />` : "";
     return `
       <div class="row" style="gap:6px;margin-bottom:6px">${tab("todas", "Todas")} ${tab("pendientes", "Pendientes")} ${tab("pagadas", "Pagadas")}
-        <span class="hint" style="margin-left:auto">Devengado pendiente: ${money(currentAllyDetail?.accruedPending || 0)} · pagado: ${money(currentAllyDetail?.accruedPaid || 0)}</span></div>
-      <table class="data"><thead><tr><th>Fecha</th><th>Placa</th><th>Cliente</th><th>Factura</th><th>RTM</th><th class="r">Comision</th><th>Estado</th><th>Comprobante</th></tr></thead>
-      <tbody>${rows || '<tr><td class="hint" colspan="8">Sin comisiones</td></tr>'}</tbody></table>`;
+        <span class="hint" style="margin-left:auto">Marca a la izquierda las comisiones a pagar. Devengado pendiente: ${money(currentAllyDetail?.accruedPending || 0)} · pagado: ${money(currentAllyDetail?.accruedPaid || 0)}</span></div>
+      <table class="data"><thead><tr><th style="width:34px;text-align:center">${selAll}</th><th>Fecha</th><th>Placa</th><th>Cliente</th><th>Factura</th><th>RTM</th><th class="r">Comision</th><th>Estado</th><th>Comprobante</th></tr></thead>
+      <tbody>${rows || '<tr><td class="hint" colspan="9">Sin comisiones</td></tr>'}</tbody></table>`;
   }
 
   // Re-pinta solo la sección de comisiones y reengancha sus eventos.
@@ -44,18 +52,41 @@ export function createAlliesModule(context) {
     box.innerHTML = renderCommissions();
     box.querySelectorAll("[data-commfilter]").forEach((b) => b.addEventListener("click", () => { commissionFilter = b.dataset.commfilter; refreshCommissions(); }));
     box.querySelectorAll(".comm-chk").forEach((c) => c.addEventListener("change", syncSelectedAmount));
+    const all = box.querySelector("#comm-all");
+    if (all) all.addEventListener("change", () => {
+      box.querySelectorAll(".comm-chk").forEach((c) => { c.checked = all.checked; });
+      syncSelectedAmount();
+    });
     syncSelectedAmount();
   }
 
-  // Suma de comisiones marcadas -> valor a pagar.
+  // Pagos COMPLETOS (nunca abonos): el valor a pagar es SIEMPRE la suma de las
+  // comisiones marcadas. Si hay comisiones pendientes, el campo queda de solo lectura
+  // (lo maneja el chulo) y "Pagar" se deshabilita si no hay ninguna marcada.
   function syncSelectedAmount() {
     const amtInput = $("pc_amount");
     if (!amtInput) return;
+    const boxes = document.querySelectorAll(".comm-chk");
     const checks = document.querySelectorAll(".comm-chk:checked");
-    if (!checks.length) return; // si no hay pendientes visibles, deja el valor como está
-    let sum = 0;
-    checks.forEach((c) => { sum += Number(c.dataset.amt) || 0; });
-    amtInput.value = sum;
+    const payBtn = $("pc_save");
+    const info = $("pc_selinfo");
+    if (boxes.length) {
+      let sum = 0;
+      checks.forEach((c) => { sum += Number(c.dataset.amt) || 0; });
+      amtInput.value = money(sum); // formateado con $ y miles (solo lectura)
+      amtInput.readOnly = true; // el valor lo define la selección, no se teclea
+      if (payBtn) {
+        payBtn.disabled = checks.length === 0;
+        payBtn.title = checks.length === 0 ? "Marca al menos una comisión para pagar" : "";
+      }
+      if (info) info.textContent = checks.length
+        ? `Vas a pagar ${checks.length} comisión(es) — total ${money(sum)} (pago completo)`
+        : "⚠️ No hay comisiones marcadas. Marca a la izquierda las que vas a pagar.";
+    } else {
+      // Sin filas de comisiones (datos viejos): valor manual sobre el saldo pendiente.
+      amtInput.readOnly = false;
+      if (info) info.textContent = "";
+    }
   }
   function selectedSaleNumbers() {
     return [...document.querySelectorAll(".comm-chk:checked")].map((c) => c.dataset.comm);
@@ -143,14 +174,56 @@ export function createAlliesModule(context) {
     });
   }
 
-  // Implementacion extendida de pagos a convenios (revision 2026-06-04).
-  loadPagoConv = async function () {
+  // Vista UNIFICADA "Convenios": lista del catalogo de convenios + su devengado/pagado/
+  // pendiente (de las ventas). Permite buscar, crear (+), editar (✏️), eliminar (🗑️),
+  // aplicar comision a todos, y pagar (clic en el nombre o "pagar" -> detalle).
+  loadPagoConv = async function (search) {
+    if (search !== undefined) conveniosSearch = search;
+    const q = (conveniosSearch || "").trim();
     try {
-      const { items, totals } = await api.allyPayments();
-      $("pagoconvTotals").textContent = `Devengado ${money(totals.accrued)} · Pagado ${money(totals.paid)} · Pendiente ${money(totals.pending)}`;
-      $("pagoconvBody").innerHTML = `<table class="data"><thead><tr><th>Convenio</th><th class="r">RTM</th><th class="r">Placas</th><th class="r">Devengado</th><th class="r">Pagado</th><th class="r">Pendiente</th></tr></thead><tbody>${items.map((a) => `<tr class="clickable" data-name="${esc(a.allyName)}" data-id="${a.allyId ?? ""}"><td>${esc(a.allyName)}</td><td class="r">${a.convenioCount || a.rtm || 0}</td><td class="r">${a.plateCount || 0}</td><td class="r">${money(a.accrued)}</td><td class="r">${money(a.paid)}</td><td class="r"><b>${money(a.pending)}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="6">Aun no hay comisiones de referidos</td></tr>'
-        }</tbody></table>`;
-      $("pagoconvBody").querySelectorAll("[data-name]").forEach((tr) => tr.addEventListener("click", () => loadPagoConvDetail(tr.dataset.name, tr.dataset.id || null)));
+      const [{ items: pays, totals }, allies] = await Promise.all([api.allyPayments(), api.findAllies(q)]);
+      const aggByKey = {};
+      for (const a of pays) aggByKey[(a.allyName || "").trim().toUpperCase()] = a;
+      const rows = [];
+      const seen = new Set();
+      for (const al of allies) {
+        const key = (al.name || "").trim().toUpperCase();
+        if (key === "USUARIO" || al.isDirectUser) continue; // los directos no son convenios
+        seen.add(key);
+        const agg = aggByKey[key] || {};
+        rows.push({ id: al.id, name: al.name, ally: al, commission: al.commission, company: al.company || "",
+          accrued: agg.accrued || 0, paid: agg.paid || 0, pending: agg.pending || 0, rtm: agg.convenioCount || agg.rtm || 0 });
+      }
+      // Nombres con comisiones pero sin ficha en el catalogo (datos viejos).
+      for (const a of pays) {
+        const key = (a.allyName || "").trim().toUpperCase();
+        if (seen.has(key) || key === "USUARIO") continue;
+        if (q && !key.includes(q.toUpperCase())) continue;
+        rows.push({ id: a.allyId, name: a.allyName, ally: null, commission: null, company: "",
+          accrued: a.accrued || 0, paid: a.paid || 0, pending: a.pending || 0, rtm: a.convenioCount || a.rtm || 0 });
+      }
+      rows.sort((x, y) => (y.pending - x.pending) || x.name.localeCompare(y.name));
+      conveniosRows = rows;
+      if ($("pagoconvTotals")) $("pagoconvTotals").textContent = `Devengado ${money(totals.accrued)} · Pagado ${money(totals.paid)} · Pendiente ${money(totals.pending)}`;
+      $("pagoconvBody").innerHTML = `<table class="data"><thead><tr><th>Convenio</th><th class="r">Comisión</th><th class="r">RTM</th><th class="r">Devengado</th><th class="r">Pagado</th><th class="r">Pendiente</th><th>Acciones</th></tr></thead><tbody>${
+        rows.map((r) => `<tr>
+          <td class="clickable" data-pay="${esc(r.name)}" data-id="${r.id ?? ""}"><b>${esc(r.name)}</b>${r.company ? `<br><span class="hint">${esc(r.company)}</span>` : ""}</td>
+          <td class="r">${r.commission != null ? money(r.commission) : "-"}</td>
+          <td class="r">${r.rtm}</td>
+          <td class="r">${money(r.accrued)}</td>
+          <td class="r">${money(r.paid)}</td>
+          <td class="r"><b>${money(r.pending)}</b></td>
+          <td style="white-space:nowrap">
+            <button class="link" data-pay="${esc(r.name)}" data-id="${r.id ?? ""}">pagar</button>
+            ${r.ally ? ` · <button class="link" data-edit="${r.id}">✏️</button> · <button class="link" data-del="${r.id}" data-name="${esc(r.name)}">🗑️</button>` : ' · <span class="hint">sin ficha</span>'}
+          </td></tr>`).join("") || `<tr><td class="hint" colspan="7">${q ? "Sin convenios que coincidan con la búsqueda." : 'Sin convenios. Usa "+ Nuevo" para crear uno.'}</td></tr>`
+      }</tbody></table>`;
+      $("pagoconvBody").querySelectorAll("[data-pay]").forEach((el) => el.addEventListener("click", () => loadPagoConvDetail(el.dataset.pay, el.dataset.id || null)));
+      $("pagoconvBody").querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
+        const r = conveniosRows.find((x) => String(x.id) === b.dataset.edit);
+        if (r?.ally) openAllyModal(r.ally);
+      }));
+      $("pagoconvBody").querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => deleteAlly(Number(b.dataset.del), b.dataset.name)));
     } catch (e) { toast(e.message); }
   };
 
@@ -185,7 +258,7 @@ export function createAlliesModule(context) {
         <h3>Registrar pago</h3>
         ${d.pending <= 0 ? '<p class="warn-msg">✓ Este convenio no tiene saldo pendiente — no hay nada que pagar.</p>' : ''}
         <div class="form-grid">
-          <label class="fld">Valor a pagar<input id="pc_amount" type="text" inputmode="numeric" value="${Math.max(0, d.pending || 0)}" data-max-pending="${d.pending || 0}" ${d.pending <= 0 ? 'disabled' : ''} /></label>
+          <label class="fld">Valor a pagar<input id="pc_amount" type="text" inputmode="numeric" value="${money(Math.max(0, d.pending || 0))}" data-max-pending="${d.pending || 0}" ${d.pending <= 0 ? 'disabled' : ''} /></label>
           <label class="fld">Fecha<input id="pc_date" type="date" value="${todayIso()}" ${d.pending <= 0 ? 'disabled' : ''} /></label>
           <label class="fld">Factura / soporte externo<input id="pc_invoice" placeholder="Opcional" ${d.pending <= 0 ? 'disabled' : ''} /></label>
           <label class="fld">Documento para facturar<input id="pc_invoice_doc" value="${esc(allyDoc)}" ${d.pending <= 0 ? 'disabled' : ''} /></label>
@@ -196,6 +269,7 @@ export function createAlliesModule(context) {
           <label class="chk"><input type="checkbox" id="pc_manual_invoice" ${d.pending <= 0 ? 'disabled' : ''} /> Facturar a la cedula/NIT</label>
           <label class="chk"><input type="checkbox" id="pc_send_prov" checked ${d.pending <= 0 ? 'disabled' : ''} /> Descontar de provisión convenios (PROV_CONV)</label>
         </div>
+        <div id="pc_selinfo" class="hint"></div>
         <div class="row form-actions">
           <button class="btn success" id="pc_save" ${d.pending <= 0 ? 'disabled title="Sin saldo pendiente"' : ''}>Pagar</button>
           <button class="btn" id="pc_print_pending">Imprimir soporte</button>
@@ -219,7 +293,14 @@ export function createAlliesModule(context) {
   };
 
   addPagoConv = async function (name) {
-    const amount = readCop("pc_amount");
+    // Pago COMPLETO: si hay comisiones marcables, el valor es la suma de las marcadas
+    // y debe haber al menos una. No hay abonos parciales.
+    const boxes = [...document.querySelectorAll(".comm-chk")];
+    const checked = boxes.filter((c) => c.checked);
+    if (boxes.length && checked.length === 0) return toast("Marca al menos una comisión para pagar");
+    const amount = boxes.length
+      ? checked.reduce((s, c) => s + (Number(c.dataset.amt) || 0), 0)
+      : readCop("pc_amount");
     if (amount <= 0) return toast("Ingresa un valor");
     const maxPending = Number($("pc_amount")?.dataset?.maxPending || 0);
     if (maxPending > 0 && amount > maxPending) return toast(`El valor ($${amount.toLocaleString('es-CO')}) supera el saldo pendiente ($${maxPending.toLocaleString('es-CO')})`);
@@ -279,67 +360,77 @@ export function createAlliesModule(context) {
     w.print();
   }
 
-  async function loadConvenios(q = "") {
-    try {
-      const items = await api.findAllies(q);
-      $("conveniosBody").innerHTML = `
-        <div class="row filters">
-          <input id="allyBulkCommission" type="text" inputmode="numeric" placeholder="Nueva comision para todos" />
-          <button class="btn" id="allyBulkApply">Aplicar a todos</button>
-        </div>
-        <table class="data"><thead><tr><th>Nombre</th><th>Contacto</th><th>Empresa</th><th class="r">Comision</th><th>Inscrito</th></tr></thead><tbody>${items.map((a) => `<tr class="clickable" data-ally='${esc(JSON.stringify(a))}'><td>${esc(a.name)}</td><td>${esc(a.contactPhone || "")}</td><td>${esc(a.company || "")}</td><td class="r">${money(a.commission)}</td><td>${a.enrolled ? "Si" : "-"}</td></tr>`).join("") || '<tr><td class="hint" colspan="5">Sin convenios</td></tr>'
-        }</tbody></table>`;
-      $("allyBulkApply").addEventListener("click", applyAlliesCommissionUI);
-      $("conveniosBody").querySelectorAll("[data-ally]").forEach((tr) => tr.addEventListener("click", () => renderAllyForm(JSON.parse(tr.dataset.ally))));
-    } catch (e) { toast(e.message); }
-  }
-
-  async function applyAlliesCommissionUI() {
-    const commission = readCop("allyBulkCommission");
-    if (commission <= 0) return toast("Ingresa la nueva comision");
-    if (!confirm(`Aplicar ${money(commission)} a todos los convenios activos?`)) return;
+  // Aplicar una comision a TODOS los convenios activos (boton "Aplicar a todos").
+  async function applyBulkCommission() {
+    const commission = readCop("pcBulkCommission");
+    if (commission <= 0) return toast("Ingresa la nueva comisión");
+    if (!(await confirmDialog(`Se pondrá ${money(commission)} de comisión a TODOS los convenios activos.`, { title: "¿Aplicar a todos?", okText: "Aplicar", danger: true }))) return;
     try {
       const r = await api.applyAlliesCommission(commission);
-      toast(`Comision aplicada a ${r.count} convenios`);
-      await loadConvenios($("allySearch").value || "");
+      toast(`Comisión aplicada a ${r.count} convenios`);
+      if ($("pcBulkCommission")) $("pcBulkCommission").value = "";
+      await loadPagoConv();
     } catch (e) { toast(e.message); }
   }
+  // Tipos de documento (combobox, para no escribir mal y evitar errores).
+  const DOC_TYPES = ["CC", "NIT", "CE", "TI", "PA", "PEP"];
+  // type: "text" | "number" | "doctype" (combobox de tipo de documento)
   const ALLY_FIELDS = [
     ["name", "Nombre completo", "text"],
     ["company", "Empresa", "text"],
     ["contactPhone", "Telefono", "text"],
     ["altPhone", "Telefono alterno", "text"],
-    ["docType", "Tipo documento", "text"],
+    ["docType", "Tipo documento", "doctype"],
     ["docNumber", "Numero documento", "text"],
     ["paymentMethod", "Metodo de pago", "text"],
     ["accountNumber", "Numero de cuenta", "text"],
-    ["holderDocType", "Tipo doc titular", "text"],
+    ["holderDocType", "Tipo doc titular", "doctype"],
     ["holderDoc", "Documento titular", "text"],
     ["address", "Direccion", "text"],
     ["commission", "Comision", "number"]
   ];
-  function renderAllyForm(a) {
+  // Modal para crear / editar un convenio (reemplaza el panel lateral viejo).
+  function openAllyModal(a) {
     const ally = a || { commission: 40000, enrolled: false, isDirectUser: false, active: true };
-    $("allyFormTitle").textContent = a ? `Editar: ${a.name}` : "Nuevo convenio";
-    const fields = ALLY_FIELDS.map(([k, label, type]) =>
-      `<label class="fld">${label}<input id="af_${k}" type="${type}" value="${esc(ally[k] ?? "")}" /></label>`
-    ).join("");
-    $("allyForm").innerHTML = `
-      <div class="form-grid">${fields}</div>
-      <label class="fld">Observacion<textarea id="af_observation">${esc(ally.observation ?? "")}</textarea></label>
-      <label class="fld">Notas<textarea id="af_notes">${esc(ally.notes ?? "")}</textarea></label>
-      <div class="row form-checks">
-        <label class="chk"><input type="checkbox" id="af_enrolled" ${ally.enrolled ? "checked" : ""} /> Inscrito</label>
-        <label class="chk"><input type="checkbox" id="af_isDirectUser" ${ally.isDirectUser ? "checked" : ""} /> Usuario directo</label>
-        <label class="chk"><input type="checkbox" id="af_active" ${ally.active !== false ? "checked" : ""} /> Activo</label>
-      </div>
-      <div class="row form-actions">
-        <button class="btn success" id="allySave">${a ? "Guardar cambios" : "Crear convenio"}</button>
-        ${a ? `<button class="btn danger" id="allyDelete">Eliminar</button>` : ""}
+    const editing = !!(a && a.id);
+    document.getElementById("allyModalOv")?.remove();
+    const fields = ALLY_FIELDS.map(([k, label, type]) => {
+      if (type === "doctype") {
+        const cur = String(ally[k] ?? "");
+        const opts = `<option value="">—</option>` + DOC_TYPES.map((t) => `<option value="${t}" ${t === cur ? "selected" : ""}>${t}</option>`).join("");
+        return `<label class="fld">${esc(label)}<select id="af_${k}">${opts}</select></label>`;
+      }
+      return `<label class="fld">${esc(label)}<input id="af_${k}" type="${type}" value="${esc(ally[k] ?? "")}" /></label>`;
+    }).join("");
+    const ov = document.createElement("div");
+    ov.id = "allyModalOv";
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;z-index:9999;backdrop-filter:blur(2px);overflow:auto;padding:24px";
+    ov.innerHTML = `
+      <div style="background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.25);max-width:700px;width:96%;padding:22px 24px" role="dialog" aria-modal="true">
+        <h3 style="margin:0 0 12px">${editing ? "Editar convenio: " + esc(a.name) : "➕ Nuevo convenio"}</h3>
+        <div class="form-grid">${fields}</div>
+        <label class="fld">Observación<textarea id="af_observation">${esc(ally.observation ?? "")}</textarea></label>
+        <label class="fld">Notas<textarea id="af_notes">${esc(ally.notes ?? "")}</textarea></label>
+        <div class="row form-checks">
+          <label class="chk"><input type="checkbox" id="af_enrolled" ${ally.enrolled ? "checked" : ""} /> Inscrito</label>
+          <label class="chk"><input type="checkbox" id="af_isDirectUser" ${ally.isDirectUser ? "checked" : ""} /> Usuario directo</label>
+          <label class="chk"><input type="checkbox" id="af_active" ${ally.active !== false ? "checked" : ""} /> Activo</label>
+        </div>
+        <div class="row form-actions" style="justify-content:flex-end;gap:8px;margin-top:6px">
+          <button class="btn ghost" id="am_cancel">Cancelar</button>
+          ${editing ? `<button class="btn danger" id="am_delete">Eliminar</button>` : ""}
+          <button class="btn success" id="am_save">${editing ? "Guardar cambios" : "Crear convenio"}</button>
+        </div>
       </div>`;
-    $("allySave").addEventListener("click", () => saveAlly(a?.id));
-    if (a) $("allyDelete").addEventListener("click", () => deleteAlly(a.id, a.name));
+    const close = () => ov.remove();
+    ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+    document.body.appendChild(ov);
+    $("am_cancel").addEventListener("click", close);
+    $("am_save").addEventListener("click", () => saveAlly(editing ? a.id : null));
+    if (editing) $("am_delete").addEventListener("click", () => deleteAlly(a.id, a.name));
+    $("af_name")?.focus();
   }
+  const newAlly = () => openAllyModal(null);
   function readAllyForm() {
     const body = {};
     ALLY_FIELDS.forEach(([k, , type]) => {
@@ -357,21 +448,20 @@ export function createAlliesModule(context) {
     const body = readAllyForm();
     if (!body.name) return toast("El nombre es obligatorio");
     try {
-      const saved = id ? await api.updateAlly(id, body) : await api.saveAlly(body);
+      id ? await api.updateAlly(id, body) : await api.saveAlly(body);
       toast(id ? "Convenio actualizado" : "Convenio creado");
-      await loadConvenios($("allySearch").value || "");
-      renderAllyForm(saved);
+      document.getElementById("allyModalOv")?.remove();
+      await loadPagoConv();
     } catch (e) { toast(e.message); }
   }
   async function deleteAlly(id, name) {
-    if (!confirm(`¿Eliminar el convenio "${name}"?`)) return;
+    if (!(await confirmDialog(`¿Eliminar el convenio "${name}"? Si ya tiene comisiones registradas, considera desactivarlo en su lugar.`, { title: "Eliminar convenio", okText: "Eliminar", danger: true }))) return;
     try {
       await api.deleteAlly(id);
       toast("Convenio eliminado");
-      $("allyForm").innerHTML = `<p class="hint">Selecciona un convenio o crea uno nuevo.</p>`;
-      $("allyFormTitle").textContent = "Detalle del convenio";
-      await loadConvenios($("allySearch").value || "");
+      document.getElementById("allyModalOv")?.remove();
+      await loadPagoConv();
     } catch (e) { toast(e.message); }
   }
-  return { loadPagoConv, loadPagoConvDetail, loadConvenios, renderAllyForm };
+  return { loadPagoConv, loadPagoConvDetail, newAlly, applyBulkCommission };
 }

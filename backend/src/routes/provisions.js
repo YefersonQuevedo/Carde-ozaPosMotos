@@ -217,6 +217,9 @@ router.post("/:saleId/realize", async (req, res, next) => {
     if (sale.rtmStatus !== "pending") return res.status(400).json({ error: "Esa venta no tiene provision pendiente" });
     const pinNumber = String(req.body?.pinNumber || "").trim();
     if (!PIN_RE.test(pinNumber)) return res.status(400).json({ error: "El PIN es obligatorio para realizar la RTM y debe tener 19 o 20 digitos numericos" });
+    // El PIN es UNICO: no puede existir en otra venta.
+    const dupPin = await prisma.sale.findFirst({ where: { pinNumber, status: "activa", id: { not: saleId } }, select: { saleNumber: true, plate: true, saleDate: true } });
+    if (dupPin) return res.status(409).json({ error: `Ese PIN ya está registrado en la venta ${dupPin.saleNumber} (placa ${dupPin.plate || "-"}, ${dupPin.saleDate}). El PIN no se puede repetir.` });
 
     const amount = sale.provisionAmount || sale.total;
 

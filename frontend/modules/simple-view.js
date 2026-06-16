@@ -12,11 +12,8 @@ export function createSimpleModule(context) {
   const HOME_TILES = [
     { screen: "facturar", icon: "🧾", title: "Facturar", sub: "Registrar una venta", color: "#1bb760" },
     { screen: "ventas", icon: "📁", title: "Ventas de hoy", sub: "Ver lo facturado", color: "#2457c5" },
-    { screen: "turno", icon: "🕐", title: "Turno de caja", sub: "Abrir o cerrar caja", color: "#e6a21c" },
     { screen: "clientes", icon: "👤", title: "Clientes", sub: "Buscar cliente", color: "#2457c5" },
     { screen: "llamadas", icon: "📞", title: "Llamadas RTM", sub: "Vencimientos", color: "#7c4dff" },
-    { screen: "ingreso", icon: "📥", title: "Registrar ingreso", sub: "Entrada de dinero", color: "#1bb760" },
-    { screen: "gasto", icon: "📤", title: "Registrar gasto", sub: "Salida de dinero", color: "#b72c35" },
     { screen: "caja", icon: "💼", title: "Caja", sub: "Saldos del negocio", color: "#0a7d5a" }
   ];
 
@@ -60,7 +57,7 @@ export function createSimpleModule(context) {
         <div class="simple-kpis" id="simpleKpis">
           <div class="simple-kpi"><span>Ventas de hoy</span><b>…</b></div>
           <div class="simple-kpi"><span>Servicios (RTM) hoy</span><b>…</b></div>
-          <div class="simple-kpi"><span>Efectivo en caja</span><b>…</b></div>
+          <div class="simple-kpi"><span>Efectivo a entregar (hoy)</span><b>…</b></div>
         </div>
         <h3 class="simple-h">¿Qué quieres hacer?</h3>
         <div class="simple-tiles">
@@ -80,7 +77,6 @@ export function createSimpleModule(context) {
       cache.boxes = boxesRes?.boxes || [];
       const open = shiftRes?.shift && shiftRes.shift.status === "abierto" ? shiftRes.shift : null;
       const cl = dayRes?.closing || {};
-      const caja = cache.boxes.find((b) => b.code === "CAJA_MENOR");
       const shiftEl = $("simpleShift");
       if (shiftEl) {
         shiftEl.className = `simple-shift ${open ? "ok" : "off"}`;
@@ -90,7 +86,7 @@ export function createSimpleModule(context) {
       if (kpis) kpis.innerHTML = `
         <div class="simple-kpi"><span>Ventas de hoy</span><b>${money(cl.salesTotal || 0)}</b></div>
         <div class="simple-kpi"><span>Servicios (RTM) hoy</span><b>${(cl.rtmRealizadas || 0)}/${(cl.rtmFacturadas || 0)}</b></div>
-        <div class="simple-kpi"><span>Efectivo en caja menor</span><b>${money(caja?.balance || 0)}</b></div>`;
+        <div class="simple-kpi"><span>Efectivo a entregar (hoy)</span><b>${money(cl.efectivoEntregar || 0)}</b></div>`;
     } catch (e) { toast(e.message); }
   }
 

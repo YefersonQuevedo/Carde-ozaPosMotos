@@ -2,7 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { currentCompanyId } from "../tenant.js";
 import { computeClosing } from "../services/closing.js";
-import { gatherDay, gatherDayAudit, money, effectivePaymentsForSale, compactPaymentSummary } from "../services/dayAudit.js";
+import { gatherDay, gatherDayAudit, money, effectivePaymentsForSale, compactPaymentSummary, buildDispersionForSales, summarizeDispersion } from "../services/dayAudit.js";
 import { applyDailyDispersion } from "../services/dispersion.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
@@ -178,6 +178,48 @@ router.get("/detail", async (req, res, next) => {
       expenses: audit.expenseRows,
       fupas
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Stock de pines (FUPA) al inicio y fin de un RANGO de fechas.
+async function fupaStockForRange(from, to) {
+  const [movs, rtm] = await Promise.all([
+    prisma.fupaMovement.findMany({ select: { date: true, quantity: true } }),
+    prisma.sale.findMany({ where: { status: "activa", pinAdquirido: { gt: 0 } }, select: { saleDate: true } })
+  ]);
+  let inicio = 0, fin = 0;
+  for (const m of movs) { if (m.date < from) inicio += m.quantity; if (m.date <= to) fin += m.quantity; }
+  for (const s of rtm) { if (s.saleDate < from) inicio -= 1; if (s.saleDate <= to) fin -= 1; }
+  return { inicio, fin };
+}
+
+// GET /api/closings/range?from=&to= -> mismo resumen del cierre del dia pero para un
+// RANGO de fechas (lo usa el Consolidado): bloques INGRESOS/RESUMEN/EGRESOS/etc.
+router.get("/range", async (req, res, next) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = String(req.query.from || today);
+    const to = String(req.query.to || today);
+    const sales = await prisma.sale.findMany({ where: { saleDate: { gte: from, lte: to }, status: "activa" }, orderBy: [{ saleDate: "asc" }, { id: "asc" }] });
+    const ids = sales.map((s) => s.id);
+    const [payments, receivables, costs, dayExpenses] = await Promise.all([
+      ids.length ? prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [],
+      ids.length ? prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [],
+      ids.length ? prisma.saleCost.findMany({ where: { saleId: { in: ids } } }) : [],
+      prisma.expense.findMany({ where: { date: { gte: from, lte: to }, status: "activa" } })
+    ]);
+    const gastosRegistrados = dayExpenses.reduce((a, e) => a + e.amount, 0);
+    const closing = computeClosing({ sales, payments, receivables, gastos: gastosRegistrados });
+    closing.gastosRegistrados = gastosRegistrados;
+    const dispersion = summarizeDispersion(await buildDispersionForSales(sales, payments, costs));
+    const fupas = await fupaStockForRange(from, to);
+    const pendientes = sales
+      .filter((s) => s.rtmStatus === "pending")
+      .map((s) => ({ documento: s.clientDoc, provision: s.provisionAmount || s.total, bruto: s.total, placa: s.plate || "" }));
+    const expenses = dayExpenses.map((e) => ({ concepto: e.concept, valor: e.amount }));
+    res.json({ from, to, closing, fupas, dispersion, pendientes, expenses });
   } catch (e) {
     next(e);
   }
@@ -445,6 +487,7 @@ router.get("/report/export", async (req, res, next) => {
     const buf = await toWorkbook({
       sheets: [{
         name: "Consolidado", title: `Consolidado ${from} a ${to}`,
+        table: true,
         columns: [
           { header: "Dia", key: "fecha", width: 12 }, { header: "Ventas", key: "ventas", width: 14, money: true },
           { header: "Jasper", key: "jasper", width: 14, money: true }, { header: "Provision", key: "provision", width: 14, money: true },
@@ -485,11 +528,15 @@ async function buildConsolidadoDetalle(from, to) {
     const cli = clientByDoc[s.clientDoc] || {};
     const extraPhones = Array.isArray(cli.phones) ? cli.phones.filter(Boolean) : [];
     const telefonos = [cli.phone, ...extraPhones].filter(Boolean).join(" / ");
-    const summary = compactPaymentSummary(effectivePaymentsForSale(s, paymentsBySale[s.id] || []));
+    const eff = effectivePaymentsForSale(s, paymentsBySale[s.id] || []);
+    const summary = compactPaymentSummary(eff);
+    // Pagos individuales (para el export: una fila por método de pago).
+    const pagos = eff.filter((p) => money(p.effectiveAmount) > 0).map((p) => ({ metodo: p.methodName, valor: money(p.effectiveAmount) }));
     const dispersion = money(s.total) - money(cost.sicov) - money(cost.ivaSicov) - money(cost.recaudo)
       - money(cost.ivaRecaudo) - money(cost.ansv) - money(cost.costeTransaccion);
     return {
       id: s.id,
+      pagos,
       fecha: s.saleDate,
       factura: s.invoiceNumber || "",
       tipoDoc: cli.docType || "CC",
@@ -519,6 +566,29 @@ async function buildConsolidadoDetalle(from, to) {
   });
 }
 
+// Explota cada venta en UNA FILA POR METODO DE PAGO. La primera fila lleva todos los
+// datos de la venta; las filas extra solo el metodo+valor (lo demas vacio) para no
+// inflar los totales (el IVA, costos y total no se repiten).
+function explodeByPayment(rows) {
+  const out = [];
+  for (const r of rows) {
+    const pagos = (r.pagos && r.pagos.length) ? r.pagos : [{ metodo: "", valor: "" }];
+    pagos.forEach((p, i) => {
+      if (i === 0) {
+        out.push({ ...r, metodo: p.metodo, valorPago: p.valor });
+      } else {
+        out.push({
+          fecha: "", factura: "", tipoDoc: "", numDoc: "", cliente: "", telefonos: "", referidos: "",
+          placa: "", modelo: "", pin: "", total: "", deduccionesConvenios: "", sicov: "", ivaSicov: "",
+          recaudo: "", ivaRecaudo: "", fnsv: "", fupa: "", costeTransaccion: "", ivaFact: "", sustratos: "",
+          costosTotal: "", dispersion: "", observaciones: "", metodo: p.metodo, valorPago: p.valor
+        });
+      }
+    });
+  }
+  return out;
+}
+
 const consolidadoDetalleColumns = [
   { header: "FECHA", key: "fecha", width: 12 },
   { header: "FACT", key: "factura", width: 13 },
@@ -531,7 +601,8 @@ const consolidadoDetalleColumns = [
   { header: "MODELO", key: "modelo", width: 8 },
   { header: "N°PIN ADQUIRIDO", key: "pin", width: 22 },
   { header: "TOTAL", key: "total", width: 12, money: true },
-  { header: "METODO DE PAGO", key: "metodoPago", width: 24 },
+  { header: "METODO DE PAGO", key: "metodo", width: 22 },
+  { header: "VALOR PAGO", key: "valorPago", width: 14, money: true },
   { header: "DEDUCCIONES CONVENIOS", key: "deduccionesConvenios", width: 14, money: true },
   { header: "SICOV SERV HOM", key: "sicov", width: 12, money: true },
   { header: "IVA SICOV", key: "ivaSicov", width: 12, money: true },
@@ -572,16 +643,20 @@ router.get("/report/detail/export", async (req, res, next) => {
     const month = new Date().toISOString().slice(0, 7);
     const from = String(req.query.from || `${month}-01`);
     const to = String(req.query.to || `${month}-31`);
-    const rows = await buildConsolidadoDetalle(from, to);
-    const sum = (k) => rows.reduce((a, r) => a + money(r[k]), 0);
+    const baseRows = await buildConsolidadoDetalle(from, to);
+    // Totales SOBRE LAS VENTAS (no sobre las filas explotadas) para no inflar.
+    const sum = (k) => baseRows.reduce((a, r) => a + money(r[k]), 0);
+    const valorPagoTotal = baseRows.reduce((a, r) => a + (r.pagos || []).reduce((x, p) => x + money(p.valor), 0), 0);
+    const rows = explodeByPayment(baseRows); // una fila por método de pago
     const buf = await toWorkbook({
       sheets: [{
         name: "Consolidado detallado",
         title: `Consolidado venta por venta ${from} a ${to}`,
+        table: true,
         columns: consolidadoDetalleColumns,
         rows,
         totals: {
-          total: sum("total"), deduccionesConvenios: sum("deduccionesConvenios"),
+          total: sum("total"), valorPago: valorPagoTotal, deduccionesConvenios: sum("deduccionesConvenios"),
           sicov: sum("sicov"), ivaSicov: sum("ivaSicov"), recaudo: sum("recaudo"), ivaRecaudo: sum("ivaRecaudo"),
           fnsv: sum("fnsv"), fupa: sum("fupa"), costeTransaccion: sum("costeTransaccion"),
           ivaFact: sum("ivaFact"), sustratos: sum("sustratos"), costosTotal: sum("costosTotal"), dispersion: sum("dispersion")

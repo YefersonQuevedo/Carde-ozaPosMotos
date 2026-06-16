@@ -43,10 +43,13 @@ const simpleModule = createSimpleModule({ api, toast, go: switchView });
 const nominaModule = createNominaModule({ api, toast });
 const shiftsModule = createShiftsModule({ api, toast, onShiftChange: renderShiftBadge });
 
-// Indicador de turno en la barra superior (clic -> vista de turnos).
+// Indicador de turno en la barra superior. Turnos son AUTOMATICOS e invisibles:
+// el badge solo se muestra al admin (para los demas no existe el concepto de turno).
 function renderShiftBadge(shift) {
   const el = $("shiftBadge");
   if (!el) return;
+  const isAdmin = api.currentUser()?.role === "admin";
+  el.style.display = isAdmin ? "" : "none";
   if (shift && shift.status === "abierto") {
     el.textContent = `Turno #${shift.number} abierto`;
     el.className = "pill ok";
@@ -54,56 +57,22 @@ function renderShiftBadge(shift) {
     el.textContent = "Sin turno abierto";
     el.className = "pill danger";
   }
-  renderShiftNotice(shift);
 }
 
-// Aviso grande al abrir el programa sin turno abierto: muestra con cuanto cerro el
-// turno anterior (sugerencia de base) y abre el turno a nombre del usuario logueado.
-let shiftNoticeDismissed = false;
+// Turnos AUTOMATICOS: ya no se pide abrir turno (el backend lo abre solo al facturar),
+// asi que el aviso grande queda deshabilitado. Se conserva la funcion como no-op por si
+// algun flujo la invoca.
 let currentView = "venta";
-function renderShiftNotice(shift) {
+function renderShiftNotice() {
   const box = $("shiftNotice");
-  if (!box) return;
-  // El aviso de "abrir turno" solo aparece en la vista de Facturar (venta): es el unico
-  // sitio donde se necesita un turno abierto. En el resto de pantallas no estorba.
-  if (currentView !== "venta" || (shift && shift.status === "abierto") || shiftNoticeDismissed || !api.currentUser()) { box.innerHTML = ""; return; }
-  const last = shiftsModule.getCurrent()?.lastClosed || null;
-  const baseSugerida = last ? (last.countedCash ?? last.expectedCash ?? 0) : 0;
-  const user = api.currentUser();
-  box.innerHTML = `
-    <div class="card" style="border:2px solid #e67e22;background:#fff8f0;margin-bottom:14px">
-      <div class="card-head">
-        <h2>⚠️ No hay turno abierto</h2>
-        <button class="link" id="snLater">abrir más tarde ✕</button>
-      </div>
-      <div class="kpis">
-        ${last ? `
-        <div class="kpi"><span>Último turno</span><b>#${last.number} · ${esc(last.businessDate)}</b></div>
-        <div class="kpi"><span>Cerró con (efectivo contado)</span><b>${money(last.countedCash ?? last.expectedCash ?? 0)}</b></div>
-        <div class="kpi"><span>Cerró</span><b>${esc(last.closedBy || last.openedBy || "-")}</b></div>` : '<div class="kpi"><span>Historial</span><b>Sin turnos anteriores</b></div>'}
-        <div class="kpi"><span>Responsable (sesión)</span><b>${esc(user?.name || "")}</b></div>
-      </div>
-      <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap;align-items:end">
-        <label class="fld">Base inicial (efectivo)<input id="snOpenCash" inputmode="numeric" value="${baseSugerida || ""}" placeholder="$ con cuánto abre la caja" style="max-width:200px" /></label>
-        <button class="btn success" id="snOpenBtn">Abrir turno como ${esc(user?.name || "")}</button>
-      </div>
-      <p class="hint">La base sugerida es el efectivo con el que cerró el turno anterior. Sin turno abierto no se puede facturar.</p>
-    </div>`;
-  $("snLater").addEventListener("click", () => { shiftNoticeDismissed = true; box.innerHTML = ""; });
-  $("snOpenBtn").addEventListener("click", async () => {
-    try {
-      await api.openShift({ openingCash: readCop("snOpenCash"), openedBy: user?.name || "" });
-      toast("Turno abierto");
-      await shiftsModule.refresh();
-    } catch (e) { toast(e.message); }
-  });
+  if (box) box.innerHTML = "";
 }
 const callsModule = createCallsModule({ api, toast, switchView, loadClientDetail: clientsModule.loadClientDetail });
 
 const VIEW_TITLES = {
   dashboard: "Dashboard", venta: "Facturar (nueva venta)", turnos: "Turnos de caja", cierre: "Cierre del día", provisiones: "Provisiones",
-  consolidado: "Consolidado", cartera: "Cartera (por cobrar)", pagoconv: "Pagar comisiones a convenios", clientes: "Clientes",
-  llamadas: "Llamadas / vencimientos RTM", convenios: "Convenios / aliados", facturaelec: "Factura electronica",
+  consolidado: "Consolidado", cartera: "Cartera (por cobrar)", pagoconv: "Convenios", clientes: "Clientes",
+  llamadas: "Llamadas / vencimientos RTM", facturaelec: "Factura electronica",
   proveedores: "Proveedores", ventas: "Ventas hechas", usuarios: "Usuarios", gastos: "Gastos", fupa: "Pines / FUPA",
   dian: "Facturacion DIAN", config: "Configuracion", payables: "Tablero de caja", obligaciones: "Obligaciones / cuentas por pagar", ingresos: "Ingresos",
   simple: "Vista simple", nomina: "Nómina"
@@ -144,7 +113,6 @@ function switchView(view) {
   if (view === "cartera") receivablesModule.loadCartera();
   if (view === "pagoconv") alliesModule.loadPagoConv();
   if (view === "clientes") clientsModule.loadClientes();
-  if (view === "convenios") alliesModule.loadConvenios();
   if (view === "ventas") salesModule.loadVentas();
   if (view === "usuarios") usersModule.loadUsuarios();
   if (view === "dashboard") dashboardModule.renderDashboard($("dashboardRoot"));
@@ -239,8 +207,9 @@ async function startApp() {
   });
   $("exportVentas").addEventListener("click", salesModule.exportVentasUI);
 
-  $("allySearch").addEventListener("input", (e) => alliesModule.loadConvenios(e.target.value));
-  $("allyNew").addEventListener("click", () => alliesModule.renderAllyForm(null));
+  $("pcSearch").addEventListener("input", (e) => alliesModule.loadPagoConv(e.target.value));
+  $("pcNew").addEventListener("click", () => alliesModule.newAlly());
+  $("pcBulkApply").addEventListener("click", () => alliesModule.applyBulkCommission());
   $("clientListSearch").addEventListener("input", (e) => clientsModule.loadClientes(e.target.value));
   $("clientDirRef").addEventListener("click", callsModule.loadDirectoReferido);
   $("clientNew").addEventListener("click", clientsModule.renderNewClientForm);
