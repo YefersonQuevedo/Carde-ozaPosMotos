@@ -5,24 +5,11 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&am
 export const readCop = (id) => Math.round(Number(String($(id)?.value || "").replace(/[^\d]/g, "")) || 0);
 export const MOTO_PLATE_RE = /^[A-Z]{3}\d{2}[A-Z]$/;
 export const PIN_RE = /^\d{19,20}$/; // SICOV: 19 o 20 digitos (el instructivo dice 20)
-// Descarga un Blob (export a Excel). Si el navegador lo soporta (Chrome/Edge),
-// abre el dialogo "Guardar como" para elegir la carpeta; si no, descarga normal.
-export async function downloadBlob(blob, filename) {
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: filename,
-        types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
-      });
-      const w = await handle.createWritable();
-      await w.write(blob);
-      await w.close();
-      return;
-    } catch (e) {
-      if (e && e.name === "AbortError") return; // el usuario cancelo el dialogo
-      // Otro error (p.ej. gesto expirado): cae a la descarga clasica.
-    }
-  }
+// Descarga un Blob (export a Excel) como una descarga normal del navegador: así
+// aparece en la barra de descargas de Chrome/Edge con la opción "Abrir archivo"
+// (no usamos el diálogo "Guardar como" porque ese guarda el archivo sin registrarlo
+// como descarga, y el usuario tenía que abrir la carpeta a mano).
+export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename;
