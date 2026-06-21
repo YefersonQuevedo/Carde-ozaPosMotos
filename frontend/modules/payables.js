@@ -46,7 +46,7 @@ export function createPayablesModule(context) {
         <p class="hint">La caja menor recibe el efectivo de los cierres del día y los retiros del banco; de ahí salen los pagos a Supergiros (Jasper) y los gastos.</p>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Cierre del día — turnos y dispersión</h2>
+        <div class="card-head"><h2>Cierre del día y dispersión</h2>
           <div class="row">
             <input type="date" id="dcDate" value="${todayIso()}" />
             <button class="btn primary" id="dcLoad">Ver</button>
@@ -116,8 +116,8 @@ export function createPayablesModule(context) {
     await loadPayables();
   }
 
-  // Consolidado de los turnos del día + estado de la dispersión (cuadre con Jasper).
-  // Aquí se cierra el día: el efectivo entra a caja menor y el Jasper queda por pagar.
+  // Estado de la dispersión del día. Aquí se cierra el día: el efectivo entra a caja
+  // menor y el Jasper queda por pagar (los turnos son automáticos e invisibles).
   async function loadDayClose() {
     const box = $("dcBody");
     if (!box) return;
@@ -125,35 +125,8 @@ export function createPayablesModule(context) {
     try {
       const d = await api.closingDay(date);
       const c = d.closing || {};
-      const shifts = d.shifts || [];
-      const cerrados = shifts.filter((s) => s.status === "cerrado");
-      const abiertos = shifts.filter((s) => s.status === "abierto");
-      const sum = (k) => cerrados.reduce((a, s) => a + (s[k] || 0), 0);
-      const tEsperado = sum("expectedCash"), tContado = cerrados.reduce((a, s) => a + (s.countedCash ?? 0), 0),
-        tDiff = sum("cashDiff"), tVentas = sum("salesTotal"), tJasper = sum("jasper");
-
-      const rows = shifts.map((s) => `<tr>
-        <td><b>#${s.number}</b></td>
-        <td><span class="pill ${s.status === "abierto" ? "warn" : "ok"}">${esc(s.status)}</span></td>
-        <td>${esc(s.openedBy || "")}</td>
-        <td class="r">${money(s.expectedCash)}</td>
-        <td class="r">${s.countedCash == null ? "-" : money(s.countedCash)}</td>
-        <td class="r">${s.status === "cerrado" ? `<b class="${s.cashDiff < 0 ? "neg" : ""}">${money(s.cashDiff)}</b>` : "-"}</td>
-        <td class="r">${money(s.salesTotal)}</td>
-        <td class="r">${money(s.jasper)}</td>
-        <td><button class="link" data-dcshift="${s.id}" data-num="${s.number}">ver ventas ▸</button></td>
-      </tr>`).join("");
-
-      // Cuadre: la suma de los turnos cerrados debe dar el consolidado del día.
-      // Si no cuadra (ventas editadas, turno sin cerrar) se avisa para revisar el detalle.
       const jasperDia = Math.round(c.jasper || 0);
       const efectivoDia = Math.round(c.efectivoEntregar || 0);
-      const cuadraJasper = tJasper === jasperDia && abiertos.length === 0;
-      const cuadre = abiertos.length
-        ? `<span class="pill warn">Hay ${abiertos.length} turno(s) abierto(s): ciérralos para cuadrar</span>`
-        : cuadraJasper
-          ? `<span class="pill ok">✓ Cuadra: suma de turnos = consolidado del día</span>`
-          : `<span class="pill danger">⚠ No cuadra: turnos Jasper ${money(tJasper)} vs día ${money(jasperDia)} — revisa el detalle del consolidado</span>`;
 
       // Estado de la dispersión del día.
       let estado;
@@ -173,26 +146,16 @@ export function createPayablesModule(context) {
           <div class="kpi"><span>Jasper (deuda Supergiros)</span><b>${money(jasperDia)}</b></div>
           <div class="kpi"><span>Provisión</span><b>${money(c.provision || 0)}</b></div>
         </div>
-        <div style="overflow-x:auto"><table class="data"><thead><tr><th>Turno</th><th>Estado</th><th>Abrió</th><th class="r">Esperado</th><th class="r">Contado</th><th class="r">Dif.</th><th class="r">Ventas</th><th class="r">Jasper</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td class="hint" colspan="9">Sin turnos este día</td></tr>'}</tbody>
-        ${cerrados.length ? `<tfoot><tr><td colspan="3"><b>Total turnos cerrados</b></td><td class="r"><b>${money(tEsperado)}</b></td><td class="r"><b>${money(tContado)}</b></td><td class="r"><b class="${tDiff < 0 ? "neg" : ""}">${money(tDiff)}</b></td><td class="r"><b>${money(tVentas)}</b></td><td class="r"><b>${money(tJasper)}</b></td><td></td></tr></tfoot>` : ""}
-        </table></div>
-        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${cuadre} ${estado}</div>
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${estado}</div>
         <div class="row form-actions" style="margin-top:10px">
           <button class="btn ${d.snapshot ? "" : "success"}" id="dcClose">${d.snapshot ? "Re-cerrar día (actualizar dispersión)" : "Cerrar día y dispersar"}</button>
-        </div>
-        <div id="dcShiftSales"></div>`;
+        </div>`;
 
-      $("dcClose").addEventListener("click", () => closeDayUI(date, abiertos.length));
-      box.querySelectorAll("[data-dcshift]").forEach((b) => b.addEventListener("click", () => loadShiftSales(Number(b.dataset.dcshift), b.dataset.num, "dcShiftSales")));
+      $("dcClose").addEventListener("click", () => closeDayUI(date));
     } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
   }
 
-  async function closeDayUI(date, openCount) {
-    if (openCount > 0 && !(await confirmDialog(
-      `Hay ${openCount} turno(s) abierto(s). Las ventas que entren después NO quedarán en esta dispersión (tocaría re-cerrar el día).\n\n¿Cerrar el día igual?`,
-      { title: "Turnos sin cerrar", okText: "Cerrar igual", danger: true }
-    ))) return;
+  async function closeDayUI(date) {
     if (!(await confirmDialog(
       `El efectivo a entregar entra a caja menor y el Jasper queda como deuda con Supergiros.`,
       { title: `¿Cerrar y dispersar el día ${date}?`, okText: "Cerrar y dispersar" }
@@ -233,44 +196,14 @@ export function createPayablesModule(context) {
     } catch (e) { toast(e.message); }
   }
 
-  // Drill-down: día (cuenta por pagar de dispersión) → turnos del día.
-  async function loadDayTurnos(date) {
+  // Drill-down: día (cuenta por pagar de dispersión) → ventas del día.
+  async function loadDaySales(date) {
     const box = $("pyDrill");
     if (!box) return;
-    box.innerHTML = `<p class="hint">Cargando turnos del ${esc(date)}…</p>`;
-    try {
-      const { items } = await api.shifts({ from: date, to: date });
-      const rows = items.map((s) => `<tr>
-        <td><b>#${s.number}</b></td>
-        <td><span class="pill ${s.status === "abierto" ? "ok" : ""}">${esc(s.status)}</span></td>
-        <td>${esc(s.openedBy || "")}</td>
-        <td class="r">${money(s.expectedCash)}</td>
-        <td class="r">${s.countedCash == null ? "-" : money(s.countedCash)}</td>
-        <td class="r">${s.status === "cerrado" ? money(s.cashDiff) : "-"}</td>
-        <td class="r">${money(s.salesTotal)}</td>
-        <td class="r">${money(s.jasper)}</td>
-        <td><button class="btn ghost sm" data-shift="${s.id}" data-num="${s.number}">ver ventas ▸</button></td>
-      </tr>`).join("");
-      box.innerHTML = `
-        <div class="card" style="background:#f7f9fc;border:1px solid #e6ebf2">
-          <div class="card-head"><h3>Turnos del día ${esc(date)}</h3><button class="link" id="pyDrillClose">cerrar ✕</button></div>
-          <div style="overflow-x:auto"><table class="data"><thead><tr><th>Turno</th><th>Estado</th><th>Abrió</th><th class="r">Esperado</th><th class="r">Contado</th><th class="r">Dif.</th><th class="r">Ventas</th><th class="r">Jasper</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td class="hint" colspan="9">Sin turnos ese día</td></tr>'}</tbody></table></div>
-          <div id="pyShiftSales"></div>
-        </div>`;
-      $("pyDrillClose").addEventListener("click", () => { box.innerHTML = ""; });
-      box.querySelectorAll("[data-shift]").forEach((b) => b.addEventListener("click", () => loadShiftSales(Number(b.dataset.shift), b.dataset.num)));
-    } catch (e) { toast(e.message); }
-  }
-
-  // Drill-down: turno → todas sus ventas (con link a editar para corregir).
-  async function loadShiftSales(shiftId, num, targetId = "pyShiftSales") {
-    const box = $(targetId);
-    if (!box) return;
-    box.innerHTML = `<p class="hint">Cargando ventas del turno #${esc(num)}…</p>`;
+    box.innerHTML = `<p class="hint">Cargando ventas del ${esc(date)}…</p>`;
     const isAdmin = api.currentUser()?.role === "admin";
     try {
-      const items = await api.listSales({ shiftId });
+      const items = await api.listSales({ date });
       const rows = items.map((s) => `<tr>
         <td>${esc(s.saleNumber)}</td><td>${esc(s.invoiceNumber || "-")}</td>
         <td>${esc(s.clientName)}</td><td>${esc(s.plate || "")}</td>
@@ -281,9 +214,13 @@ export function createPayablesModule(context) {
         <td>${isAdmin && editSale && s.status !== "anulada" ? `<button class="link" data-editsale="${s.id}">editar</button>` : ""}</td>
       </tr>`).join("");
       const tot = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.total, 0);
-      box.innerHTML = `<h4 style="margin:12px 0 6px">Ventas del turno #${esc(num)} (${items.length}) · Total ${money(tot)}</h4>
-        <div style="overflow-x:auto"><table class="data"><thead><tr><th>Venta</th><th>Factura</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th>RTM</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td class="hint" colspan="9">Sin ventas en este turno</td></tr>'}</tbody></table></div>`;
+      box.innerHTML = `
+        <div class="card" style="background:#f7f9fc;border:1px solid #e6ebf2">
+          <div class="card-head"><h3>Ventas del día ${esc(date)} (${items.length}) · Total ${money(tot)}</h3><button class="link" id="pyDrillClose">cerrar ✕</button></div>
+          <div style="overflow-x:auto"><table class="data"><thead><tr><th>Venta</th><th>Factura</th><th>Cliente</th><th>Placa</th><th>Tipo</th><th>RTM</th><th class="r">Total</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td class="hint" colspan="9">Sin ventas ese día</td></tr>'}</tbody></table></div>
+        </div>`;
+      $("pyDrillClose").addEventListener("click", () => { box.innerHTML = ""; });
       if (isAdmin && editSale) box.querySelectorAll("[data-editsale]").forEach((b) => b.addEventListener("click", () => editSale(Number(b.dataset.editsale))));
     } catch (e) { toast(e.message); }
   }
@@ -367,10 +304,10 @@ export function createPayablesModule(context) {
       $("pyTotals").textContent = `Pendiente ${money(totals.pending)} · Total ${money(totals.total)} · Pagado ${money(totals.paid)}`;
       $("pyBody").innerHTML = `<table class="data"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Naturaleza</th><th>Frec.</th><th>Vence</th><th>Estado</th><th class="r">Total</th><th class="r">Pendiente</th><th></th></tr></thead><tbody>${
         items.map((p) => {
-          // Las cuentas de dispersión (por día) se pueden abrir para ver sus turnos y ventas.
+          // Las cuentas de dispersión (por día) se pueden abrir para ver sus ventas.
           const drill = p.dueDate && (p.category === "dispersion" || p.refType === "closing");
           const concepto = drill
-            ? `<button class="link" data-day="${esc(p.dueDate)}" style="font-weight:700">${esc(p.concept)}</button> <span class="hint">▾ turnos</span>`
+            ? `<button class="link" data-day="${esc(p.dueDate)}" style="font-weight:700">${esc(p.concept)}</button> <span class="hint">▾ ventas</span>`
             : `<b>${esc(p.concept)}</b>`;
           return `<tr>
           <td>${concepto}${p.refType === "closing" ? ' <span class="pill">auto</span>' : ""}</td><td>${esc(p.creditor || "")}</td><td>${esc(p.category || "")}</td>
@@ -383,7 +320,7 @@ export function createPayablesModule(context) {
       $("pyBody").querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.pay))));
       $("pyBody").querySelectorAll("[data-abonos]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.abonos))));
       $("pyBody").querySelectorAll("[data-delpay]").forEach((b) => b.addEventListener("click", () => delPayableUI(Number(b.dataset.delpay))));
-      $("pyBody").querySelectorAll("[data-day]").forEach((b) => b.addEventListener("click", () => loadDayTurnos(b.dataset.day)));
+      $("pyBody").querySelectorAll("[data-day]").forEach((b) => b.addEventListener("click", () => loadDaySales(b.dataset.day)));
     } catch (e) { toast(e.message); }
   }
 
