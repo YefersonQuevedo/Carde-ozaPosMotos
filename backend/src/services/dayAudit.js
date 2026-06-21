@@ -2,6 +2,8 @@ import { prisma } from "../db.js";
 import { computeClosing } from "./closing.js";
 
 export const money = (v) => Math.round(Number(v) || 0);
+// Costos/dispersion: 3 decimales (no se redondean a peso entero).
+export const dec3 = (v) => Math.round((Number(v) || 0) * 1000) / 1000;
 
 export function paymentBucket(payment = {}) {
   const raw = `${payment.groupCode || ""} ${payment.methodCode || ""} ${payment.methodName || ""}`.toUpperCase();
@@ -43,12 +45,12 @@ export function splitCostsByPayment(sale, cost, effectivePayments = []) {
       metodoCodigo: p.methodCode,
       grupo: p.bucket,
       recaudoBruto: p.effectiveAmount,
-      costoTransaccion: money(p.costAmount) + money(p.costTax),
-      netoEstimado: p.effectiveAmount - (money(p.costAmount) + money(p.costTax))
+      costoTransaccion: dec3((Number(p.costAmount) || 0) + (Number(p.costTax) || 0)),
+      netoEstimado: 0
     };
-    for (const key of fixedCostKeys) row[key] = money((cost?.[key] || 0) * ratio);
-    row.deduccionesOperativas = fixedCostKeys.reduce((a, key) => a + money(row[key]), 0) + row.costoTransaccion;
-    row.netoEstimado = row.recaudoBruto - row.deduccionesOperativas;
+    for (const key of fixedCostKeys) row[key] = dec3((cost?.[key] || 0) * ratio);
+    row.deduccionesOperativas = dec3(fixedCostKeys.reduce((a, key) => a + (Number(row[key]) || 0), 0) + row.costoTransaccion);
+    row.netoEstimado = dec3(row.recaudoBruto - row.deduccionesOperativas);
     return row;
   });
 }
@@ -97,14 +99,49 @@ export function summarizeDispersion(dispersionRows = []) {
   }, {}));
 }
 
-export async function gatherDay(date, gastosManual = 0) {
-  const sales = await prisma.sale.findMany({ where: { saleDate: date, status: "activa" } });
-  const ids = sales.map((s) => s.id);
-  const payments = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
-  const receivables = ids.length ? await prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [];
+// Filtro por METODOS DE PAGO (prorrateo). Si methodCodes es null/vacio devuelve todo
+// sin tocar. Si trae codigos: incluye solo ventas con al menos un pago de esos metodos;
+// `salesScaled` lleva los montos prorrateados (para los KPIs/resumen) y `sales` lleva
+// las ventas originales (para la dispersion, que necesita el total real para repartir
+// los costos) + solo los pagos de los metodos elegidos.
+export function filterByMethods(sales = [], payments = [], receivables = [], methodCodes = null) {
+  if (!methodCodes || !methodCodes.length) return { sales, salesScaled: sales, payments, receivables };
+  const set = new Set(methodCodes);
+  const bySale = {};
+  for (const p of payments) (bySale[p.saleId] ||= []).push(p);
+  const kept = [], scaled = [], keptPayments = [], keepIds = new Set();
+  for (const s of sales) {
+    const ps = bySale[s.id] || [];
+    const eff = effectivePaymentsForSale(s, ps);
+    const totalEff = eff.reduce((a, p) => a + p.effectiveAmount, 0);
+    const selEff = eff.filter((p) => set.has(p.methodCode)).reduce((a, p) => a + p.effectiveAmount, 0);
+    const ratio = totalEff > 0 ? selEff / totalEff : 0;
+    if (ratio <= 0) continue;
+    keepIds.add(s.id);
+    kept.push(s);
+    scaled.push({
+      ...s,
+      total: Math.round((s.total || 0) * ratio),
+      totalBase: Math.round((s.totalBase || 0) * ratio),
+      totalIva: Math.round((s.totalIva || 0) * ratio),
+      provisionAmount: Math.round((s.provisionAmount || 0) * ratio),
+      deduction: Math.round((s.deduction || 0) * ratio)
+    });
+    for (const p of ps) if (set.has(p.methodCode)) keptPayments.push(p);
+  }
+  return { sales: kept, salesScaled: scaled, payments: keptPayments, receivables: receivables.filter((r) => keepIds.has(r.saleId)) };
+}
+
+export async function gatherDay(date, gastosManual = 0, methodCodes = null) {
+  const salesAll = await prisma.sale.findMany({ where: { saleDate: date, status: "activa" } });
+  const idsAll = salesAll.map((s) => s.id);
+  const paymentsAll = idsAll.length ? await prisma.salePayment.findMany({ where: { saleId: { in: idsAll } } }) : [];
+  const receivablesAll = idsAll.length ? await prisma.receivable.findMany({ where: { saleId: { in: idsAll } } }) : [];
+  const { sales, salesScaled, payments, receivables } = filterByMethods(salesAll, paymentsAll, receivablesAll, methodCodes);
   const dayExpenses = await prisma.expense.findMany({ where: { date, status: "activa" } });
   const gastosRegistrados = dayExpenses.reduce((a, e) => a + e.amount, 0);
-  const closing = computeClosing({ sales, payments, receivables, gastos: gastosRegistrados + Number(gastosManual || 0) });
+  // KPIs/resumen: ventas prorrateadas. Dispersion/detalle: ventas originales (`sales`).
+  const closing = computeClosing({ sales: salesScaled, payments, receivables, gastos: gastosRegistrados + Number(gastosManual || 0) });
   closing.gastosRegistrados = gastosRegistrados;
   closing.gastosManual = Number(gastosManual || 0);
   return { sales, payments, receivables, closing, expenses: dayExpenses };
@@ -127,8 +164,8 @@ export async function buildDispersionForSales(sales = [], payments = [], costs =
   return sales.flatMap((s) => splitCostsByPayment(s, costBySale[s.id] || {}, effectivePaymentsForSale(s, paymentsBySale[s.id] || [])));
 }
 
-export async function gatherDayAudit(date, gastosManual = 0) {
-  const day = await gatherDay(date, gastosManual);
+export async function gatherDayAudit(date, gastosManual = 0, methodCodes = null) {
+  const day = await gatherDay(date, gastosManual, methodCodes);
   const ids = day.sales.map((s) => s.id);
   const [lines, costs, movements] = await Promise.all([
     ids.length ? prisma.saleLine.findMany({ where: { saleId: { in: ids } }, orderBy: { id: "asc" } }) : [],
@@ -189,17 +226,17 @@ export async function gatherDayAudit(date, gastosManual = 0) {
       iva: money(s.totalIva),
       pagado: money(s.paidAmount),
       cambio: money(s.changeAmount),
-      sicov: money(cost.sicov),
-      ivaSicov: money(cost.ivaSicov),
-      recaudo: money(cost.recaudo),
-      ivaRecaudo: money(cost.ivaRecaudo),
-      ansv: money(cost.ansv),
-      fupa: money(cost.fupa),
-      sustratos: money(cost.sustratos),
-      ivaFacturacion: money(cost.ivaFact),
-      costeTransaccion: money(cost.costeTransaccion),
-      costosTotal: money(cost.costosTotal),
-      utilidadOperacion: money(s.total) - money(cost.costosTotal) - money(s.deduction),
+      sicov: dec3(cost.sicov),
+      ivaSicov: dec3(cost.ivaSicov),
+      recaudo: dec3(cost.recaudo),
+      ivaRecaudo: dec3(cost.ivaRecaudo),
+      ansv: dec3(cost.ansv),
+      fupa: dec3(cost.fupa),
+      sustratos: dec3(cost.sustratos),
+      ivaFacturacion: dec3(cost.ivaFact),
+      costeTransaccion: dec3(cost.costeTransaccion),
+      costosTotal: dec3(cost.costosTotal),
+      utilidadOperacion: dec3(money(s.total) - (Number(cost.costosTotal) || 0) - money(s.deduction)),
       carteraProveedor: saleReceivables.map((r) => r.provider).join(" | "),
       carteraFactura: saleReceivables.map((r) => r.invoiceNumber || s.invoiceNumber || "").filter(Boolean).join(" | "),
       observaciones: s.observaciones || "",
@@ -218,8 +255,8 @@ export async function gatherDayAudit(date, gastosManual = 0) {
         valorIngresado: money(p.amount),
         valorEfectivoVenta: money(p.effectiveAmount),
         vuelto: String(p.methodCode || "").toUpperCase() === "EFECTIVO" ? money(s.changeAmount) : 0,
-        costoMetodo: money(p.costAmount),
-        ivaCostoMetodo: money(p.costTax)
+        costoMetodo: dec3(p.costAmount),
+        ivaCostoMetodo: dec3(p.costTax)
       });
     }
     dispersionRows.push(...splitCostsByPayment(s, cost, salePayments));

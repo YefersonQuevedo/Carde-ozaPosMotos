@@ -2,18 +2,21 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { currentCompanyId } from "../tenant.js";
 import { computeClosing } from "../services/closing.js";
-import { gatherDay, gatherDayAudit, money, dec3, effectivePaymentsForSale, compactPaymentSummary, buildDispersionForSales, summarizeDispersion } from "../services/dayAudit.js";
+import { gatherDay, gatherDayAudit, money, dec3, effectivePaymentsForSale, compactPaymentSummary, buildDispersionForSales, summarizeDispersion, filterByMethods } from "../services/dayAudit.js";
 import { applyDailyDispersion } from "../services/dispersion.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
 
-// GET /api/closings?date=YYYY-MM-DD  -> calcula el cierre al vuelo.
+// Lista de methodCodes del filtro de medios de pago (query ?methods=A,B,C). null = todos.
+const parseMethods = (req) => (req.query.methods ? String(req.query.methods).split(",").map((s) => s.trim()).filter(Boolean) : null);
+
+// GET /api/closings?date=YYYY-MM-DD&methods=A,B  -> calcula el cierre al vuelo.
 router.get("/", async (req, res, next) => {
   try {
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
     const gastos = Number(req.query.gastos) || 0;
-    const { sales, closing } = await gatherDay(date, gastos);
+    const { sales, closing } = await gatherDay(date, gastos, parseMethods(req));
     res.json({ date, closing, detail: sales });
   } catch (e) {
     next(e);
@@ -166,7 +169,7 @@ router.get("/detail", async (req, res, next) => {
   try {
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
     const gastos = Number(req.query.gastos) || 0;
-    const [audit, fupas] = await Promise.all([gatherDayAudit(date, gastos), fupaStockForDay(date)]);
+    const [audit, fupas] = await Promise.all([gatherDayAudit(date, gastos, parseMethods(req)), fupaStockForDay(date)]);
     res.json({
       date,
       closing: audit.closing,
@@ -202,16 +205,18 @@ router.get("/range", async (req, res, next) => {
     const today = new Date().toISOString().slice(0, 10);
     const from = String(req.query.from || today);
     const to = String(req.query.to || today);
-    const sales = await prisma.sale.findMany({ where: { saleDate: { gte: from, lte: to }, status: "activa" }, orderBy: [{ saleDate: "asc" }, { id: "asc" }] });
-    const ids = sales.map((s) => s.id);
-    const [payments, receivables, costs, dayExpenses] = await Promise.all([
-      ids.length ? prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [],
-      ids.length ? prisma.receivable.findMany({ where: { saleId: { in: ids } } }) : [],
-      ids.length ? prisma.saleCost.findMany({ where: { saleId: { in: ids } } }) : [],
+    const salesAll = await prisma.sale.findMany({ where: { saleDate: { gte: from, lte: to }, status: "activa" }, orderBy: [{ saleDate: "asc" }, { id: "asc" }] });
+    const idsAll = salesAll.map((s) => s.id);
+    const [paymentsAll, receivablesAll, costs, dayExpenses] = await Promise.all([
+      idsAll.length ? prisma.salePayment.findMany({ where: { saleId: { in: idsAll } } }) : [],
+      idsAll.length ? prisma.receivable.findMany({ where: { saleId: { in: idsAll } } }) : [],
+      idsAll.length ? prisma.saleCost.findMany({ where: { saleId: { in: idsAll } } }) : [],
       prisma.expense.findMany({ where: { date: { gte: from, lte: to }, status: "activa" } })
     ]);
+    // KPIs con ventas prorrateadas; dispersion/pendientes con ventas originales filtradas.
+    const { sales, salesScaled, payments, receivables } = filterByMethods(salesAll, paymentsAll, receivablesAll, parseMethods(req));
     const gastosRegistrados = dayExpenses.reduce((a, e) => a + e.amount, 0);
-    const closing = computeClosing({ sales, payments, receivables, gastos: gastosRegistrados });
+    const closing = computeClosing({ sales: salesScaled, payments, receivables, gastos: gastosRegistrados });
     closing.gastosRegistrados = gastosRegistrados;
     const dispersion = summarizeDispersion(await buildDispersionForSales(sales, payments, costs));
     const fupas = await fupaStockForRange(from, to);
@@ -514,7 +519,7 @@ router.get("/report/export", async (req, res, next) => {
 // Planilla venta por venta en el formato del Excel del cliente (consolidado detallado).
 // Dispersion = total − (sicov + ivaSicov + recaudo + ivaRecaudo + FNSV + coste transaccion):
 // lo que Supergiros le devuelve al CDA; FUPA, sustratos e IVA de factura no restan ahi.
-async function buildConsolidadoDetalle(from, to) {
+async function buildConsolidadoDetalle(from, to, methodCodes = null) {
   const sales = await prisma.sale.findMany({
     where: { saleDate: { gte: from, lte: to }, status: "activa" },
     orderBy: [{ saleDate: "asc" }, { saleNumber: "asc" }]
@@ -531,7 +536,15 @@ async function buildConsolidadoDetalle(from, to) {
   const costBySale = Object.fromEntries(costs.map((c) => [c.saleId, c]));
   const clientByDoc = Object.fromEntries(clients.map((c) => [c.docNumber, c]));
 
-  return sales.map((s) => {
+  // Filtro por medios de pago: deja las transacciones que usaron alguno de los metodos
+  // elegidos (fila completa; el dinero prorrateado se ve en los bloques de resumen).
+  let salesList = sales;
+  if (methodCodes && methodCodes.length) {
+    const set = new Set(methodCodes);
+    salesList = sales.filter((s) => effectivePaymentsForSale(s, paymentsBySale[s.id] || []).some((p) => set.has(p.methodCode) && money(p.effectiveAmount) > 0));
+  }
+
+  return salesList.map((s) => {
     const cost = costBySale[s.id] || {};
     const cli = clientByDoc[s.clientDoc] || {};
     const extraPhones = Array.isArray(cli.phones) ? cli.phones.filter(Boolean) : [];
@@ -635,7 +648,7 @@ router.get("/report/detail", async (req, res, next) => {
     const month = new Date().toISOString().slice(0, 7);
     const from = String(req.query.from || `${month}-01`);
     const to = String(req.query.to || `${month}-31`);
-    const rows = await buildConsolidadoDetalle(from, to);
+    const rows = await buildConsolidadoDetalle(from, to, parseMethods(req));
     const sum = (k) => rows.reduce((a, r) => a + money(r[k]), 0);
     res.json({
       from, to, rows,
