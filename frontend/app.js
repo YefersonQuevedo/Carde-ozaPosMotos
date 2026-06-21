@@ -107,7 +107,6 @@ function switchView(view) {
   renderShiftNotice(shiftsModule.getCurrent()?.shift ?? null);
 
   if (view === "venta") { saleModule.render(); shiftsModule.refresh(); }
-  if (view === "turnos") shiftsModule.renderShifts($("shiftsRoot"));
   if (view === "cierre") reportsModule.loadClosing();
   if (view === "consolidado") reportsModule.loadReport();
   if (view === "cartera") receivablesModule.loadCartera();
@@ -185,7 +184,6 @@ async function startApp() {
     const t = e.target.closest(".tab");
     if (t?.dataset.view) switchView(t.dataset.view);
   });
-  $("shiftBadge").addEventListener("click", () => switchView("turnos"));
   shiftsModule.refresh();
 
   $("loadClosing").addEventListener("click", reportsModule.loadClosing);

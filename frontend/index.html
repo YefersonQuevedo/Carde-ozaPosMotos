@@ -52,7 +52,6 @@
           <div class="nav-sec">Operación del día</div>
           <button class="tab active" data-view="venta"><span class="ico">🧾</span> Facturar</button>
           <button class="tab" data-view="ventas"><span class="ico">📁</span> Ventas hechas</button>
-          <button class="tab admin-only" data-view="turnos"><span class="ico">🕐</span> Turnos</button>
           <button class="tab" data-view="cierre"><span class="ico">📊</span> Cierre del día</button>
 
           <div class="nav-sec">Dinero</div>
@@ -99,13 +98,9 @@
             <h1 id="pageTitle">Facturar</h1>
           </div>
           <div class="row" style="gap:12px;align-items:center">
-            <span id="shiftBadge" class="pill" style="cursor:pointer" title="Ir a turnos"></span>
             <div class="topbar-meta" id="topbarMeta"></div>
           </div>
         </header>
-
-        <!-- Aviso de turno sin abrir (se llena desde app.js al iniciar sesion) -->
-        <div id="shiftNotice"></div>
 
         <!-- VISTA SIMPLE (modo secretaria, en evaluacion) -->
         <section class="view" id="view-simple">
@@ -123,11 +118,6 @@
             <div class="wizard" id="wizard"></div>
             <aside class="summary" id="summary"></aside>
           </div>
-        </section>
-
-        <!-- TURNOS -->
-        <section class="view" id="view-turnos">
-          <div id="shiftsRoot"></div>
         </section>
 
         <!-- CIERRE -->

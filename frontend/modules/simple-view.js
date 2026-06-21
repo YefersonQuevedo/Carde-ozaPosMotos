@@ -26,7 +26,7 @@ export function createSimpleModule(context) {
 
   function show(screen) {
     if (!root) return;
-    const screens = { home: scrHome, ventas: scrVentas, turno: scrTurno, ingreso: scrIngreso, gasto: scrGasto, caja: scrCaja, clientes: scrClientes, llamadas: scrLlamadas };
+    const screens = { home: scrHome, ventas: scrVentas, ingreso: scrIngreso, gasto: scrGasto, caja: scrCaja, clientes: scrClientes, llamadas: scrLlamadas };
     if (screen === "facturar") { go("venta"); return; } // usa el asistente real (ya es guiado)
     (screens[screen] || scrHome)();
   }
@@ -52,7 +52,6 @@ export function createSimpleModule(context) {
             <div class="simple-hello">Hola${user?.name ? ", " + esc(user.name.split(" ")[0]) : ""} 👋</div>
             <div class="simple-date">${esc(fecha)}</div>
           </div>
-          <div id="simpleShift" class="simple-shift">…</div>
         </div>
         <div class="simple-kpis" id="simpleKpis">
           <div class="simple-kpi"><span>Ventas de hoy</span><b>…</b></div>
@@ -69,19 +68,12 @@ export function createSimpleModule(context) {
       </div>`;
     root.querySelectorAll("[data-screen]").forEach((b) => b.addEventListener("click", () => show(b.dataset.screen)));
     try {
-      const [shiftRes, dayRes, boxesRes] = await Promise.all([
-        api.currentShift().catch(() => ({ shift: null })),
+      const [dayRes, boxesRes] = await Promise.all([
         api.closingDay(today).catch(() => ({ closing: {} })),
         api.cashBoxes().catch(() => ({ boxes: [] }))
       ]);
       cache.boxes = boxesRes?.boxes || [];
-      const open = shiftRes?.shift && shiftRes.shift.status === "abierto" ? shiftRes.shift : null;
       const cl = dayRes?.closing || {};
-      const shiftEl = $("simpleShift");
-      if (shiftEl) {
-        shiftEl.className = `simple-shift ${open ? "ok" : "off"}`;
-        shiftEl.innerHTML = open ? `<span class="dot"></span> Turno #${open.number} ABIERTO` : `<span class="dot"></span> Sin turno abierto`;
-      }
       const kpis = $("simpleKpis");
       if (kpis) kpis.innerHTML = `
         <div class="simple-kpi"><span>Ventas de hoy</span><b>${money(cl.salesTotal || 0)}</b></div>
@@ -112,54 +104,6 @@ export function createSimpleModule(context) {
             <td class="r"><b>${money(s.total)}</b></td></tr>`).join("") || '<tr><td class="hint" colspan="5">Aún no hay ventas hoy</td></tr>'
         }</tbody></table>`;
     } catch (e) { $("spVentasBody").innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
-  }
-
-  // ---------- TURNO (abrir / cerrar) ----------
-  async function scrTurno() {
-    root.innerHTML = `${header("Turno de caja")}<div class="simple-card"><div id="spTurnoBody"><p class="hint">Cargando…</p></div></div>`;
-    wireBack();
-    await loadTurno();
-  }
-  async function loadTurno() {
-    const box = $("spTurnoBody");
-    if (!box) return;
-    try {
-      const cur = await api.currentShift();
-      const user = api.currentUser?.();
-      const open = cur?.shift && cur.shift.status === "abierto" ? cur.shift : null;
-      if (open) {
-        const exp = (cur.closing && cur.closing.efectivoEntregar) || 0;
-        box.innerHTML = `
-          <div class="simple-note ok">✅ Turno #${open.number} ABIERTO desde las ${esc((open.openedAt || "").slice(11, 16) || "—")} · abrió ${esc(open.openedBy || "")}</div>
-          <p class="hint">Para cerrar la caja, cuenta el efectivo físico y escríbelo. Esperado a entregar: <b>${money(exp)}</b>.</p>
-          <label class="simple-fld">Efectivo contado<input id="spCount" inputmode="numeric" placeholder="$ lo que hay en caja" /></label>
-          <button class="btn danger simple-bigbtn" id="spClose">Cerrar turno</button>`;
-        $("spClose").addEventListener("click", async () => {
-          const counted = readCop("spCount") || null;
-          try {
-            const r = await api.closeShift(open.id, { countedCash: counted, closedBy: user?.name || "" });
-            const diff = (r.arqueo && r.arqueo.cashDiff) || 0;
-            toast(counted == null ? "Turno cerrado (sin arqueo)" : diff === 0 ? "Turno cerrado · cuadra" : diff > 0 ? `Cerrado · sobran ${money(diff)}` : `Cerrado · faltan ${money(-diff)}`);
-            loadTurno();
-          } catch (e) { toast(e.message); }
-        });
-      } else {
-        const last = cur?.lastClosed || null;
-        const base = last ? (last.countedCash ?? last.expectedCash ?? 0) : "";
-        box.innerHTML = `
-          <div class="simple-note off">⚠️ No hay turno abierto. Sin turno no se puede facturar.</div>
-          ${last ? `<p class="hint">El turno anterior (#${last.number}) cerró con ${money(last.countedCash ?? last.expectedCash ?? 0)} contados.</p>` : ""}
-          <label class="simple-fld">Base inicial (efectivo con que abre la caja)<input id="spOpen" inputmode="numeric" value="${base}" placeholder="$" /></label>
-          <button class="btn success simple-bigbtn" id="spOpenBtn">Abrir turno como ${esc(user?.name || "")}</button>`;
-        $("spOpenBtn").addEventListener("click", async () => {
-          try {
-            await api.openShift({ openingCash: readCop("spOpen"), openedBy: user?.name || "" });
-            toast("Turno abierto");
-            loadTurno();
-          } catch (e) { toast(e.message); }
-        });
-      }
-    } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
   }
 
   // ---------- INGRESO ----------
@@ -243,8 +187,6 @@ export function createSimpleModule(context) {
       const [boxesRes, day] = await Promise.all([api.cashBoxes(), api.closingDay(date)]);
       cache.boxes = boxesRes.boxes || [];
       const c = day.closing || {};
-      const shifts = day.shifts || [];
-      const abiertos = shifts.filter((s) => s.status === "abierto").length;
       const snap = day.snapshot;
       const pay = day.payable; // deuda Supergiros (Jasper) del día
 
@@ -262,7 +204,6 @@ export function createSimpleModule(context) {
         ${snap
           ? `<div class="simple-note ok">✅ Día cerrado y dispersado. El efectivo entró a caja menor y se creó la deuda con Supergiros.</div>`
           : `<div class="simple-note off">⚠️ Día SIN cerrar. El dinero todavía no se ha dispersado.</div>`}
-        ${abiertos > 0 ? `<p class="hint">Hay ${abiertos} turno(s) abierto(s). Lo ideal es cerrarlos antes de dispersar.</p>` : ""}
         <button class="btn ${snap ? "" : "success"} simple-bigbtn" id="spDisperse">${snap ? "Re-cerrar día (actualizar dispersión)" : "Cerrar día y dispersar"}</button>`;
 
       const deuda = pay
@@ -280,7 +221,6 @@ export function createSimpleModule(context) {
       box.innerHTML = saldos + cierre + deuda + `<p class="hint" style="margin-top:14px">Los saldos de arriba son actuales; el cierre y la deuda son del día seleccionado.</p>`;
 
       $("spDisperse").addEventListener("click", async () => {
-        if (abiertos > 0 && !(await confirmDialog(`Hay ${abiertos} turno(s) abierto(s). Lo que entre después NO quedará en esta dispersión.\n\n¿Cerrar el día igual?`, { title: "Turnos sin cerrar", okText: "Cerrar igual", danger: true }))) return;
         if (!(await confirmDialog(`El efectivo a entregar entra a caja menor y el Jasper queda como deuda con Supergiros.`, { title: `¿Cerrar y dispersar el día ${date}?`, okText: "Cerrar y dispersar" }))) return;
         try {
           await api.saveClosing({ date });
