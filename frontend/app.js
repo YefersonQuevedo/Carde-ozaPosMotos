@@ -188,7 +188,6 @@ async function startApp() {
 
   $("loadClosing").addEventListener("click", reportsModule.loadClosing);
   $("exportClosing").addEventListener("click", reportsModule.exportClosingUI);
-  $("exportClosingDetail")?.addEventListener("click", reportsModule.exportClosingDetailUI);
   $("freezeClosing").addEventListener("click", reportsModule.freezeClosing);
 
   const monthStart = todayIso().slice(0, 8) + "01";

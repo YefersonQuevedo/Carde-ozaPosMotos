@@ -2,7 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { currentCompanyId } from "../tenant.js";
 import { computeClosing } from "../services/closing.js";
-import { gatherDay, gatherDayAudit, money, effectivePaymentsForSale, compactPaymentSummary, buildDispersionForSales, summarizeDispersion } from "../services/dayAudit.js";
+import { gatherDay, gatherDayAudit, money, dec3, effectivePaymentsForSale, compactPaymentSummary, buildDispersionForSales, summarizeDispersion } from "../services/dayAudit.js";
 import { applyDailyDispersion } from "../services/dispersion.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 
@@ -225,15 +225,54 @@ router.get("/range", async (req, res, next) => {
   }
 });
 
-// GET /api/closings/detail/export?date=&gastos= -> Excel transaccion por transaccion.
-router.get("/detail/export", async (req, res, next) => {
-  try {
-    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
-    const gastos = Number(req.query.gastos) || 0;
-    const audit = await gatherDayAudit(date, gastos);
-    const total = (key, rows = audit.detailRows) => rows.reduce((a, r) => a + money(r[key]), 0);
-    const buf = await toWorkbook({
-      sheets: [
+// Hojas del RESUMEN del cierre (formato del cliente): Resumen + Ingresos por metodo + Detalle.
+async function buildResumenSheets(date, gastos) {
+  const { sales, closing: c } = await gatherDay(date, gastos);
+  const resumen = [
+    { concepto: "Ventas del dia", valor: c.salesTotal },
+    { concepto: "Ingresos totales", valor: c.ingresosTotal },
+    { concepto: "Subtotal Supergiros (SG)", valor: c.subtotalSG },
+    { concepto: "Subtotal Certimotos (CM)", valor: c.subtotalCM },
+    { concepto: "Provision (RTM pendientes)", valor: c.provision },
+    { concepto: "JASPER (gira Supergiros)", valor: c.jasper },
+    { concepto: "Fidelizacion (descuentos usuarios)", valor: c.fidelizacion },
+    { concepto: "Referidos", valor: c.referidos },
+    { concepto: "Gastos del día (salen de caja menor, no del cierre)", valor: c.gastosRegistrados ?? c.gastos },
+    { concepto: "Efectivo recibido", valor: c.efectivo },
+    { concepto: "Efectivo a entregar (a caja menor)", valor: c.efectivoEntregar },
+    { concepto: "DIFERENCIA JASPER (= comisiones)", valor: c.diferenciaJasper },
+    { concepto: "Cartera abierta", valor: c.receivableOpen },
+    { concepto: "RTM realizadas", valor: c.rtmRealizadas },
+    { concepto: "RTM facturadas", valor: c.rtmFacturadas }
+  ];
+  const ingresos = Object.entries(c.byMethod).map(([metodo, valor]) => ({ metodo, cantidad: c.countByMethod?.[metodo] || 0, valor }));
+  const detalle = sales.map((s) => ({
+    venta: s.saleNumber, cliente: s.clientName, placa: s.plate || "", tipo: s.allyType,
+    rtm: s.rtmStatus, factura: s.invoiceNumber || "", total: s.total
+  }));
+  return [
+    { name: "Resumen", title: `Cierre del dia ${date}`,
+      columns: [{ header: "Concepto", key: "concepto", width: 38 }, { header: "Valor", key: "valor", width: 16, money: true }],
+      rows: resumen },
+    { name: "Ingresos por metodo",
+      columns: [{ header: "Metodo", key: "metodo", width: 28 }, { header: "Cant.", key: "cantidad", width: 8, number: true }, { header: "Valor", key: "valor", width: 16, money: true }],
+      rows: ingresos, totals: { valor: c.ingresosTotal } },
+    { name: "Detalle",
+      columns: [
+        { header: "Venta", key: "venta", width: 14 }, { header: "Cliente", key: "cliente", width: 28 },
+        { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
+        { header: "RTM", key: "rtm", width: 14 }, { header: "Factura", key: "factura", width: 14 },
+        { header: "Total", key: "total", width: 14, money: true }
+      ],
+      rows: detalle, totals: { total: c.salesTotal } }
+  ];
+}
+
+// Hojas del DETALLE auditable del cierre: transaccion por transaccion, pagos, dispersion, caja, gastos.
+async function buildDetalleSheets(date, gastos) {
+  const audit = await gatherDayAudit(date, gastos);
+  const total = (key, rows = audit.detailRows) => rows.reduce((a, r) => a + money(r[key]), 0);
+  return [
         {
           name: "Detalle dia",
           title: `Detalle auditable del dia ${date}`,
@@ -326,62 +365,32 @@ router.get("/detail/export", async (req, res, next) => {
           rows: audit.expenseRows,
           totals: { valor: total("valor", audit.expenseRows) }
         }
-      ]
-    });
+  ];
+}
+
+// GET /api/closings/detail/export?date=&gastos= -> Excel transaccion por transaccion.
+router.get("/detail/export", async (req, res, next) => {
+  try {
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+    const gastos = Number(req.query.gastos) || 0;
+    const buf = await toWorkbook({ sheets: await buildDetalleSheets(date, gastos) });
     sendXlsx(res, buf, `detalle-dia-${date}.xlsx`);
   } catch (e) {
     next(e);
   }
 });
 
-// GET /api/closings/export?date=&gastos=  -> descarga el cierre del dia en Excel (formato del cliente).
+// GET /api/closings/export?date=&gastos=  -> cierre del dia en Excel (formato del cliente).
+// Un solo archivo con TODO: las hojas del resumen + las del detalle auditable.
 router.get("/export", async (req, res, next) => {
   try {
     const date = String(req.query.date || new Date().toISOString().slice(0, 10));
     const gastos = Number(req.query.gastos) || 0;
-    const { sales, closing: c } = await gatherDay(date, gastos);
-
-    const resumen = [
-      { concepto: "Ventas del dia", valor: c.salesTotal },
-      { concepto: "Ingresos totales", valor: c.ingresosTotal },
-      { concepto: "Subtotal Supergiros (SG)", valor: c.subtotalSG },
-      { concepto: "Subtotal Certimotos (CM)", valor: c.subtotalCM },
-      { concepto: "Provision (RTM pendientes)", valor: c.provision },
-      { concepto: "JASPER (gira Supergiros)", valor: c.jasper },
-      { concepto: "Fidelizacion (descuentos usuarios)", valor: c.fidelizacion },
-      { concepto: "Referidos", valor: c.referidos },
-      { concepto: "Gastos del día (salen de caja menor, no del cierre)", valor: c.gastosRegistrados ?? c.gastos },
-      { concepto: "Efectivo recibido", valor: c.efectivo },
-      { concepto: "Efectivo a entregar (a caja menor)", valor: c.efectivoEntregar },
-      { concepto: "DIFERENCIA JASPER (= comisiones)", valor: c.diferenciaJasper },
-      { concepto: "Cartera abierta", valor: c.receivableOpen },
-      { concepto: "RTM realizadas", valor: c.rtmRealizadas },
-      { concepto: "RTM facturadas", valor: c.rtmFacturadas }
-    ];
-    const ingresos = Object.entries(c.byMethod).map(([metodo, valor]) => ({ metodo, cantidad: c.countByMethod?.[metodo] || 0, valor }));
-    const detalle = sales.map((s) => ({
-      venta: s.saleNumber, cliente: s.clientName, placa: s.plate || "", tipo: s.allyType,
-      rtm: s.rtmStatus, factura: s.invoiceNumber || "", total: s.total
-    }));
-
-    const buf = await toWorkbook({
-      sheets: [
-        { name: "Resumen", title: `Cierre del dia ${date}`,
-          columns: [{ header: "Concepto", key: "concepto", width: 38 }, { header: "Valor", key: "valor", width: 16, money: true }],
-          rows: resumen },
-        { name: "Ingresos por metodo",
-          columns: [{ header: "Metodo", key: "metodo", width: 28 }, { header: "Cant.", key: "cantidad", width: 8, number: true }, { header: "Valor", key: "valor", width: 16, money: true }],
-          rows: ingresos, totals: { valor: c.ingresosTotal } },
-        { name: "Detalle",
-          columns: [
-            { header: "Venta", key: "venta", width: 14 }, { header: "Cliente", key: "cliente", width: 28 },
-            { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
-            { header: "RTM", key: "rtm", width: 14 }, { header: "Factura", key: "factura", width: 14 },
-            { header: "Total", key: "total", width: 14, money: true }
-          ],
-          rows: detalle, totals: { total: c.salesTotal } }
-      ]
-    });
+    const [resumenSheets, detalleSheets] = await Promise.all([
+      buildResumenSheets(date, gastos),
+      buildDetalleSheets(date, gastos)
+    ]);
+    const buf = await toWorkbook({ sheets: [...resumenSheets, ...detalleSheets] });
     sendXlsx(res, buf, `cierre-${date}.xlsx`);
   } catch (e) {
     next(e);
@@ -487,7 +496,6 @@ router.get("/report/export", async (req, res, next) => {
     const buf = await toWorkbook({
       sheets: [{
         name: "Consolidado", title: `Consolidado ${from} a ${to}`,
-        table: true,
         columns: [
           { header: "Dia", key: "fecha", width: 12 }, { header: "Ventas", key: "ventas", width: 14, money: true },
           { header: "Jasper", key: "jasper", width: 14, money: true }, { header: "Provision", key: "provision", width: 14, money: true },
@@ -532,8 +540,8 @@ async function buildConsolidadoDetalle(from, to) {
     const summary = compactPaymentSummary(eff);
     // Pagos individuales (para el export: una fila por método de pago).
     const pagos = eff.filter((p) => money(p.effectiveAmount) > 0).map((p) => ({ metodo: p.methodName, valor: money(p.effectiveAmount) }));
-    const dispersion = money(s.total) - money(cost.sicov) - money(cost.ivaSicov) - money(cost.recaudo)
-      - money(cost.ivaRecaudo) - money(cost.ansv) - money(cost.costeTransaccion);
+    const dispersion = dec3(money(s.total) - (Number(cost.sicov) || 0) - (Number(cost.ivaSicov) || 0) - (Number(cost.recaudo) || 0)
+      - (Number(cost.ivaRecaudo) || 0) - (Number(cost.ansv) || 0) - (Number(cost.costeTransaccion) || 0));
     return {
       id: s.id,
       pagos,
@@ -550,16 +558,16 @@ async function buildConsolidadoDetalle(from, to) {
       total: money(s.total),
       metodoPago: summary.metodos,
       deduccionesConvenios: money(s.deduction),
-      sicov: money(cost.sicov),
-      ivaSicov: money(cost.ivaSicov),
-      recaudo: money(cost.recaudo),
-      ivaRecaudo: money(cost.ivaRecaudo),
-      fnsv: money(cost.ansv),
-      fupa: money(cost.fupa),
-      costeTransaccion: money(cost.costeTransaccion),
-      ivaFact: money(cost.ivaFact),
-      sustratos: money(cost.sustratos),
-      costosTotal: money(cost.costosTotal),
+      sicov: dec3(cost.sicov),
+      ivaSicov: dec3(cost.ivaSicov),
+      recaudo: dec3(cost.recaudo),
+      ivaRecaudo: dec3(cost.ivaRecaudo),
+      fnsv: dec3(cost.ansv),
+      fupa: dec3(cost.fupa),
+      costeTransaccion: dec3(cost.costeTransaccion),
+      ivaFact: dec3(cost.ivaFact),
+      sustratos: dec3(cost.sustratos),
+      costosTotal: dec3(cost.costosTotal),
       observaciones: s.observaciones || "",
       dispersion
     };
@@ -571,29 +579,33 @@ async function buildConsolidadoDetalle(from, to) {
 // inflar los totales (el IVA, costos y total no se repiten).
 function explodeByPayment(rows) {
   const out = [];
-  for (const r of rows) {
+  rows.forEach((r, idx) => {
     const pagos = (r.pagos && r.pagos.length) ? r.pagos : [{ metodo: "", valor: "" }];
     pagos.forEach((p, i) => {
       if (i === 0) {
-        out.push({ ...r, metodo: p.metodo, valorPago: p.valor });
+        out.push({ ...r, item: idx + 1, metodo: p.metodo, valorPago: p.valor });
       } else {
+        // fila extra (mismo cliente, otro metodo): solo metodo+valor; lo demas vacio
+        // para no repetir/inflar el total ni los costos.
         out.push({
-          fecha: "", factura: "", tipoDoc: "", numDoc: "", cliente: "", telefonos: "", referidos: "",
+          item: "", factura: "", tipoDoc: "", numDoc: "", cliente: "", telefonos: "", referidos: "",
           placa: "", modelo: "", pin: "", total: "", deduccionesConvenios: "", sicov: "", ivaSicov: "",
           recaudo: "", ivaRecaudo: "", fnsv: "", fupa: "", costeTransaccion: "", ivaFact: "", sustratos: "",
-          costosTotal: "", dispersion: "", observaciones: "", metodo: p.metodo, valorPago: p.valor
+          costosTotal: "", observaciones: "", metodo: p.metodo, valorPago: p.valor
         });
       }
     });
-  }
+  });
   return out;
 }
 
+// Columnas del export: IGUALES a la planilla en pantalla, con Metodo y Valor en
+// columnas separadas (sin la columna Dispersion). ITEM = consecutivo de la venta.
 const consolidadoDetalleColumns = [
-  { header: "FECHA", key: "fecha", width: 12 },
+  { header: "ITEM", key: "item", width: 6 },
   { header: "FACT", key: "factura", width: 13 },
   { header: "TIPO DOC", key: "tipoDoc", width: 9 },
-  { header: "NUM. DOC", key: "numDoc", width: 13 },
+  { header: "NUM. DOC", key: "numDoc", width: 14 },
   { header: "CLIENTE", key: "cliente", width: 30 },
   { header: "TELEFONOS", key: "telefonos", width: 14 },
   { header: "REFERIDOS", key: "referidos", width: 20 },
@@ -601,21 +613,20 @@ const consolidadoDetalleColumns = [
   { header: "MODELO", key: "modelo", width: 8 },
   { header: "N°PIN ADQUIRIDO", key: "pin", width: 22 },
   { header: "TOTAL", key: "total", width: 12, money: true },
-  { header: "METODO DE PAGO", key: "metodo", width: 22 },
+  { header: "METODO DE PAGO", key: "metodo", width: 20 },
   { header: "VALOR PAGO", key: "valorPago", width: 14, money: true },
   { header: "DEDUCCIONES CONVENIOS", key: "deduccionesConvenios", width: 14, money: true },
-  { header: "SICOV SERV HOM", key: "sicov", width: 12, money: true },
-  { header: "IVA SICOV", key: "ivaSicov", width: 12, money: true },
-  { header: "RECAUDO", key: "recaudo", width: 12, money: true },
-  { header: "IVA RECAUDO", key: "ivaRecaudo", width: 12, money: true },
-  { header: "FNSV", key: "fnsv", width: 10, money: true },
-  { header: "FUPA", key: "fupa", width: 10, money: true },
-  { header: "COSTE TRANSACCION", key: "costeTransaccion", width: 13, money: true },
-  { header: "IVA de FACT", key: "ivaFact", width: 12, money: true },
-  { header: "Sustratos", key: "sustratos", width: 10, money: true },
-  { header: "COSTOS TOTAL", key: "costosTotal", width: 13, money: true },
-  { header: "OBSERVACIONES", key: "observaciones", width: 24 },
-  { header: "Dispersion", key: "dispersion", width: 13, money: true }
+  { header: "SICOV SERV HOM", key: "sicov", width: 13, dec3: true },
+  { header: "IVA SICOV", key: "ivaSicov", width: 13, dec3: true },
+  { header: "RECAUDO", key: "recaudo", width: 13, dec3: true },
+  { header: "IVA RECAUDO", key: "ivaRecaudo", width: 13, dec3: true },
+  { header: "ANSV", key: "fnsv", width: 12, dec3: true },
+  { header: "FUPA", key: "fupa", width: 12, dec3: true },
+  { header: "COSTE TRANSACCION", key: "costeTransaccion", width: 14, dec3: true },
+  { header: "IVA de FACT", key: "ivaFact", width: 13, dec3: true },
+  { header: "Sustratos", key: "sustratos", width: 12, dec3: true },
+  { header: "COSTOS TOTAL", key: "costosTotal", width: 14, dec3: true },
+  { header: "OBSERVACIONES", key: "observaciones", width: 26 }
 ];
 
 // GET /api/closings/report/detail?from=&to=  -> planilla por venta (vista Consolidado).
@@ -652,7 +663,6 @@ router.get("/report/detail/export", async (req, res, next) => {
       sheets: [{
         name: "Consolidado detallado",
         title: `Consolidado venta por venta ${from} a ${to}`,
-        table: true,
         columns: consolidadoDetalleColumns,
         rows,
         totals: {
