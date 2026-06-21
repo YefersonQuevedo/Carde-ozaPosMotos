@@ -13,6 +13,7 @@ export function createProvisionsModule(context) {
             <label class="rng">Desde <input type="date" id="trzFrom" value="${month0}" /></label>
             <label class="rng">Hasta <input type="date" id="trzTo" value="${todayIso()}" /></label>
             <button class="btn primary" id="trzLoad">Ver</button>
+            <button class="btn ghost" id="trzExport">Exportar planilla</button>
           </div>
         </div>
         <p class="hint">Todo movimiento queda registrado con fecha, origen y quién lo hizo. Los manuales se pueden anular (queda el original + la reversa, nada se borra).</p>
@@ -27,10 +28,18 @@ export function createProvisionsModule(context) {
         <div id="provBody"></div>
       </div>`;
     $("provExport").addEventListener("click", async () => {
-      try { const blob = await api.exportProvisions(); await downloadBlob(blob, `provisiones-${todayIso()}.xlsx`); }
+      try { const blob = await api.exportProvisions(); await downloadBlob(blob, `rtm-pendientes-${todayIso()}.xlsx`); }
       catch (e) { toast(e.message); }
     });
     $("trzLoad").addEventListener("click", loadTrace);
+    $("trzExport").addEventListener("click", async () => {
+      const boxCode = $("trzBox").value || provBoxesList[0]?.code || "CAJA_MENOR";
+      const params = { boxCode };
+      if ($("trzFrom").value) params.from = $("trzFrom").value;
+      if ($("trzTo").value) params.to = $("trzTo").value;
+      try { await downloadBlob(await api.exportCashLedger(params), `planilla-${boxCode}-${todayIso()}.xlsx`); }
+      catch (e) { toast(e.message); }
+    });
     await loadProvisiones();
     await loadTrace();
   }

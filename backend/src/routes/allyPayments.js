@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { toWorkbook, sendXlsx } from "../services/excel.js";
 
 const router = Router();
+
+const MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
 
 // Clave estable: allyId si existe, si no el nombre (compatibilidad con datos viejos).
 const allyKey = (allyId, allyName) => (allyId != null ? `id:${allyId}` : `nm:${allyName}`);
@@ -72,6 +75,51 @@ router.get("/", async (_req, res, next) => {
       { accrued: 0, paid: 0, pending: 0 }
     );
     res.json({ items, totals });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/ally-payments/referidos/export?year=  -> Reporte Referidos EN EL FORMATO
+// DEL CLIENTE (hoja "Reporte Referidos"): una fila por referido con el conteo de
+// placas por mes, total del año, placas con RTM pendiente y # pendientes.
+// (Va antes de /:name para no chocar con esa ruta.)
+router.get("/referidos/export", async (req, res, next) => {
+  try {
+    const year = String(req.query.year || new Date().getFullYear());
+    const sales = await prisma.sale.findMany({
+      where: { allyType: "referido", status: "activa", saleDate: { gte: `${year}-01-01`, lte: `${year}-12-31` } },
+      select: { allyName: true, saleDate: true, plate: true, pinAdquirido: true }
+    });
+    const map = {};
+    for (const s of sales) {
+      const name = s.allyName || "SIN REFERIDO";
+      const m = (map[name] ||= { referido: name, months: Array(12).fill(0), total: 0, pendientes: [] });
+      const mi = Number(s.saleDate.slice(5, 7)) - 1;
+      if (mi >= 0 && mi < 12) m.months[mi] += 1;
+      m.total += 1;
+      // Pendiente = placa SIN PIN adquirido (RTM aún no realizada), igual que el cliente.
+      if (!s.pinAdquirido && s.plate) m.pendientes.push(s.plate);
+    }
+    const list = Object.values(map).sort((a, b) => a.referido.localeCompare(b.referido, "es"));
+    const rows = list.map((r) => {
+      const row = { referido: r.referido, total: r.total, placasPend: r.pendientes.join(", "), nPend: r.pendientes.length };
+      r.months.forEach((v, i) => { row["m" + i] = v || ""; });
+      return row;
+    });
+    const totals = { total: list.reduce((a, r) => a + r.total, 0), nPend: list.reduce((a, r) => a + r.pendientes.length, 0) };
+    MESES.forEach((_, i) => { totals["m" + i] = list.reduce((a, r) => a + r.months[i], 0); });
+    const columns = [
+      { header: "REFERIDO", key: "referido", width: 28 },
+      ...MESES.map((mName, i) => ({ header: mName, key: "m" + i, width: 11, number: true })),
+      { header: "TOTAL", key: "total", width: 10, number: true },
+      { header: "PLACAS PENDIENTES (sin PIN)", key: "placasPend", width: 32 },
+      { header: "# PENDIENTES", key: "nPend", width: 13, number: true }
+    ];
+    const buf = await toWorkbook({
+      sheets: [{ name: "Reporte Referidos", title: `REPORTE REFERIDOS — Placas por mes ${year}`, columns, rows, totals }]
+    });
+    sendXlsx(res, buf, `referidos-${year}.xlsx`);
   } catch (e) {
     next(e);
   }

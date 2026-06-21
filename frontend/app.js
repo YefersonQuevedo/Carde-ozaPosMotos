@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { $, esc, money, readCop, todayIso } from "./utils.js";
+import { $, esc, money, readCop, todayIso, downloadBlob } from "./utils.js";
 import { createSaleModule } from "./modules/sale-wizard.js";
 import { createClosingReportModule } from "./modules/closing-report.js";
 import { createShiftsModule } from "./modules/shifts.js";
@@ -208,6 +208,12 @@ async function startApp() {
   $("pcSearch").addEventListener("input", (e) => alliesModule.loadPagoConv(e.target.value));
   $("pcNew").addEventListener("click", () => alliesModule.newAlly());
   $("pcBulkApply").addEventListener("click", () => alliesModule.applyBulkCommission());
+  $("pcRefYear").value = todayIso().slice(0, 4);
+  $("pcRefExport").addEventListener("click", async () => {
+    const year = $("pcRefYear").value || todayIso().slice(0, 4);
+    try { await downloadBlob(await api.exportReferidos({ year }), `referidos-${year}.xlsx`); }
+    catch (e) { toast(e.message); }
+  });
   $("clientListSearch").addEventListener("input", (e) => clientsModule.loadClientes(e.target.value));
   $("clientDirRef").addEventListener("click", callsModule.loadDirectoReferido);
   $("clientNew").addEventListener("click", clientsModule.renderNewClientForm);

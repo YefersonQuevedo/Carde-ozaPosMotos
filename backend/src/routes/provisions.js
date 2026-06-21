@@ -59,29 +59,63 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// GET /api/provisions/export -> provisiones pendientes en Excel
-router.get("/export", async (_req, res, next) => {
+// GET /api/provisions/export?from=&to= -> RTM Pendientes EN EL FORMATO DEL CLIENTE
+// (hoja "RTM_Pendientes" de su Excel): incluye las que siguen pendientes y las que
+// ya realizaron la RTM (consumieron la provision).
+// Columnas: FECHA INGRESO DINERO | INGRESO | PLACA | REALIZÓ RTM |
+//           FECHA EN QUE REALIZÓ | PROVISIONADO | Naturaleza | Medio de pago
+router.get("/export", async (req, res, next) => {
   try {
-    const sales = await prisma.sale.findMany({ where: { status: "activa", rtmStatus: "pending" }, orderBy: { saleDate: "asc" } });
-    const rows = sales.map((s) => ({
-      fecha: s.saleDate, venta: s.saleNumber, cliente: s.clientName, doc: s.clientDoc,
-      placa: s.plate || "", tipo: s.allyType, convenio: s.allyName || "",
-      monto: s.provisionAmount || s.total
-    }));
-    const total = rows.reduce((a, r) => a + r.monto, 0);
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+    const where = { status: "activa", OR: [{ rtmStatus: "pending" }, { provisionConsumed: true }] };
+    if (from || to) where.saleDate = { gte: from || "0000", lte: to || "9999" };
+    const sales = await prisma.sale.findMany({ where, orderBy: [{ saleDate: "asc" }, { id: "asc" }], take: 10000 });
+    const ids = sales.map((s) => s.id);
+    // Fecha en que se realizó la RTM = egreso de PROV_RTM al consumir la provision.
+    const realizeMovs = ids.length
+      ? await prisma.cashMovement.findMany({ where: { boxCode: "PROV_RTM", type: "egreso", refType: "sale", refId: { in: ids } }, select: { refId: true, date: true } })
+      : [];
+    const realizeDate = {};
+    for (const m of realizeMovs) realizeDate[m.refId] = m.date;
+    // Medio(s) de pago por venta.
+    const pays = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } }, select: { saleId: true, methodName: true } }) : [];
+    const medioBySale = {};
+    for (const p of pays) (medioBySale[p.saleId] ||= []).push(p.methodName);
+
+    const rows = sales.map((s) => {
+      const realizada = s.provisionConsumed || s.rtmStatus === "done";
+      const monto = s.provisionAmount || s.total;
+      return {
+        fecha: s.saleDate,
+        ingreso: monto,
+        placa: s.plate || "",
+        realizo: realizada ? "SÍ" : "NO",
+        fechaRealizo: realizada ? (realizeDate[s.id] || "") : "",
+        provisionado: realizada ? 0 : monto,
+        naturaleza: "RTM Pendientes",
+        medio: (medioBySale[s.id] || []).join(" / ")
+      };
+    });
+    const totIngreso = rows.reduce((a, r) => a + r.ingreso, 0);
+    const totProv = rows.reduce((a, r) => a + r.provisionado, 0);
     const buf = await toWorkbook({
       sheets: [{
-        name: "Provisiones", title: "Provisiones pendientes (RTM pagadas no realizadas)",
+        name: "RTM_Pendientes", title: "RTM PENDIENTES — Provisión por RTM pagada no realizada",
         columns: [
-          { header: "Fecha", key: "fecha", width: 12 }, { header: "Venta", key: "venta", width: 14 },
-          { header: "Cliente", key: "cliente", width: 28 }, { header: "Documento", key: "doc", width: 16 },
-          { header: "Placa", key: "placa", width: 10 }, { header: "Tipo", key: "tipo", width: 10 },
-          { header: "Convenio", key: "convenio", width: 22 }, { header: "Monto", key: "monto", width: 14, money: true }
+          { header: "FECHA INGRESO DINERO", key: "fecha", width: 18 },
+          { header: "INGRESO", key: "ingreso", width: 14, money: true },
+          { header: "PLACA", key: "placa", width: 10 },
+          { header: "REALIZÓ RTM", key: "realizo", width: 12 },
+          { header: "FECHA EN QUE REALIZÓ", key: "fechaRealizo", width: 20 },
+          { header: "PROVISIONADO", key: "provisionado", width: 14, money: true },
+          { header: "Naturaleza", key: "naturaleza", width: 16 },
+          { header: "Medio de pago", key: "medio", width: 20 }
         ],
-        rows, totals: { monto: total }
+        rows, totals: { ingreso: totIngreso, provisionado: totProv }
       }]
     });
-    sendXlsx(res, buf, "provisiones.xlsx");
+    sendXlsx(res, buf, "rtm-pendientes.xlsx");
   } catch (e) {
     next(e);
   }
@@ -96,6 +130,36 @@ router.get("/boxes", async (_req, res, next) => {
   }
 });
 
+// Calcula el libro (saldo corrido) de UNA caja en un rango. `balance` de cada fila
+// es el saldo DESPUES del movimiento; `opening` es el saldo antes del rango.
+async function buildLedger(boxCode, from, to) {
+  let opening = 0;
+  if (from) {
+    const prev = await prisma.cashMovement.groupBy({ by: ["type"], where: { boxCode, date: { lt: from } }, _sum: { amount: true } });
+    opening = prev.reduce((b, r) => b + (r.type === "ingreso" ? 1 : -1) * (r._sum.amount || 0), 0);
+  }
+  const where = { boxCode };
+  if (from || to) where.date = { gte: from || "0000", lte: to || "9999" };
+  const movs = await prisma.cashMovement.findMany({ where, orderBy: [{ date: "asc" }, { id: "asc" }], take: 10000 });
+
+  // Marca los movimientos manuales que ya tienen reversa (para no anular dos veces).
+  const manualIds = movs.filter((m) => m.refType === "manual").map((m) => m.id);
+  const voids = manualIds.length
+    ? await prisma.cashMovement.findMany({ where: { refType: "manual_void", refId: { in: manualIds } }, select: { refId: true } })
+    : [];
+  const voidedIds = new Set(voids.map((v) => v.refId));
+
+  let running = opening;
+  let ingresos = 0, egresos = 0;
+  const rows = movs.map((m) => {
+    const before = running;
+    running += (m.type === "ingreso" ? 1 : -1) * m.amount;
+    if (m.type === "ingreso") ingresos += m.amount; else egresos += m.amount;
+    return { id: m.id, date: m.date, type: m.type, amount: m.amount, refType: m.refType, refId: m.refId, note: m.note, createdBy: m.createdBy, voided: voidedIds.has(m.id), before, balance: running };
+  });
+  return { boxCode, opening, ingresos, egresos, closing: running, rows };
+}
+
 // GET /api/provisions/ledger?boxCode=&from=&to= -> detalle de movimientos de UNA caja
 // con saldo corrido (incluye el saldo inicial = movimientos previos al rango).
 router.get("/ledger", async (req, res, next) => {
@@ -103,32 +167,77 @@ router.get("/ledger", async (req, res, next) => {
     const boxCode = String(req.query.boxCode || "CAJA_MENOR");
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
+    const { opening, ingresos, egresos, closing, rows } = await buildLedger(boxCode, from, to);
+    res.json({ boxCode, opening, ingresos, egresos, closing, rows, count: rows.length });
+  } catch (e) {
+    next(e);
+  }
+});
 
-    let opening = 0;
-    if (from) {
-      const prev = await prisma.cashMovement.groupBy({ by: ["type"], where: { boxCode, date: { lt: from } }, _sum: { amount: true } });
-      opening = prev.reduce((b, r) => b + (r.type === "ingreso" ? 1 : -1) * (r._sum.amount || 0), 0);
-    }
-    const where = { boxCode };
-    if (from || to) where.date = { gte: from || "0000", lte: to || "9999" };
-    const movs = await prisma.cashMovement.findMany({ where, orderBy: [{ date: "asc" }, { id: "asc" }], take: 5000 });
+// Naturaleza por movimiento (mejor esfuerzo) para la planilla del cliente: usa la
+// naturaleza del ingreso/gasto enlazado y, si no, una etiqueta segun el origen.
+const LEDGER_LABEL = {
+  sale: "Ventas RTM", ally_payment: "Comisiones", manual: "Movimiento de caja",
+  manual_void: "Reversa", income_void: "Reversa", expense_void: "Reversa", sale_void: "Reversa",
+  closing: "Cierre del día", shift: "Cierre turno", payable: "SuperGiros"
+};
+async function ledgerNaturalezas(rows) {
+  const natures = await prisma.expenseNature.findMany();
+  const nameByCode = Object.fromEntries(natures.map((n) => [n.code, n.name]));
+  const incIds = rows.filter((r) => r.refType === "income").map((r) => r.refId).filter(Boolean);
+  const expIds = rows.filter((r) => r.refType === "expense").map((r) => r.refId).filter(Boolean);
+  const [incomes, expenses] = await Promise.all([
+    incIds.length ? prisma.income.findMany({ where: { id: { in: incIds } }, select: { id: true, natureCode: true } }) : [],
+    expIds.length ? prisma.expense.findMany({ where: { id: { in: expIds } }, select: { id: true, category: true } }) : []
+  ]);
+  const incNat = Object.fromEntries(incomes.map((i) => [i.id, nameByCode[i.natureCode] || i.natureCode || ""]));
+  const expNat = Object.fromEntries(expenses.map((e) => [e.id, nameByCode[e.category] || e.category || ""]));
+  return (r) => {
+    if (r.refType === "income") return incNat[r.refId] || "Ingresos Planilla";
+    if (r.refType === "expense") return expNat[r.refId] || "Gastos";
+    if (r.refType === "sale" && /provis/i.test(r.note || "")) return "RTM Pendientes";
+    return LEDGER_LABEL[r.refType] || r.refType || "";
+  };
+}
 
-    // Marca los movimientos manuales que ya tienen reversa (para no anular dos veces).
-    const manualIds = movs.filter((m) => m.refType === "manual").map((m) => m.id);
-    const voids = manualIds.length
-      ? await prisma.cashMovement.findMany({ where: { refType: "manual_void", refId: { in: manualIds } }, select: { refId: true } })
-      : [];
-    const voidedIds = new Set(voids.map((v) => v.refId));
-
-    let running = opening;
-    let ingresos = 0, egresos = 0;
-    const rows = movs.map((m) => {
-      const signed = (m.type === "ingreso" ? 1 : -1) * m.amount;
-      running += signed;
-      if (m.type === "ingreso") ingresos += m.amount; else egresos += m.amount;
-      return { id: m.id, date: m.date, type: m.type, amount: m.amount, refType: m.refType, refId: m.refId, note: m.note, createdBy: m.createdBy, voided: voidedIds.has(m.id), balance: running };
+// GET /api/provisions/ledger/export?boxCode=&from=&to= -> Planilla de la caja en el
+// FORMATO DEL CLIENTE (hojas "Planilla Bancos" / "Planilla Efectivo"):
+// FECHA | SALDO | INGRESOS | EGRESOS | SUBTOTAL | OBSERVACIÓN | NATURALEZA
+router.get("/ledger/export", async (req, res, next) => {
+  try {
+    const boxCode = String(req.query.boxCode || "CAJA_MENOR");
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+    const box = await prisma.cashBox.findFirst({ where: { code: boxCode } });
+    const boxName = box?.name || boxCode;
+    const { opening, ingresos, egresos, closing, rows } = await buildLedger(boxCode, from, to);
+    const naturalezaOf = await ledgerNaturalezas(rows);
+    const planilla = rows.map((m) => ({
+      fecha: m.date,
+      saldo: m.before,
+      ingresos: m.type === "ingreso" ? m.amount : "",
+      egresos: m.type === "egreso" ? m.amount : "",
+      subtotal: m.balance,
+      observacion: m.note || "",
+      naturaleza: naturalezaOf(m)
+    }));
+    const sheetName = `Planilla ${boxName}`.slice(0, 31);
+    const buf = await toWorkbook({
+      sheets: [{
+        name: sheetName, title: `${boxName.toUpperCase()} — Saldo inicial ${opening} · Ingresos ${ingresos} · Egresos ${egresos} · Saldo final ${closing}`,
+        columns: [
+          { header: "FECHA", key: "fecha", width: 12 },
+          { header: "SALDO", key: "saldo", width: 16, money: true },
+          { header: "INGRESOS", key: "ingresos", width: 14, money: true },
+          { header: "EGRESOS", key: "egresos", width: 14, money: true },
+          { header: "SUBTOTAL", key: "subtotal", width: 16, money: true },
+          { header: "OBSERVACIÓN", key: "observacion", width: 36 },
+          { header: "NATURALEZA", key: "naturaleza", width: 22 }
+        ],
+        rows: planilla
+      }]
     });
-    res.json({ boxCode, opening, ingresos, egresos, closing: running, rows, count: rows.length });
+    sendXlsx(res, buf, `planilla-${boxCode}.xlsx`);
   } catch (e) {
     next(e);
   }

@@ -111,9 +111,10 @@ export const api = {
   exportFupa: (from, to) => reqBlob(`/fupa/export?${new URLSearchParams({ from, to })}`),
 
   provisions: (params = {}) => req(`/provisions?${new URLSearchParams(params)}`),
-  exportProvisions: () => reqBlob("/provisions/export"),
+  exportProvisions: (params = {}) => reqBlob(`/provisions/export?${new URLSearchParams(params)}`),
   cashBoxes: () => req("/provisions/boxes"),
   cashLedger: (params = {}) => req(`/provisions/ledger?${new URLSearchParams(params)}`),
+  exportCashLedger: (params = {}) => reqBlob(`/provisions/ledger/export?${new URLSearchParams(params)}`),
   addCashBox: (body) => req("/provisions/boxes", { method: "POST", body }),
   addCashMovement: (body) => req("/provisions/movements", { method: "POST", body }),
   voidCashMovement: (id) => req(`/provisions/movements/${id}/void`, { method: "POST" }),
@@ -210,10 +211,16 @@ export const api = {
   exportPurchaseOrders: (params = {}) => reqBlob(`/purchase-orders/export?${new URLSearchParams(params)}`),
 
   allyPayments: () => req("/ally-payments"),
+  exportReferidos: (params = {}) => reqBlob(`/ally-payments/referidos/export?${new URLSearchParams(params)}`),
   allyPaymentDetail: (name) => req(`/ally-payments/${encodeURIComponent(name)}`),
   addAllyPayment: (body) => req("/ally-payments", { method: "POST", body }),
   deleteAllyPayment: (id) => req(`/ally-payments/${id}`, { method: "DELETE" }),
   updateAllyPayment: (id, body) => req(`/ally-payments/${id}`, { method: "PUT", body }),
+
+  tariffs: (params = {}) => req(`/catalog/tariffs?${new URLSearchParams(params)}`),
+  saveTariff: (body) => req("/catalog/tariffs", { method: "POST", body }),
+  updateTariff: (id, body) => req(`/catalog/tariffs/${id}`, { method: "PUT", body }),
+  deleteTariff: (id) => req(`/catalog/tariffs/${id}`, { method: "DELETE" }),
 
   companies: () => req("/companies"),
   createCompany: (body) => req("/companies", { method: "POST", body }),
