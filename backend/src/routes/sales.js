@@ -376,15 +376,30 @@ router.get("/export", async (req, res, next) => {
     if (range) where.rangeName = String(range);
     const items = await prisma.sale.findMany({ where, orderBy: { id: "desc" }, take: 5000 });
     const ids = items.map((s) => s.id);
-    const pays = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } } }) : [];
+    const pays = ids.length ? await prisma.salePayment.findMany({ where: { saleId: { in: ids } }, orderBy: { id: "asc" } }) : [];
     const bySale = {};
-    for (const p of pays) (bySale[p.saleId] ||= []).push(`${p.methodName}: ${p.amount}`);
-    const rows = items.map((s) => ({
-      fecha: s.saleDate, venta: s.saleNumber, factura: s.invoiceNumber || "", cliente: s.clientName, doc: s.clientDoc,
-      placa: s.plate || "", modelo: s.modelYear || "", tipo: s.allyType, convenio: s.allyName || "",
-      rtm: s.rtmStatus, pin: s.pinNumber || "", medios: (bySale[s.id] || []).join(" | "),
-      base: s.totalBase, iva: s.totalIva, total: s.total, estado: s.status
-    }));
+    for (const p of pays) (bySale[p.saleId] ||= []).push({ methodName: p.methodName, amount: p.amount });
+    // Una fila por MEDIO DE PAGO: si la venta tiene varios métodos, cada uno va en su
+    // propia fila (método y valor en columnas separadas). Los datos de la venta se
+    // repiten en cada fila; Base/IVA/Total solo en la primera fila de la venta para
+    // no duplicar el total al sumar la columna.
+    const rows = [];
+    for (const s of items) {
+      const sale = {
+        fecha: s.saleDate, venta: s.saleNumber, factura: s.invoiceNumber || "", cliente: s.clientName, doc: s.clientDoc,
+        placa: s.plate || "", modelo: s.modelYear || "", tipo: s.allyType, convenio: s.allyName || "",
+        rtm: s.rtmStatus, pin: s.pinNumber || "", estado: s.status
+      };
+      const ps = bySale[s.id] || [];
+      if (!ps.length) {
+        rows.push({ ...sale, metodo: "", valorPago: "", base: s.totalBase, iva: s.totalIva, total: s.total });
+      } else {
+        ps.forEach((p, i) => rows.push({
+          ...sale, metodo: p.methodName, valorPago: p.amount,
+          base: i === 0 ? s.totalBase : "", iva: i === 0 ? s.totalIva : "", total: i === 0 ? s.total : ""
+        }));
+      }
+    }
     const total = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.total, 0);
     const iva = items.filter((s) => s.status !== "anulada").reduce((a, s) => a + s.totalIva, 0);
     const buf = await toWorkbook({
@@ -396,7 +411,8 @@ router.get("/export", async (req, res, next) => {
           { header: "Documento", key: "doc", width: 16 }, { header: "Placa", key: "placa", width: 10 },
           { header: "Modelo", key: "modelo", width: 8, number: true }, { header: "Tipo", key: "tipo", width: 10 },
           { header: "Convenio", key: "convenio", width: 22 }, { header: "RTM", key: "rtm", width: 12 },
-          { header: "PIN", key: "pin", width: 22 }, { header: "Medios de pago", key: "medios", width: 34 },
+          { header: "PIN", key: "pin", width: 22 },
+          { header: "Método de pago", key: "metodo", width: 22 }, { header: "Valor pago", key: "valorPago", width: 14, money: true },
           { header: "Base", key: "base", width: 14, money: true }, { header: "IVA", key: "iva", width: 14, money: true },
           { header: "Total", key: "total", width: 14, money: true }, { header: "Estado", key: "estado", width: 10 }
         ],
