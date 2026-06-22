@@ -17,7 +17,8 @@ const COMPANY_MODELS = new Set([
   "CallLog", "Payable", "PayablePayment", "Reversal", "AllyPayment", "ClientHistory",
   "CashBox", "CashMovement", "FupaMovement", "Income", "Expense", "ExpenseNature",
   "Supplier", "SupplierInvoice", "SupplierInvoicePayment", "PurchaseOrder",
-  "PurchaseOrderLine", "ManualInvoice", "ManualInvoiceLine", "DailyClosing", "Employee"
+  "PurchaseOrderLine", "ManualInvoice", "ManualInvoiceLine", "DailyClosing", "Employee",
+  "RolePermission"
 ]);
 
 // Operaciones que filtran por where. findUnique/update/delete aceptan campos

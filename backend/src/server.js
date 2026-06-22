@@ -32,6 +32,8 @@ import { auth } from "./auth.js";
 import { tenantMiddleware } from "./tenant.js";
 import companies from "./routes/companies.js";
 import nomina from "./routes/nomina.js";
+import permissions from "./routes/permissions.js";
+import { exportIdFor, permsForRole } from "./permissions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -55,6 +57,24 @@ app.use("/api", (req, res, next) => {
     return res.status(403).json({ error: "Tu rol es de solo lectura: no puedes crear ni modificar." });
   }
   next();
+});
+
+// Guard de EXPORTS por rol: bloquea descargas Excel que el rol no tiene permitidas.
+// admin siempre puede; los demas, segun su configuracion de permisos.
+app.use("/api", async (req, res, next) => {
+  try {
+    if (req.method !== "GET") return next();
+    const role = req.user?.role;
+    if (!role || role === "admin") return next();
+    const sub = (req.originalUrl.split("?")[0] || "").replace(/^\/api/, "");
+    const expId = exportIdFor(sub);
+    if (!expId) return next();
+    const perms = await permsForRole(role);
+    if (!perms.exports.includes(expId)) {
+      return res.status(403).json({ error: "Tu rol no tiene permiso para exportar esto." });
+    }
+    next();
+  } catch (e) { next(e); }
 });
 app.use("/api/companies", companies);
 app.use("/api/clients", clients);
@@ -82,6 +102,7 @@ app.use("/api/payables", payables);
 app.use("/api/income", income);
 app.use("/api/nomina", nomina);
 app.use("/api/reports", reports);
+app.use("/api/permissions", permissions);
 
 // Comprobantes subidos (servidos publicamente para poder visualizarlos/imprimirlos).
 app.use("/uploads", express.static(UPLOADS_DIR));
