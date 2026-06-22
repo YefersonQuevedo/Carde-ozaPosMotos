@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { prisma } from "../db.js";
 import { auth } from "../auth.js";
+import { roleExists } from "../permissions.js";
 
 const router = Router();
 
@@ -10,9 +11,8 @@ router.use(auth(["admin"]));
 
 const safe = (u) => ({ id: u.id, username: u.username, name: u.name, role: u.role, active: u.active, createdAt: u.createdAt });
 
-// Roles validos. auditor/contador = solo lectura (ver readOnlyGuard en server.js).
-const ROLES = ["admin", "vendedor", "auditor", "contador"];
-const normRole = (r) => (ROLES.includes(r) ? r : "vendedor");
+// Rol valido = admin, built-in o rol personalizado existente; si no, vendedor.
+const normRole = async (r) => ((r === "admin" || (await roleExists(r))) ? r : "vendedor");
 
 // Cada admin solo ve y gestiona los usuarios de SU empresa (multi-tenant).
 router.get("/", async (req, res, next) => {
@@ -33,7 +33,7 @@ router.post("/", async (req, res, next) => {
         companyId: req.companyId,
         username: String(b.username).trim(),
         name: b.name,
-        role: normRole(b.role),
+        role: await normRole(b.role),
         passwordHash: await bcrypt.hash(b.password, 10),
         active: b.active !== false
       }
@@ -51,7 +51,7 @@ router.put("/:id", async (req, res, next) => {
     const target = await prisma.user.findFirst({ where: { id, companyId: req.companyId } });
     if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
     const b = req.body || {};
-    const data = { name: b.name, role: normRole(b.role), active: b.active !== false };
+    const data = { name: b.name, role: await normRole(b.role), active: b.active !== false };
     if (b.password) data.passwordHash = await bcrypt.hash(b.password, 10);
     const user = await prisma.user.update({ where: { id }, data });
     res.json(safe(user));

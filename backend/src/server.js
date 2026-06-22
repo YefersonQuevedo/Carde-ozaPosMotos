@@ -33,7 +33,7 @@ import { tenantMiddleware } from "./tenant.js";
 import companies from "./routes/companies.js";
 import nomina from "./routes/nomina.js";
 import permissions from "./routes/permissions.js";
-import { exportIdFor, permsForRole } from "./permissions.js";
+import { exportIdFor, permsForRole, isReadonlyRole } from "./permissions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -51,12 +51,15 @@ app.use("/api", tenantMiddleware);
 
 // Roles de SOLO LECTURA (auditor, contador): bloquean cualquier escritura.
 // El login va antes de auth(), asi que no se ve afectado.
-app.use("/api", (req, res, next) => {
-  const role = req.user?.role;
-  if ((role === "auditor" || role === "contador") && req.method !== "GET") {
-    return res.status(403).json({ error: "Tu rol es de solo lectura: no puedes crear ni modificar." });
-  }
-  next();
+app.use("/api", async (req, res, next) => {
+  try {
+    if (req.method === "GET") return next();
+    const role = req.user?.role;
+    if (role && (await isReadonlyRole(role))) {
+      return res.status(403).json({ error: "Tu rol es de solo lectura: no puedes crear ni modificar." });
+    }
+    next();
+  } catch (e) { next(e); }
 });
 
 // Guard de EXPORTS por rol: bloquea descargas Excel que el rol no tiene permitidas.

@@ -55,8 +55,13 @@ export const EXPORTS = [
 const ALL_PANELS = PANELS.map((p) => p.id);
 const ALL_EXPORTS = EXPORTS.map((e) => e.id);
 
-// Roles configurables (admin siempre tiene todo y no se guarda).
-export const CONFIGURABLE_ROLES = ["vendedor", "auditor", "contador"];
+// Roles de fabrica (no se borran). admin = todo y no se configura.
+export const BUILTIN_ROLES = {
+  vendedor: { label: "Vendedor", readonly: false },
+  auditor: { label: "Auditor", readonly: true },
+  contador: { label: "Contador", readonly: true }
+};
+export const isBuiltinRole = (role) => role === "admin" || Object.prototype.hasOwnProperty.call(BUILTIN_ROLES, role);
 
 // Permisos por defecto cuando un rol no tiene fila configurada.
 export const DEFAULT_PERMS = {
@@ -69,12 +74,53 @@ export const DEFAULT_PERMS = {
   }
 };
 
-// Permisos efectivos de un rol: fila en BD si existe, si no los defaults.
+// Permisos efectivos de un rol: fila en BD si existe, si no los defaults (incluye readonly).
 export async function permsForRole(role) {
-  if (role === "admin") return { views: ALL_PANELS, exports: ALL_EXPORTS };
+  if (role === "admin") return { views: ALL_PANELS, exports: ALL_EXPORTS, readonly: false };
   const row = await prisma.rolePermission.findFirst({ where: { role } });
-  if (row) return { views: Array.isArray(row.views) ? row.views : [], exports: Array.isArray(row.exports) ? row.exports : [] };
-  return DEFAULT_PERMS[role] || { views: [], exports: [] };
+  if (row) return {
+    views: Array.isArray(row.views) ? row.views : [],
+    exports: Array.isArray(row.exports) ? row.exports : [],
+    readonly: !!row.readonly
+  };
+  const d = DEFAULT_PERMS[role];
+  return d ? { ...d, readonly: BUILTIN_ROLES[role]?.readonly || false } : { views: [], exports: [], readonly: false };
+}
+
+// ¿El rol es de solo lectura? (built-in fijos + personalizados desde BD).
+export async function isReadonlyRole(role) {
+  if (role === "admin" || role === "vendedor") return false;
+  if (BUILTIN_ROLES[role]) return BUILTIN_ROLES[role].readonly; // auditor/contador
+  const row = await prisma.rolePermission.findFirst({ where: { role }, select: { readonly: true } });
+  return !!row?.readonly;
+}
+
+// ¿Existe el rol? (admin, built-in, o fila personalizada en BD).
+export async function roleExists(role) {
+  if (isBuiltinRole(role)) return true;
+  const row = await prisma.rolePermission.findFirst({ where: { role }, select: { id: true } });
+  return !!row;
+}
+
+// Todos los roles configurables: built-in (vendedor/auditor/contador) + personalizados.
+export async function allRoles() {
+  const rows = await prisma.rolePermission.findMany();
+  const byRole = Object.fromEntries(rows.map((r) => [r.role, r]));
+  const out = [];
+  for (const role of ["vendedor", "auditor", "contador"]) {
+    const r = byRole[role];
+    out.push({
+      role, label: BUILTIN_ROLES[role].label, builtin: true,
+      readonly: r ? !!r.readonly : BUILTIN_ROLES[role].readonly,
+      views: r ? r.views : DEFAULT_PERMS[role].views,
+      exports: r ? r.exports : DEFAULT_PERMS[role].exports
+    });
+  }
+  for (const r of rows) {
+    if (BUILTIN_ROLES[r.role]) continue;
+    out.push({ role: r.role, label: r.label || r.role, builtin: false, readonly: !!r.readonly, views: r.views || [], exports: r.exports || [] });
+  }
+  return out;
 }
 
 // export-id de una ruta (sin el prefijo /api). null si no es un export.

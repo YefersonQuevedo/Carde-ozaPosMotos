@@ -245,5 +245,7 @@ export const api = {
 
   myPermissions: () => req("/permissions/mine"),
   rolePermissions: () => req("/permissions"),
-  saveRolePermissions: (role, body) => req(`/permissions/${encodeURIComponent(role)}`, { method: "PUT", body })
+  saveRolePermissions: (role, body) => req(`/permissions/${encodeURIComponent(role)}`, { method: "PUT", body }),
+  createRole: (body) => req("/permissions/roles", { method: "POST", body }),
+  deleteRole: (role) => req(`/permissions/${encodeURIComponent(role)}`, { method: "DELETE" })
 };

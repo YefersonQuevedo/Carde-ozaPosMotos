@@ -15,21 +15,24 @@ export function createUsersModule(context) {
   }
 
   // Panel de permisos por rol como MATRIZ: filas = paneles/exports, columnas = roles.
-  const ROLE_LABELS = { vendedor: "Vendedor", auditor: "Auditor", contador: "Contador" };
+  // Soporta roles personalizados (crear/borrar). availableRoles alimenta el desplegable
+  // de rol en el alta de usuarios.
+  let availableRoles = [];
   let permRoleIds = [];
   async function loadPermissionsPanel() {
     const box = $("permsBody");
     if (!box) return;
     try {
       const { panels, exports, roles } = await api.rolePermissions();
-      permRoleIds = Object.keys(roles);
-      const matrix = (titulo, items, kind) => {
-        const head = `<tr><th style="text-align:left;min-width:220px">${esc(titulo)}</th>${permRoleIds.map((r) =>
-          `<th style="text-align:center">${esc(ROLE_LABELS[r] || r)}<br><label class="hint" style="font-weight:400;cursor:pointer"><input type="checkbox" data-allcol="${kind}:${r}" /> todos</label></th>`).join("")}</tr>`;
+      availableRoles = roles;                     // [{ role, label, builtin, readonly, views, exports }]
+      permRoleIds = roles.map((r) => r.role);
+      const matrix = (titulo, items, kind, withControls) => {
+        const head = `<tr><th style="text-align:left;min-width:220px">${esc(titulo)}</th>${roles.map((r) =>
+          `<th style="text-align:center">${esc(r.label)}${r.readonly ? '<br><span class="pill warn" style="font-size:10px">solo lectura</span>' : ""}<br><label class="hint" style="font-weight:400;cursor:pointer"><input type="checkbox" data-allcol="${kind}:${r.role}" /> todos</label>${withControls && !r.builtin ? `<br><button class="link" data-delrole="${esc(r.role)}" style="color:#b72c35">✕ borrar</button>` : ""}</th>`).join("")}</tr>`;
         const body = items.map((it) => {
-          const cells = permRoleIds.map((r) => {
-            const set = new Set(kind === "view" ? roles[r].views : roles[r].exports);
-            return `<td style="text-align:center"><input type="checkbox" data-perm="${kind}" data-role="${r}" value="${esc(it.id)}" ${set.has(it.id) ? "checked" : ""} /></td>`;
+          const cells = roles.map((r) => {
+            const set = new Set(kind === "view" ? r.views : r.exports);
+            return `<td style="text-align:center"><input type="checkbox" data-perm="${kind}" data-role="${esc(r.role)}" value="${esc(it.id)}" ${set.has(it.id) ? "checked" : ""} /></td>`;
           }).join("");
           return `<tr><td>${esc(it.label)}</td>${cells}</tr>`;
         }).join("");
@@ -37,11 +40,16 @@ export function createUsersModule(context) {
       };
       const saveBtn = `<button class="btn success perm-save">💾 Guardar permisos</button>`;
       box.innerHTML = `
-        <div class="row" style="justify-content:flex-end;margin-bottom:8px">${saveBtn}</div>
+        <div class="row" style="gap:8px;margin-bottom:10px;align-items:flex-end;flex-wrap:wrap">
+          <label class="fld" style="max-width:220px;margin:0">Nuevo rol<input id="newRoleName" placeholder="Ej: Supervisor" /></label>
+          <label class="chk" style="width:auto"><input type="checkbox" id="newRoleRO" /> Solo lectura</label>
+          <button class="btn" id="newRoleBtn">+ Crear rol</button>
+          <span style="flex:1"></span>${saveBtn}
+        </div>
         <h3 style="margin:6px 0">Paneles que puede ver cada rol</h3>
-        ${matrix("Panel", panels, "view")}
+        ${matrix("Panel", panels, "view", true)}
         <h3 style="margin:16px 0 6px">Exports que puede descargar cada rol</h3>
-        ${matrix("Export", exports, "export")}
+        ${matrix("Export", exports, "export", false)}
         <div class="row" style="justify-content:flex-end;margin-top:10px">${saveBtn}</div>`;
       // "todos" por columna: marca/desmarca toda la columna de ese rol+tipo.
       box.querySelectorAll("[data-allcol]").forEach((c) => c.addEventListener("change", () => {
@@ -49,6 +57,8 @@ export function createUsersModule(context) {
         box.querySelectorAll(`[data-perm="${kind}"][data-role="${role}"]`).forEach((x) => { x.checked = c.checked; });
       }));
       box.querySelectorAll(".perm-save").forEach((b) => b.addEventListener("click", saveAllPerms));
+      $("newRoleBtn")?.addEventListener("click", createRoleUI);
+      box.querySelectorAll("[data-delrole]").forEach((b) => b.addEventListener("click", () => deleteRoleUI(b.dataset.delrole)));
     } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
   }
   async function saveAllPerms() {
@@ -62,6 +72,28 @@ export function createUsersModule(context) {
       toast("Permisos guardados");
     } catch (e) { toast(e.message); }
   }
+  async function createRoleUI() {
+    const name = $("newRoleName").value.trim();
+    if (!name) return toast("Escribe el nombre del rol");
+    try {
+      await api.createRole({ name, readonly: $("newRoleRO").checked });
+      toast(`Rol "${name}" creado`);
+      await loadPermissionsPanel();
+    } catch (e) { toast(e.message); }
+  }
+  async function deleteRoleUI(role) {
+    if (!confirm(`¿Borrar el rol "${role}"? (no se puede si hay usuarios con ese rol)`)) return;
+    try { await api.deleteRole(role); toast("Rol borrado"); await loadPermissionsPanel(); }
+    catch (e) { toast(e.message); }
+  }
+  // Opciones del desplegable de rol (alta de usuarios): roles existentes + Administrador.
+  function roleOptionsHtml(selected) {
+    const list = availableRoles.length ? availableRoles : [
+      { role: "vendedor", label: "Vendedor" }, { role: "auditor", label: "Auditor" }, { role: "contador", label: "Contador" }
+    ];
+    return [...list, { role: "admin", label: "Administrador" }]
+      .map((r) => `<option value="${esc(r.role)}" ${selected === r.role ? "selected" : ""}>${esc(r.label)}</option>`).join("");
+  }
   function renderUserForm(u) {
     $("userFormTitle").textContent = u ? `Editar: ${u.username}` : "Nuevo usuario";
     $("userForm").innerHTML = `
@@ -69,12 +101,7 @@ export function createUsersModule(context) {
         <label class="fld">Usuario<input id="us_username" value="${esc(u?.username || "")}" ${u ? "disabled" : ""} /></label>
         <label class="fld">Nombre<input id="us_name" value="${esc(u?.name || "")}" /></label>
         <label class="fld">Rol
-          <select id="us_role">
-            <option value="vendedor" ${u?.role === "vendedor" ? "selected" : ""}>Vendedor</option>
-            <option value="admin" ${u?.role === "admin" ? "selected" : ""}>Administrador</option>
-            <option value="auditor" ${u?.role === "auditor" ? "selected" : ""}>Auditor (ve todo, solo lectura)</option>
-            <option value="contador" ${u?.role === "contador" ? "selected" : ""}>Contador (facturas y gastos, solo lectura)</option>
-          </select>
+          <select id="us_role">${roleOptionsHtml(u?.role || "vendedor")}</select>
         </label>
         <label class="fld">${u ? "Nueva clave (opcional)" : "Clave"}<input id="us_password" type="password" /></label>
       </div>

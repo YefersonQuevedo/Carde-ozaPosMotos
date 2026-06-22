@@ -401,7 +401,9 @@ model User {
 model RolePermission {
   id        Int      @id @default(autoincrement())
   companyId Int      @default(1)
-  role      String // vendedor | auditor | contador | ...
+  role      String // vendedor | auditor | contador | <personalizado> ...
+  label     String? // nombre visible del rol (para roles personalizados)
+  readonly  Boolean  @default(false) // solo lectura (no puede crear/editar)
   views     Json // ids de panel permitidos
   exports   Json // ids de export permitidos
   updatedAt DateTime @updatedAt
