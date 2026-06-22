@@ -14,32 +14,53 @@ export function createUsersModule(context) {
     loadPermissionsPanel();
   }
 
-  // Panel de permisos por rol: checkboxes de paneles + exports por cada rol configurable.
+  // Panel de permisos por rol como MATRIZ: filas = paneles/exports, columnas = roles.
   const ROLE_LABELS = { vendedor: "Vendedor", auditor: "Auditor", contador: "Contador" };
+  let permRoleIds = [];
   async function loadPermissionsPanel() {
     const box = $("permsBody");
     if (!box) return;
     try {
       const { panels, exports, roles } = await api.rolePermissions();
-      const chk = (kind, role, id, label, checked) => `<label class="chk" style="display:inline-flex;width:auto;margin:2px 12px 2px 0"><input type="checkbox" data-perm="${kind}" data-role="${role}" value="${esc(id)}" ${checked ? "checked" : ""}/> ${esc(label)}</label>`;
-      box.innerHTML = Object.keys(roles).map((role) => {
-        const vset = new Set(roles[role].views), eset = new Set(roles[role].exports);
-        const panelChks = panels.map((p) => chk("view", role, p.id, p.label, vset.has(p.id))).join("");
-        const expChks = exports.map((x) => chk("export", role, x.id, x.label, eset.has(x.id))).join("");
-        return `<div class="card" style="margin-bottom:12px;border:1px solid var(--line)">
-          <div class="card-head"><h3 style="margin:0">${esc(ROLE_LABELS[role] || role)}</h3><button class="btn success" data-saveperm="${role}">Guardar ${esc(ROLE_LABELS[role] || role)}</button></div>
-          <h4 style="margin:8px 0 2px">Paneles que puede ver</h4><div>${panelChks}</div>
-          <h4 style="margin:10px 0 2px">Exports que puede descargar</h4><div>${expChks}</div>
-        </div>`;
-      }).join("");
-      box.querySelectorAll("[data-saveperm]").forEach((b) => b.addEventListener("click", () => saveRolePerms(b.dataset.saveperm)));
+      permRoleIds = Object.keys(roles);
+      const matrix = (titulo, items, kind) => {
+        const head = `<tr><th style="text-align:left;min-width:220px">${esc(titulo)}</th>${permRoleIds.map((r) =>
+          `<th style="text-align:center">${esc(ROLE_LABELS[r] || r)}<br><label class="hint" style="font-weight:400;cursor:pointer"><input type="checkbox" data-allcol="${kind}:${r}" /> todos</label></th>`).join("")}</tr>`;
+        const body = items.map((it) => {
+          const cells = permRoleIds.map((r) => {
+            const set = new Set(kind === "view" ? roles[r].views : roles[r].exports);
+            return `<td style="text-align:center"><input type="checkbox" data-perm="${kind}" data-role="${r}" value="${esc(it.id)}" ${set.has(it.id) ? "checked" : ""} /></td>`;
+          }).join("");
+          return `<tr><td>${esc(it.label)}</td>${cells}</tr>`;
+        }).join("");
+        return `<div style="overflow-x:auto"><table class="data perm-matrix"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+      };
+      const saveBtn = `<button class="btn success perm-save">💾 Guardar permisos</button>`;
+      box.innerHTML = `
+        <div class="row" style="justify-content:flex-end;margin-bottom:8px">${saveBtn}</div>
+        <h3 style="margin:6px 0">Paneles que puede ver cada rol</h3>
+        ${matrix("Panel", panels, "view")}
+        <h3 style="margin:16px 0 6px">Exports que puede descargar cada rol</h3>
+        ${matrix("Export", exports, "export")}
+        <div class="row" style="justify-content:flex-end;margin-top:10px">${saveBtn}</div>`;
+      // "todos" por columna: marca/desmarca toda la columna de ese rol+tipo.
+      box.querySelectorAll("[data-allcol]").forEach((c) => c.addEventListener("change", () => {
+        const [kind, role] = c.dataset.allcol.split(":");
+        box.querySelectorAll(`[data-perm="${kind}"][data-role="${role}"]`).forEach((x) => { x.checked = c.checked; });
+      }));
+      box.querySelectorAll(".perm-save").forEach((b) => b.addEventListener("click", saveAllPerms));
     } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
   }
-  async function saveRolePerms(role) {
-    const views = [...document.querySelectorAll(`[data-perm="view"][data-role="${role}"]:checked`)].map((c) => c.value);
-    const exports = [...document.querySelectorAll(`[data-perm="export"][data-role="${role}"]:checked`)].map((c) => c.value);
-    try { await api.saveRolePermissions(role, { views, exports }); toast(`Permisos de ${ROLE_LABELS[role] || role} guardados`); }
-    catch (e) { toast(e.message); }
+  async function saveAllPerms() {
+    const box = $("permsBody");
+    try {
+      for (const r of permRoleIds) {
+        const views = [...box.querySelectorAll(`[data-perm="view"][data-role="${r}"]:checked`)].map((x) => x.value);
+        const exports = [...box.querySelectorAll(`[data-perm="export"][data-role="${r}"]:checked`)].map((x) => x.value);
+        await api.saveRolePermissions(r, { views, exports });
+      }
+      toast("Permisos guardados");
+    } catch (e) { toast(e.message); }
   }
   function renderUserForm(u) {
     $("userFormTitle").textContent = u ? `Editar: ${u.username}` : "Nuevo usuario";

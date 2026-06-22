@@ -127,6 +127,11 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
    bloquea cualquier escritura por si algún control se escapa. */
 body.readonly .btn.success,
 body.readonly .btn.danger { display: none !important; }
+
+/* Matriz de permisos por rol (Usuarios): checkbox normal (el input global los deforma). */
+.perm-matrix input[type="checkbox"] { width: 16px; height: 16px; min-width: 0; flex: none; padding: 0; margin: 0; cursor: pointer; vertical-align: middle; }
+.perm-matrix th, .perm-matrix td { white-space: nowrap; }
+.perm-matrix thead th { position: sticky; top: 0; background: var(--surface-2); }
 .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0; }
 .neg { color: var(--red); }
 .danger-zone { border: 1px solid #f3c4c8; background: #fdf4f5; }
@@ -291,6 +296,17 @@ body.readonly .btn.danger { display: none !important; }
 
 .receipt { margin-top: 16px; padding: 14px; background: var(--green-soft); border-radius: 10px; border: 1px solid #c7ecd1; }
 .receipt .btn { margin-top: 10px; width: 100%; }
+.runt-panel {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #cfe0f7;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+.runt-panel span { color: var(--muted); font-size: 12px; }
+.runt-btn { border-color: var(--blue); color: var(--blue); }
 
 /* ---------- Cards / tables ---------- */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow-sm); }
