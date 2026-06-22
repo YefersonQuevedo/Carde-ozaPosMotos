@@ -39,7 +39,7 @@ export function createSalesListModule(context) {
         <th>Fecha</th><th>Venta</th><th>Factura</th><th>Cliente</th><th>Doc</th>
         <th>Placa</th><th>Modelo</th><th>Tipo</th><th>Convenio</th><th>RTM</th>
         <th>Medios</th><th class="r">Base</th><th class="r">IVA</th><th class="r">Total</th>
-        <th>Estado</th><th>Imprimir</th></tr></thead><tbody>${items.map((s) => {
+        <th>Estado</th><th>Registró</th><th>Imprimir</th></tr></thead><tbody>${items.map((s) => {
         const anulada = s.status === "anulada";
         return `<tr
             class="${anulada ? "" : "clickable"}"
@@ -60,9 +60,10 @@ export function createSalesListModule(context) {
             <td class="r">${money(s.totalIva)}</td>
             <td class="r"><b>${money(s.total)}</b></td>
             <td><span class="pill ${anulada ? "danger" : "ok"}">${anulada ? "anulada" : "activa"}</span></td>
+            <td class="hint" style="font-size:11px">${esc(s.createdBy || "")}${s.updatedBy ? `<br>✎ ${esc(s.updatedBy)}` : ""}</td>
             <td><button class="link" data-print="${s.id}" title="Reimprimir ${esc(s.invoiceNumber || s.saleNumber)}">🖨️ ${esc(s.invoiceNumber ? "factura" : "venta")}</button></td>
           </tr>`;
-      }).join("") || '<tr><td class="hint" colspan="16">Sin ventas</td></tr>'
+      }).join("") || '<tr><td class="hint" colspan="17">Sin ventas</td></tr>'
         }</tbody></table></div>`;
 
       $("ventasBody").querySelectorAll("[data-id]").forEach((tr) => {

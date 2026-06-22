@@ -2,6 +2,9 @@ import jwt from "jsonwebtoken";
 
 const SECRET = process.env.JWT_SECRET || "dev-secret-motopos";
 
+// Nombre del usuario autenticado para el rastro de auditoria (quien creo/edito).
+export const actor = (req) => req?.user?.name || req?.user?.username || null;
+
 export function signToken(user) {
   return jwt.sign(
     { id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId || 1 },

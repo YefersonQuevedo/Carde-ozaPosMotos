@@ -230,6 +230,8 @@ model Sale {
   status               String   @default("activa") // activa | anulada
   responsable          String?
   observaciones        String?  @db.Text
+  createdBy            String? // usuario que registro la venta (trazabilidad)
+  updatedBy            String? // usuario que la edito/anulo por ultima vez
   createdAt            DateTime @default(now())
 
   @@unique([companyId, saleNumber])
@@ -303,8 +305,8 @@ model SalePayment {
   groupCode  String
   amount     Int
   costType   String @default("none")
-  costAmount Int    @default(0)
-  costTax    Int    @default(0)
+  costAmount Float  @default(0)
+  costTax    Float  @default(0)
 
   @@index([saleId])
   @@index([methodCode])
@@ -313,19 +315,20 @@ model SalePayment {
 
 /// Costos operativos congelados por venta (formato de cierre del Excel).
 model SaleCost {
-  id               Int @id @default(autoincrement())
-  companyId        Int @default(1)
-  saleId           Int @unique
-  sicov            Int @default(0)
-  ivaSicov         Int @default(0)
-  recaudo          Int @default(0)
-  ivaRecaudo       Int @default(0)
-  ansv             Int @default(0)
-  fupa             Int @default(0)
-  sustratos        Int @default(0)
-  ivaFact          Int @default(0)
-  costeTransaccion Int @default(0)
-  costosTotal      Int @default(0)
+  id               Int   @id @default(autoincrement())
+  companyId        Int   @default(1)
+  saleId           Int   @unique
+  // Costos con 3 decimales (el IVA y los costos de transaccion no son enteros).
+  sicov            Float @default(0)
+  ivaSicov         Float @default(0)
+  recaudo          Float @default(0)
+  ivaRecaudo       Float @default(0)
+  ansv             Float @default(0)
+  fupa             Float @default(0)
+  sustratos        Float @default(0)
+  ivaFact          Float @default(0)
+  costeTransaccion Float @default(0)
+  costosTotal      Float @default(0)
 
   @@map("sale_costs")
 }
@@ -367,6 +370,7 @@ model ReceivablePayment {
   retefuente    Int      @default(0)
   paidDate      String // YYYY-MM-DD
   note          String?
+  createdBy     String? // usuario que registro el abono
   createdAt     DateTime @default(now())
 
   @@index([receivableId])
@@ -567,6 +571,8 @@ model AllyPayment {
   convenioCount Int      @default(0) // cantidad de convenios/placas liquidados
   status        String   @default("activa") // activa | anulada (no se borra: trazabilidad)
   editedAt      DateTime? // ultima modificacion manual (queda marcado como "modificado")
+  createdBy     String? // usuario que registro el pago
+  updatedBy     String? // usuario que lo edito/anulo por ultima vez
   createdAt     DateTime @default(now())
 
   @@index([allyName])
@@ -661,6 +667,7 @@ model Income {
   boxCode     String?  // caja acreditada (si afecta caja)
   note        String?
   createdBy   String?
+  updatedBy   String? // usuario que la edito/anulo por ultima vez
   status      String   @default("activa") // activa | anulada
   createdAt   DateTime @default(now())
 
@@ -681,6 +688,7 @@ model Expense {
   boxCode   String   @default("CAJA_MENOR")
   note      String?
   createdBy String?
+  updatedBy String? // usuario que lo edito/anulo por ultima vez
   status    String   @default("activa") // activa | anulada
   createdAt DateTime @default(now())
 

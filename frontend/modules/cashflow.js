@@ -96,13 +96,13 @@ export function createCashflowModule(context) {
       const bancos = (bySource || {}).bancos || 0;
       const efectivo = (bySource || {}).efectivo || 0;
       $("inTotal").textContent = `${count} ingreso(s) · TOTAL ${money(total)} · Bancos ${money(bancos)} · Efectivo ${money(efectivo)}`;
-      $("inBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th class="r">Valor</th><th>Observación</th><th>Naturaleza</th><th>Fuente</th><th>Caja</th><th></th></tr></thead><tbody>${
+      $("inBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th class="r">Valor</th><th>Observación</th><th>Naturaleza</th><th>Fuente</th><th>Caja</th><th>Registró</th><th></th></tr></thead><tbody>${
         items.map((i) => {
           const manual = i.sourceTable === "cashMovement";
           const nature = i.natureCode === "MOVIMIENTO_CAJA" ? "Movimiento de caja" : (natName[i.natureCode] || i.natureCode || "");
           const fuente = fuenteOf(i, incomeBoxes);
-          return `<tr><td>${esc(i.date)}</td><td class="r">${money(i.value)}</td><td>${esc(i.observation || "")}</td><td>${esc(nature)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(incomeBoxName(i.boxCode))}</td><td><button class="link" data-delinc="${esc(i.id)}" data-source="${manual ? "cashMovement" : "income"}" data-cashid="${i.cashMovementId || ""}">anular</button></td></tr>`;
-        }).join("") || '<tr><td class="hint" colspan="7">Sin ingresos en el rango</td></tr>'
+          return `<tr><td>${esc(i.date)}</td><td class="r">${money(i.value)}</td><td>${esc(i.observation || "")}</td><td>${esc(nature)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(incomeBoxName(i.boxCode))}</td><td class="hint">${esc(i.createdBy || "")}</td><td><button class="link" data-delinc="${esc(i.id)}" data-source="${manual ? "cashMovement" : "income"}" data-cashid="${i.cashMovementId || ""}">anular</button></td></tr>`;
+        }).join("") || '<tr><td class="hint" colspan="8">Sin ingresos en el rango</td></tr>'
       }</tbody></table>`;
       $("inBody").querySelectorAll("[data-delinc]").forEach((b) => b.addEventListener("click", () => delIncomeUI(b.dataset.delinc, b.dataset.source, Number(b.dataset.cashid || 0))));
       loadIncomeConsolidado();
@@ -281,12 +281,12 @@ export function createCashflowModule(context) {
       const natName = Object.fromEntries((expenseNatures || []).map((n) => [n.code, n.name]));
       const bancos = items.filter((e) => fuenteOf(e, gastosBoxes) === "Bancos").reduce((a, e) => a + e.amount, 0);
       $("gxTotal").textContent = `${count} gasto(s) · TOTAL ${money(total)} · Bancos ${money(bancos)} · Efectivo ${money(total - bancos)}`;
-      $("gxBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Concepto / observación</th><th>Naturaleza</th><th>Fuente</th><th>Caja</th><th>Nota</th><th class="r">Valor</th><th></th></tr></thead><tbody>${
+      $("gxBody").innerHTML = `<table class="data"><thead><tr><th>Fecha</th><th>Concepto / observación</th><th>Naturaleza</th><th>Fuente</th><th>Caja</th><th>Nota</th><th>Registró</th><th class="r">Valor</th><th></th></tr></thead><tbody>${
         items.map((e) => {
           const fuente = fuenteOf(e, gastosBoxes);
           const nat = natName[e.category] || e.category || "";
-          return `<tr><td>${esc(e.date)}</td><td>${esc(e.concept)}</td><td>${esc(nat)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(e.boxCode)}</td><td class="hint">${esc(e.note || "")}</td><td class="r">${money(e.amount)}</td><td><button class="link" data-delgasto="${e.id}">anular</button></td></tr>`;
-        }).join("") || '<tr><td class="hint" colspan="8">Sin gastos en el rango</td></tr>'
+          return `<tr><td>${esc(e.date)}</td><td>${esc(e.concept)}</td><td>${esc(nat)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(e.boxCode)}</td><td class="hint">${esc(e.note || "")}</td><td class="hint">${esc(e.createdBy || "")}</td><td class="r">${money(e.amount)}</td><td><button class="link" data-delgasto="${e.id}">anular</button></td></tr>`;
+        }).join("") || '<tr><td class="hint" colspan="9">Sin gastos en el rango</td></tr>'
       }</tbody></table>`;
       $("gxBody").querySelectorAll("[data-delgasto]").forEach((b) => b.addEventListener("click", () => delGastoUI(Number(b.dataset.delgasto))));
       loadExpenseConsolidado();

@@ -4,7 +4,7 @@ import { currentCompanyId } from "../tenant.js";
 import { paymentCost, computeSaleCosts, buildTariffLookup } from "../services/costs.js";
 import { nextInvoiceNumber, buildInvoiceDoc, discriminateTax } from "../services/invoice.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
-import { auth } from "../auth.js";
+import { auth, actor } from "../auth.js";
 import { ensureOpenShift } from "./shifts.js";
 import { refreshAfterSaleChange } from "../services/consistency.js";
 
@@ -236,7 +236,8 @@ router.post("/", async (req, res, next) => {
           dianStatus: facturada ? "facturada" : "no_emitida",
           invoiceNumber,
           responsable: b.responsable || null,
-          observaciones: b.observaciones || null
+          observaciones: b.observaciones || null,
+          createdBy: actor(req)
         }
       });
 
@@ -309,7 +310,7 @@ router.post("/:id/void", auth(["admin"]), async (req, res, next) => {
     if (!sale) return res.status(404).json({ error: "No existe" });
     if (sale.status === "anulada") return res.json({ alreadyVoided: true, sale });
     const updated = await prisma.$transaction(async (tx) => {
-      const s = await tx.sale.update({ where: { id }, data: { status: "anulada" } });
+      const s = await tx.sale.update({ where: { id }, data: { status: "anulada", updatedBy: actor(req) } });
       await tx.reversal.create({
         data: { saleId: id, saleNumber: sale.saleNumber, reason: req.body?.reason || null, authorizedBy: req.body?.authorizedBy || null }
       });
@@ -388,7 +389,8 @@ router.get("/export", async (req, res, next) => {
       const sale = {
         fecha: s.saleDate, venta: s.saleNumber, factura: s.invoiceNumber || "", cliente: s.clientName, doc: s.clientDoc,
         placa: s.plate || "", modelo: s.modelYear || "", tipo: s.allyType, convenio: s.allyName || "",
-        rtm: s.rtmStatus, pin: s.pinNumber || "", estado: s.status
+        rtm: s.rtmStatus, pin: s.pinNumber || "", estado: s.status,
+        registro: s.createdBy || "", modifico: s.updatedBy || ""
       };
       const ps = bySale[s.id] || [];
       if (!ps.length) {
@@ -414,7 +416,8 @@ router.get("/export", async (req, res, next) => {
           { header: "PIN", key: "pin", width: 22 },
           { header: "Método de pago", key: "metodo", width: 22 }, { header: "Valor pago", key: "valorPago", width: 14, money: true },
           { header: "Base", key: "base", width: 14, money: true }, { header: "IVA", key: "iva", width: 14, money: true },
-          { header: "Total", key: "total", width: 14, money: true }, { header: "Estado", key: "estado", width: 10 }
+          { header: "Total", key: "total", width: 14, money: true }, { header: "Estado", key: "estado", width: 10 },
+          { header: "Registró", key: "registro", width: 18 }, { header: "Modificó", key: "modifico", width: 18 }
         ],
         rows, totals: { base: total - iva, iva, total }
       }]
@@ -487,6 +490,7 @@ router.put("/:id", auth(["admin"]), async (req, res, next) => {
       data.commissionPaidBy = null;
     }
 
+    data.updatedBy = actor(req);
     const updated = await prisma.sale.update({ where: { id }, data });
     await refreshAfterSaleChange(updated);
     res.json({ sale: updated });

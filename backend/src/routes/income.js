@@ -3,6 +3,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
+import { actor } from "../auth.js";
 
 const router = Router();
 const iso = () => new Date().toISOString().slice(0, 10);
@@ -192,7 +193,8 @@ router.get("/export", async (req, res, next) => {
     const planilla = items.map((i) => ({
       date: i.date, value: i.value, observation: i.observation || "",
       naturaleza: i.natureCode === "MOVIMIENTO_CAJA" ? "Movimiento de caja" : (nameByCode[i.natureCode] || i.natureCode || ""),
-      fuente: (i.source === "bancos" || bankCodes.has(i.boxCode)) ? "Bancos" : "Efectivo"
+      fuente: (i.source === "bancos" || bankCodes.has(i.boxCode)) ? "Bancos" : "Efectivo",
+      registro: i.createdBy || ""
     }));
     const consolRows = consol.map((r) => ({ ...r, pctTxt: (r.pct || 0).toString().replace(".", ",") + "%" }));
     const buf = await toWorkbook({
@@ -217,7 +219,8 @@ router.get("/export", async (req, res, next) => {
             { header: "VALOR", key: "value", width: 16, money: true },
             { header: "OBSERVACIÓN", key: "observation", width: 38 },
             { header: "NATURALEZA", key: "naturaleza", width: 26 },
-            { header: "FUENTE", key: "fuente", width: 12 }
+            { header: "FUENTE", key: "fuente", width: 12 },
+            { header: "Registró", key: "registro", width: 18 }
           ],
           rows: planilla, totals: { value: totals.total }
         }
@@ -244,7 +247,7 @@ router.post("/", async (req, res, next) => {
     const source = isBankBox(box) ? "bancos" : "efectivo";
     const income = await prisma.$transaction(async (tx) => {
       const inc = await tx.income.create({
-        data: { date, value, observation, natureCode: b.natureCode || null, source, boxCode, note: b.note || null, createdBy: b.createdBy || null }
+        data: { date, value, observation, natureCode: b.natureCode || null, source, boxCode, note: b.note || null, createdBy: actor(req) }
       });
       await tx.cashMovement.create({ data: { boxCode, type: "ingreso", amount: value, refType: "income", refId: inc.id, date, note: `Ingreso: ${observation}` } });
       return inc;
@@ -263,7 +266,7 @@ router.delete("/:id", async (req, res, next) => {
     if (!inc) return res.status(404).json({ error: "No existe" });
     if (inc.status === "anulada") return res.json({ ok: true, alreadyVoided: true });
     await prisma.$transaction(async (tx) => {
-      await tx.income.update({ where: { id }, data: { status: "anulada" } });
+      await tx.income.update({ where: { id }, data: { status: "anulada", updatedBy: actor(req) } });
       if (inc.boxCode) await tx.cashMovement.create({ data: { boxCode: inc.boxCode, type: "egreso", amount: inc.value, refType: "income_void", refId: id, date: iso(), note: `Anulacion ingreso` } });
     });
     res.json({ ok: true });

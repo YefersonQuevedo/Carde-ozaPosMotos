@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { sendXlsx, toWorkbook } from "../services/excel.js";
 import { refreshAfterSaleChange } from "../services/consistency.js";
+import { actor } from "../auth.js";
 
 const router = Router();
 
@@ -213,7 +214,7 @@ router.post("/:id/payments", async (req, res, next) => {
 
     const result = await prisma.$transaction(async (tx) => {
       const payment = await tx.receivablePayment.create({
-        data: { receivableId: id, provider: receivable.provider, invoiceNumber, amount, ica, retefuente, paidDate, note }
+        data: { receivableId: id, provider: receivable.provider, invoiceNumber, amount, ica, retefuente, paidDate, note, createdBy: actor(req) }
       });
       const pending = Math.max(0, toInt(receivable.pending) - covered);
       const updated = await tx.receivable.update({

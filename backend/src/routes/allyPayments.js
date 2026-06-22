@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
+import { actor } from "../auth.js";
 
 const router = Router();
 
@@ -236,7 +237,8 @@ router.post("/", async (req, res, next) => {
           voucherPath: b.voucherPath || null,
           invoiceNumber,
           plates,
-          convenioCount
+          convenioCount,
+          createdBy: actor(req)
         }
       });
 
@@ -328,7 +330,8 @@ router.put("/:id", async (req, res, next) => {
           note: b.note !== undefined ? (b.note || null) : prev.note,
           voucherPath: b.voucherPath !== undefined ? (b.voucherPath || prev.voucherPath) : prev.voucherPath,
           invoiceNumber: b.invoiceNumber !== undefined ? (b.invoiceNumber || null) : prev.invoiceNumber,
-          editedAt: new Date()
+          editedAt: new Date(),
+          updatedBy: actor(req)
         }
       });
     });
@@ -351,7 +354,7 @@ router.delete("/:id", async (req, res, next) => {
       await tx.sale.updateMany({ where: { commissionPaidBy: id }, data: { commissionPaidBy: null } });
       // El dinero vuelve a PROV_CONV (movimiento contrario, nada se borra).
       await reverseMovements(tx, id, "ally_payment_void");
-      await tx.allyPayment.update({ where: { id }, data: { status: "anulada", editedAt: new Date() } });
+      await tx.allyPayment.update({ where: { id }, data: { status: "anulada", editedAt: new Date(), updatedBy: actor(req) } });
     });
     res.json({ ok: true });
   } catch (e) {
