@@ -34,8 +34,10 @@ router.post("/roles", auth(["admin"]), async (req, res, next) => {
     if (!role) return res.status(400).json({ error: "Nombre de rol obligatorio" });
     if (role === "admin" || isBuiltinRole(role)) return res.status(400).json({ error: "Ese rol ya existe (de fábrica)" });
     if (await roleExists(role)) return res.status(400).json({ error: "Ya existe un rol con ese nombre" });
-    const item = await prisma.rolePermission.create({ data: { role, label, readonly: !!req.body?.readonly, views: [], exports: [] } });
-    res.status(201).json({ role: item.role, label: item.label, readonly: item.readonly });
+    const item = await prisma.rolePermission.create({
+      data: { role, label, canWrite: req.body?.canWrite !== false, canDelete: req.body?.canDelete !== false, views: [], exports: [] }
+    });
+    res.status(201).json({ role: item.role, label: item.label, canWrite: item.canWrite, canDelete: item.canDelete });
   } catch (e) { next(e); }
 });
 
@@ -48,18 +50,19 @@ router.put("/:role", auth(["admin"]), async (req, res, next) => {
     const views = Array.isArray(req.body?.views) ? req.body.views.map(String) : [];
     const exports = Array.isArray(req.body?.exports) ? req.body.exports.map(String) : [];
     const data = { views, exports };
-    // readonly/label solo cambian en roles personalizados (los de fábrica son fijos).
+    // canWrite/canDelete/label solo cambian en roles personalizados (los de fábrica son fijos).
     if (!isBuiltinRole(role)) {
-      if (req.body?.readonly !== undefined) data.readonly = !!req.body.readonly;
+      if (req.body?.canWrite !== undefined) data.canWrite = !!req.body.canWrite;
+      if (req.body?.canDelete !== undefined) data.canDelete = !!req.body.canDelete;
       if (req.body?.label !== undefined) data.label = String(req.body.label).trim() || role;
     }
     const companyId = currentCompanyId();
     const item = await prisma.rolePermission.upsert({
       where: { companyId_role: { companyId, role } },
       update: data,
-      create: { role, views, exports, readonly: data.readonly || false, label: data.label || null }
+      create: { role, views, exports, canWrite: data.canWrite !== false, canDelete: data.canDelete !== false, label: data.label || null }
     });
-    res.json({ item: { role: item.role, label: item.label, readonly: item.readonly, views: item.views, exports: item.exports } });
+    res.json({ item: { role: item.role, label: item.label, canWrite: item.canWrite, canDelete: item.canDelete, views: item.views, exports: item.exports } });
   } catch (e) { next(e); }
 });
 

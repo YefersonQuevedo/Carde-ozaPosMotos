@@ -403,7 +403,8 @@ model RolePermission {
   companyId Int      @default(1)
   role      String // vendedor | auditor | contador | <personalizado> ...
   label     String? // nombre visible del rol (para roles personalizados)
-  readonly  Boolean  @default(false) // solo lectura (no puede crear/editar)
+  canWrite  Boolean  @default(true) // puede crear/editar (POST/PUT/PATCH)
+  canDelete Boolean  @default(true) // puede eliminar (DELETE)
   views     Json // ids de panel permitidos
   exports   Json // ids de export permitidos
   updatedAt DateTime @updatedAt

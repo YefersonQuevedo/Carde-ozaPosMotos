@@ -33,7 +33,7 @@ import { tenantMiddleware } from "./tenant.js";
 import companies from "./routes/companies.js";
 import nomina from "./routes/nomina.js";
 import permissions from "./routes/permissions.js";
-import { exportIdFor, permsForRole, isReadonlyRole } from "./permissions.js";
+import { exportIdFor, permsForRole } from "./permissions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -53,10 +53,15 @@ app.use("/api", tenantMiddleware);
 // El login va antes de auth(), asi que no se ve afectado.
 app.use("/api", async (req, res, next) => {
   try {
-    if (req.method === "GET") return next();
+    const m = req.method;
+    if (m === "GET" || m === "HEAD" || m === "OPTIONS") return next();
     const role = req.user?.role;
-    if (role && (await isReadonlyRole(role))) {
-      return res.status(403).json({ error: "Tu rol es de solo lectura: no puedes crear ni modificar." });
+    if (!role || role === "admin") return next();
+    const perms = await permsForRole(role);
+    if (m === "DELETE") {
+      if (!perms.canDelete) return res.status(403).json({ error: "Tu rol no tiene permiso para eliminar." });
+    } else if (!perms.canWrite) {
+      return res.status(403).json({ error: "Tu rol no tiene permiso para crear ni modificar." });
     }
     next();
   } catch (e) { next(e); }

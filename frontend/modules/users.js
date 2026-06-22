@@ -24,11 +24,11 @@ export function createUsersModule(context) {
     if (!box) return;
     try {
       const { panels, exports, roles } = await api.rolePermissions();
-      availableRoles = roles;                     // [{ role, label, builtin, readonly, views, exports }]
+      availableRoles = roles;   // [{ role, label, builtin, canWrite, canDelete, views, exports }]
       permRoleIds = roles.map((r) => r.role);
-      const matrix = (titulo, items, kind, withControls) => {
+      const matrix = (titulo, items, kind) => {
         const head = `<tr><th style="text-align:left;min-width:220px">${esc(titulo)}</th>${roles.map((r) =>
-          `<th style="text-align:center">${esc(r.label)}${r.readonly ? '<br><span class="pill warn" style="font-size:10px">solo lectura</span>' : ""}<br><label class="hint" style="font-weight:400;cursor:pointer"><input type="checkbox" data-allcol="${kind}:${r.role}" /> todos</label>${withControls && !r.builtin ? `<br><button class="link" data-delrole="${esc(r.role)}" style="color:#b72c35">✕ borrar</button>` : ""}</th>`).join("")}</tr>`;
+          `<th style="text-align:center">${esc(r.label)}<br><label class="hint" style="font-weight:400;cursor:pointer"><input type="checkbox" data-allcol="${kind}:${r.role}" /> todos</label></th>`).join("")}</tr>`;
         const body = items.map((it) => {
           const cells = roles.map((r) => {
             const set = new Set(kind === "view" ? r.views : r.exports);
@@ -38,18 +38,35 @@ export function createUsersModule(context) {
         }).join("");
         return `<div style="overflow-x:auto"><table class="data perm-matrix"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
       };
+      // Resumen de roles: acceso (lectura siempre; escritura/borrar editables en personalizados) + conteos.
+      const summary = `<div style="overflow-x:auto"><table class="data perm-matrix">
+        <thead><tr><th style="text-align:left">Rol</th><th>Lectura</th><th>Escritura</th><th>Borrar</th><th>Paneles</th><th>Exports</th><th>Tipo</th><th></th></tr></thead>
+        <tbody>${roles.map((r) => `<tr>
+          <td><b>${esc(r.label)}</b></td>
+          <td style="text-align:center">✓</td>
+          <td style="text-align:center"><input type="checkbox" data-acc="write" data-role="${esc(r.role)}" ${r.canWrite ? "checked" : ""} ${r.builtin ? "disabled" : ""} /></td>
+          <td style="text-align:center"><input type="checkbox" data-acc="del" data-role="${esc(r.role)}" ${r.canDelete ? "checked" : ""} ${r.builtin ? "disabled" : ""} /></td>
+          <td style="text-align:center">${(r.views || []).length}</td>
+          <td style="text-align:center">${(r.exports || []).length}</td>
+          <td>${r.builtin ? "de fábrica" : "personalizado"}</td>
+          <td>${r.builtin ? "" : `<button class="link" data-delrole="${esc(r.role)}" style="color:#b72c35">✕ borrar</button>`}</td>
+        </tr>`).join("")}</tbody></table></div>`;
       const saveBtn = `<button class="btn success perm-save">💾 Guardar permisos</button>`;
       box.innerHTML = `
         <div class="row" style="gap:8px;margin-bottom:10px;align-items:flex-end;flex-wrap:wrap">
           <label class="fld" style="max-width:220px;margin:0">Nuevo rol<input id="newRoleName" placeholder="Ej: Supervisor" /></label>
-          <label class="chk" style="width:auto"><input type="checkbox" id="newRoleRO" /> Solo lectura</label>
+          <label class="chk" style="width:auto"><input type="checkbox" id="newRoleWrite" checked /> Escritura</label>
+          <label class="chk" style="width:auto"><input type="checkbox" id="newRoleDel" checked /> Borrar</label>
           <button class="btn" id="newRoleBtn">+ Crear rol</button>
           <span style="flex:1"></span>${saveBtn}
         </div>
-        <h3 style="margin:6px 0">Paneles que puede ver cada rol</h3>
-        ${matrix("Panel", panels, "view", true)}
+        <h3 style="margin:6px 0">Roles y nivel de acceso</h3>
+        <p class="hint" style="margin:0 0 6px">Lectura: siempre. Escritura: crear/editar. Borrar: eliminar. Los roles de fábrica tienen el acceso fijo.</p>
+        ${summary}
+        <h3 style="margin:16px 0 6px">Paneles que puede ver cada rol</h3>
+        ${matrix("Panel", panels, "view")}
         <h3 style="margin:16px 0 6px">Exports que puede descargar cada rol</h3>
-        ${matrix("Export", exports, "export", false)}
+        ${matrix("Export", exports, "export")}
         <div class="row" style="justify-content:flex-end;margin-top:10px">${saveBtn}</div>`;
       // "todos" por columna: marca/desmarca toda la columna de ese rol+tipo.
       box.querySelectorAll("[data-allcol]").forEach((c) => c.addEventListener("change", () => {
@@ -64,19 +81,26 @@ export function createUsersModule(context) {
   async function saveAllPerms() {
     const box = $("permsBody");
     try {
-      for (const r of permRoleIds) {
-        const views = [...box.querySelectorAll(`[data-perm="view"][data-role="${r}"]:checked`)].map((x) => x.value);
-        const exports = [...box.querySelectorAll(`[data-perm="export"][data-role="${r}"]:checked`)].map((x) => x.value);
-        await api.saveRolePermissions(r, { views, exports });
+      for (const r of availableRoles) {
+        const role = r.role;
+        const views = [...box.querySelectorAll(`[data-perm="view"][data-role="${role}"]:checked`)].map((x) => x.value);
+        const exports = [...box.querySelectorAll(`[data-perm="export"][data-role="${role}"]:checked`)].map((x) => x.value);
+        const body = { views, exports };
+        if (!r.builtin) {
+          body.canWrite = box.querySelector(`[data-acc="write"][data-role="${role}"]`)?.checked ?? true;
+          body.canDelete = box.querySelector(`[data-acc="del"][data-role="${role}"]`)?.checked ?? true;
+        }
+        await api.saveRolePermissions(role, body);
       }
       toast("Permisos guardados");
+      await loadPermissionsPanel();
     } catch (e) { toast(e.message); }
   }
   async function createRoleUI() {
     const name = $("newRoleName").value.trim();
     if (!name) return toast("Escribe el nombre del rol");
     try {
-      await api.createRole({ name, readonly: $("newRoleRO").checked });
+      await api.createRole({ name, canWrite: $("newRoleWrite").checked, canDelete: $("newRoleDel").checked });
       toast(`Rol "${name}" creado`);
       await loadPermissionsPanel();
     } catch (e) { toast(e.message); }
