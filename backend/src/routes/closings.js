@@ -277,12 +277,24 @@ async function buildResumenSheets(date, gastos) {
 async function buildDetalleSheets(date, gastos) {
   const audit = await gatherDayAudit(date, gastos);
   const total = (key, rows = audit.detailRows) => rows.reduce((a, r) => a + money(r[key]), 0);
+  // "Detalle dia": método de pago y valor en columnas SEPARADAS (una fila por método;
+  // si la venta tuvo varios pagos, los demás datos/costos van solo en la primera fila).
+  const detalleColumns = auditDetailColumns.flatMap((c) => c.key === "metodosPago"
+    ? [{ header: "Método de pago", key: "metodoPago", width: 22 }, { header: "Valor pago", key: "valorPago", width: 14, money: true }]
+    : [c]);
+  const blankRow = Object.fromEntries(detalleColumns.map((c) => [c.key, ""]));
+  const detalleRows = audit.detailRows.flatMap((r) => {
+    const pagos = (r.pagosDetalle && r.pagosDetalle.length) ? r.pagosDetalle : [{ metodo: "", valor: "" }];
+    return pagos.map((p, i) => i === 0
+      ? { ...r, metodoPago: p.metodo, valorPago: p.valor }
+      : { ...blankRow, metodoPago: p.metodo, valorPago: p.valor });
+  });
   return [
         {
           name: "Detalle dia",
           title: `Detalle auditable del dia ${date}`,
-          columns: auditDetailColumns,
-          rows: audit.detailRows,
+          columns: detalleColumns,
+          rows: detalleRows,
           totals: {
             valorComision: total("valorComision"),
             provision: total("provision"),

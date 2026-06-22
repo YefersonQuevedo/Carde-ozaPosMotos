@@ -218,6 +218,8 @@ export async function gatherDayAudit(date, gastosManual = 0, methodCodes = null)
       provisionConsumida: s.provisionConsumed ? "Si" : "No",
       provisionPlaca: s.provisionSourcePlate || "",
       metodosPago: summary.metodos,
+      // Detalle por pago (para el export: una fila por método con su valor en columna aparte).
+      pagosDetalle: salePayments.map((p) => ({ metodo: p.methodName, valor: money(p.effectiveAmount) })),
       efectivoReal: summary.efectivo,
       bancosTarjetaQr: summary.bancos,
       carteraCredito: summary.cartera,
