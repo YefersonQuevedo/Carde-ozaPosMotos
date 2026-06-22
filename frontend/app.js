@@ -139,36 +139,50 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
-// Vistas permitidas para roles con menu acotado. (auditor/admin ven todo.)
-const ROLE_VIEWS = { contador: ["facturaelec", "dian", "gastos"] };
+// Permisos del usuario actual (segun su rol): { role, views, exports }. Se cargan al
+// iniciar sesion (loadMyPerms) y manejan que paneles ve y que puede exportar.
+let myPerms = null;
+async function loadMyPerms() {
+  try { myPerms = await api.myPermissions(); } catch { myPerms = null; }
+}
+// Export-ids permitidos para el usuario actual (para ocultar botones de export).
+function canExport(id) {
+  if (api.currentUser()?.role === "admin") return true;
+  return !!(myPerms && Array.isArray(myPerms.exports) && myPerms.exports.includes(id));
+}
 
 function applyRole() {
   const u = api.currentUser();
   const role = u?.role || "vendedor";
+  const isAdmin = role === "admin";
   const readonly = role === "auditor" || role === "contador";
   $("userBox").innerHTML = u
     ? `<div class="uname">${esc(u.name)}</div><div class="urole">${esc(u.role)}${u.companyName ? " · " + esc(u.companyName) : ""}</div>${readonly ? '<div class="urole" style="color:#b45309;font-weight:700">👁 Solo lectura</div>' : ""}<button class="link" id="logoutBtn">Cerrar sesion</button>`
     : "";
   $("logoutBtn")?.addEventListener("click", logout);
-
-  const seesAll = role === "admin" || role === "auditor";
   document.body.classList.toggle("readonly", readonly);
-  // Tabs admin-only: visibles para admin y auditor.
-  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", !seesAll));
 
-  // Rol con menu acotado (contador): solo sus vistas; oculta el resto y las secciones vacias.
-  const allowed = ROLE_VIEWS[role] ? new Set(ROLE_VIEWS[role]) : null;
-  if (allowed) {
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", !allowed.has(t.dataset.view)));
-    document.querySelectorAll(".nav-sec").forEach((sec) => {
-      let n = sec.nextElementSibling, anyVisible = false;
-      while (n && !n.classList.contains("nav-sec")) {
-        if (n.classList.contains("tab") && !n.classList.contains("hidden")) anyVisible = true;
-        n = n.nextElementSibling;
-      }
-      sec.classList.toggle("hidden", !anyVisible);
-    });
-    if (!allowed.has(currentView)) switchView(ROLE_VIEWS[role][0]);
+  // Paneles visibles: admin ve todo; el resto solo las vistas permitidas por su rol.
+  const allowed = new Set((myPerms && Array.isArray(myPerms.views)) ? myPerms.views : []);
+  document.querySelectorAll(".tab").forEach((t) => {
+    const v = t.dataset.view;
+    // usuarios/config no están en el catálogo de paneles: solo admin.
+    const show = isAdmin || allowed.has(v);
+    t.classList.toggle("hidden", !show);
+  });
+  // Oculta los encabezados de sección que quedan sin tabs visibles.
+  document.querySelectorAll(".nav-sec").forEach((sec) => {
+    let n = sec.nextElementSibling, anyVisible = false;
+    while (n && !n.classList.contains("nav-sec")) {
+      if (n.classList.contains("tab") && !n.classList.contains("hidden")) anyVisible = true;
+      n = n.nextElementSibling;
+    }
+    sec.classList.toggle("hidden", !anyVisible);
+  });
+  // Si la vista actual no está permitida, salta a la primera permitida.
+  if (!isAdmin && !allowed.has(currentView)) {
+    const first = document.querySelector(".tab:not(.hidden)");
+    if (first?.dataset.view) switchView(first.dataset.view);
   }
 }
 
@@ -190,6 +204,7 @@ function logout() {
 let started = false;
 async function startApp() {
   showApp();
+  await loadMyPerms();
   applyRole();
   if (started) {
     switchView("venta");

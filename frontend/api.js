@@ -241,5 +241,9 @@ export const api = {
   listUsers: () => req("/users"),
   createUser: (body) => req("/users", { method: "POST", body }),
   updateUser: (id, body) => req(`/users/${id}`, { method: "PUT", body }),
-  deleteUser: (id) => req(`/users/${id}`, { method: "DELETE" })
+  deleteUser: (id) => req(`/users/${id}`, { method: "DELETE" }),
+
+  myPermissions: () => req("/permissions/mine"),
+  rolePermissions: () => req("/permissions"),
+  saveRolePermissions: (role, body) => req(`/permissions/${encodeURIComponent(role)}`, { method: "PUT", body })
 };
