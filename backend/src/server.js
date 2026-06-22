@@ -46,6 +46,16 @@ app.use("/api/auth", authRoutes); // publico (login)
 // (multi-tenant: la extension de Prisma filtra todo por req.companyId).
 app.use("/api", auth());
 app.use("/api", tenantMiddleware);
+
+// Roles de SOLO LECTURA (auditor, contador): bloquean cualquier escritura.
+// El login va antes de auth(), asi que no se ve afectado.
+app.use("/api", (req, res, next) => {
+  const role = req.user?.role;
+  if ((role === "auditor" || role === "contador") && req.method !== "GET") {
+    return res.status(403).json({ error: "Tu rol es de solo lectura: no puedes crear ni modificar." });
+  }
+  next();
+});
 app.use("/api/companies", companies);
 app.use("/api/clients", clients);
 app.use("/api/vehicles", vehicles);

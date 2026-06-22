@@ -22,6 +22,8 @@ export function createUsersModule(context) {
           <select id="us_role">
             <option value="vendedor" ${u?.role === "vendedor" ? "selected" : ""}>Vendedor</option>
             <option value="admin" ${u?.role === "admin" ? "selected" : ""}>Administrador</option>
+            <option value="auditor" ${u?.role === "auditor" ? "selected" : ""}>Auditor (ve todo, solo lectura)</option>
+            <option value="contador" ${u?.role === "contador" ? "selected" : ""}>Contador (facturas y gastos, solo lectura)</option>
           </select>
         </label>
         <label class="fld">${u ? "Nueva clave (opcional)" : "Clave"}<input id="us_password" type="password" /></label>

@@ -139,14 +139,37 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
+// Vistas permitidas para roles con menu acotado. (auditor/admin ven todo.)
+const ROLE_VIEWS = { contador: ["facturaelec", "dian", "gastos"] };
+
 function applyRole() {
   const u = api.currentUser();
+  const role = u?.role || "vendedor";
+  const readonly = role === "auditor" || role === "contador";
   $("userBox").innerHTML = u
-    ? `<div class="uname">${esc(u.name)}</div><div class="urole">${esc(u.role)}${u.companyName ? " · " + esc(u.companyName) : ""}</div><button class="link" id="logoutBtn">Cerrar sesion</button>`
+    ? `<div class="uname">${esc(u.name)}</div><div class="urole">${esc(u.role)}${u.companyName ? " · " + esc(u.companyName) : ""}</div>${readonly ? '<div class="urole" style="color:#b45309;font-weight:700">👁 Solo lectura</div>' : ""}<button class="link" id="logoutBtn">Cerrar sesion</button>`
     : "";
   $("logoutBtn")?.addEventListener("click", logout);
-  const isAdmin = u?.role === "admin";
-  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", !isAdmin));
+
+  const seesAll = role === "admin" || role === "auditor";
+  document.body.classList.toggle("readonly", readonly);
+  // Tabs admin-only: visibles para admin y auditor.
+  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", !seesAll));
+
+  // Rol con menu acotado (contador): solo sus vistas; oculta el resto y las secciones vacias.
+  const allowed = ROLE_VIEWS[role] ? new Set(ROLE_VIEWS[role]) : null;
+  if (allowed) {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", !allowed.has(t.dataset.view)));
+    document.querySelectorAll(".nav-sec").forEach((sec) => {
+      let n = sec.nextElementSibling, anyVisible = false;
+      while (n && !n.classList.contains("nav-sec")) {
+        if (n.classList.contains("tab") && !n.classList.contains("hidden")) anyVisible = true;
+        n = n.nextElementSibling;
+      }
+      sec.classList.toggle("hidden", !anyVisible);
+    });
+    if (!allowed.has(currentView)) switchView(ROLE_VIEWS[role][0]);
+  }
 }
 
 function showLogin() {

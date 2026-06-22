@@ -121,6 +121,12 @@ input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .grid2 .btn, .grid2 .chk, .grid2 .lookup { grid-column: 1 / -1; }
 .hidden { display: none !important; }
+
+/* Modo SOLO LECTURA (roles auditor/contador): oculta los botones de acción
+   (verde = crear/guardar, rojo = anular/eliminar/cerrar). El backend además
+   bloquea cualquier escritura por si algún control se escapa. */
+body.readonly .btn.success,
+body.readonly .btn.danger { display: none !important; }
 .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0; }
 .neg { color: var(--red); }
 .danger-zone { border: 1px solid #f3c4c8; background: #fdf4f5; }
