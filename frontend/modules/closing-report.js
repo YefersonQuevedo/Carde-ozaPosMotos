@@ -153,6 +153,7 @@ export function createClosingReportModule(context) {
       await ensurePaymentMethods();
       const methods = currentMethods();
       const [d, plan] = await Promise.all([api.closingDetail(date, gastos, methods), api.reportDetail(date, date, methods)]);
+      closingPlanRows = plan.rows || [];
       const c = d.closing;
       const titulo = new Date(date + "T12:00:00").toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).toUpperCase();
       const pendientes = (d.detail || []).filter((s) => s.rtmEstado === "pending");
@@ -202,6 +203,7 @@ export function createClosingReportModule(context) {
   }
 
   let reportPlanRows = []; // filas de la planilla del rango (para el buscador)
+  let closingPlanRows = []; // filas de la planilla del día (para imprimir el cierre)
   function wireEditSale(scope) {
     if (!editSale || !scope) return;
     scope.querySelectorAll("[data-editsale]").forEach((b) => b.addEventListener("click", () => editSale(Number(b.dataset.editsale))));
@@ -272,10 +274,11 @@ export function createClosingReportModule(context) {
 
   // Exporta a PDF (impresión del navegador → "Guardar como PDF") las ventas marcadas,
   // para enviarlas a contabilidad. Documento horizontal con el detalle de cada una.
-  function exportSeleccionPdf(from, to) {
-    const ids = [...document.querySelectorAll(".sel-sale:checked")].map((c) => Number(c.dataset.selid));
-    if (!ids.length) return toast("Marca al menos una venta (chulo de la izquierda) para el PDF");
-    const sel = reportPlanRows.filter((r) => ids.includes(r.id));
+  // Abre un PDF/impresión con la planilla (venta por venta) en formato horizontal
+  // compacto que SÍ cabe en la hoja. Lo usan el consolidado (selección) y el cierre
+  // del día (detalle completo del día).
+  function openPlanillaPdf(rows, { titulo, subtitulo }) {
+    if (!rows || !rows.length) return toast("No hay transacciones para imprimir");
     const fecha = new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
     const cols = [
       ["#", (r, i) => i + 1], ["Fecha", (r) => r.fecha], ["Factura", (r) => r.factura || "-"],
@@ -289,11 +292,11 @@ export function createClosingReportModule(context) {
       ["Sustratos", (r) => fmtCost(r.sustratos), 1], ["Costos total", (r) => fmtCost(r.costosTotal), 1]
     ];
     const th = cols.map(([h, , r]) => `<th class="${r ? "r" : ""}">${esc(h)}</th>`).join("");
-    const trs = sel.map((row, i) => `<tr>${cols.map(([, fn, r]) => `<td class="${r ? "r" : ""}">${esc(String(fn(row, i)))}</td>`).join("")}</tr>`).join("");
-    const tTotal = sel.reduce((a, r) => a + (Number(r.total) || 0), 0);
-    const tDed = sel.reduce((a, r) => a + (Number(r.deduccionesConvenios) || 0), 0);
-    const tCostos = sel.reduce((a, r) => a + (Number(r.costosTotal) || 0), 0);
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Reporte contabilidad ${esc(from)} a ${esc(to)}</title>
+    const trs = rows.map((row, i) => `<tr>${cols.map(([, fn, r]) => `<td class="${r ? "r" : ""}">${esc(String(fn(row, i)))}</td>`).join("")}</tr>`).join("");
+    const tTotal = rows.reduce((a, r) => a + (Number(r.total) || 0), 0);
+    const tDed = rows.reduce((a, r) => a + (Number(r.deduccionesConvenios) || 0), 0);
+    const tCostos = rows.reduce((a, r) => a + (Number(r.costosTotal) || 0), 0);
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(titulo)}</title>
       <style>
         @page{size:landscape;margin:10mm}
         *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
@@ -304,8 +307,8 @@ export function createClosingReportModule(context) {
         th{background:#ed7d31;color:#fff} td.r,th.r{text-align:right}
         tfoot td{font-weight:bold;background:#fce4d6}
       </style></head><body onload="window.print()">
-      <h1>RTM Motos · Girardot — Reporte para contabilidad</h1>
-      <div class="muted">Período ${esc(from)} a ${esc(to)} · ${sel.length} venta(s) seleccionada(s) · generado ${esc(fecha)}</div>
+      <h1>RTM Motos · Girardot — ${esc(titulo)}</h1>
+      <div class="muted">${esc(subtitulo)} · ${rows.length} venta(s) · generado ${esc(fecha)}</div>
       <table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
       <tfoot><tr><td colspan="8">TOTALES</td><td class="r">${money(tTotal)}</td><td></td><td class="r">${money(tDed)}</td><td colspan="9"></td><td class="r">${money(tCostos)}</td></tr></tfoot>
       </table></body></html>`;
@@ -314,38 +317,17 @@ export function createClosingReportModule(context) {
     w.document.write(html); w.document.close(); w.focus();
   }
 
-  // Imprime el CIERRE DEL DÍA COMPLETO tal como se ve (planilla + bloques de resumen +
-  // dispersión). A diferencia del PDF del consolidado (selección), aquí va TODO.
+  function exportSeleccionPdf(from, to) {
+    const ids = [...document.querySelectorAll(".sel-sale:checked")].map((c) => Number(c.dataset.selid));
+    if (!ids.length) return toast("Marca al menos una venta (chulo de la izquierda) para el PDF");
+    const sel = reportPlanRows.filter((r) => ids.includes(r.id));
+    openPlanillaPdf(sel, { titulo: "Reporte para contabilidad", subtitulo: `Período ${from} a ${to}` });
+  }
+
+  // Imprime el DETALLE DEL DÍA (venta por venta) en el mismo formato horizontal
+  // compacto del consolidado, que cabe bien en la hoja. Va TODO el día (sin selección).
   function printCierre(date) {
-    const body = $("closingBody");
-    if (!body) return;
-    const clone = body.cloneNode(true);
-    // Quita controles que no van en el impreso (botones, filtro de métodos, links, inputs).
-    clone.querySelectorAll("button, .methods-filter, input, [data-editsale]").forEach((el) => el.remove());
-    const fecha = new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cierre del día ${esc(date)}</title>
-      <style>
-        @page{size:landscape;margin:8mm}
-        *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
-        body{margin:0;padding:12px;color:#111;font-size:11px}
-        h1{font-size:15px;margin:0 0 2px} .muted{color:#555;font-size:11px;margin-bottom:8px}
-        table{border-collapse:collapse;margin:6px 0;font-size:9px;width:100%}
-        th,td{border:1px solid #ccc;padding:2px 4px;text-align:left}
-        th{background:#ed7d31;color:#fff} .r,td.r,th.r{text-align:right}
-        caption{font-weight:bold;text-align:left;margin:8px 0 2px;font-size:12px}
-        .xls-title{font-weight:bold;font-size:13px;margin:8px 0 4px}
-        .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
-        .kpi{border:1px solid #ddd;padding:4px 8px;border-radius:4px;font-size:10px}
-        .pill{display:inline-block;padding:2px 6px;border:1px solid #ddd;border-radius:10px;font-size:10px}
-        h3{font-size:12px;margin:10px 0 4px}
-      </style></head><body onload="window.print()">
-      <h1>RTM Motos · Girardot — Cierre del día</h1>
-      <div class="muted">${esc(date)} · generado ${esc(fecha)}</div>
-      ${clone.innerHTML}
-      </body></html>`;
-    const w = window.open("", "_blank", "width=1200,height=850");
-    if (!w) return toast("Permite las ventanas emergentes para imprimir el cierre");
-    w.document.write(html); w.document.close(); w.focus();
+    openPlanillaPdf(closingPlanRows, { titulo: "Cierre del día — detalle", subtitulo: String(date) });
   }
 
   // Planilla venta por venta, igual a como el cliente la lleva en su Excel.
