@@ -159,11 +159,12 @@ export function createClosingReportModule(context) {
 
       $("closingBody").innerHTML = `
         <div class="xls-title">${esc(titulo)}</div>
-        <div class="row" style="justify-content:space-between;align-items:center;gap:8px;margin:6px 0">${methodsFilterHtml()}${eyeBtn()}</div>
+        <div class="row" style="justify-content:space-between;align-items:center;gap:8px;margin:6px 0">${methodsFilterHtml()}<span class="row" style="gap:8px">${eyeBtn()}<button class="btn ghost" id="printCierre">🖨️ Imprimir cierre</button></span></div>
         ${methodsActiveHint()}
         ${planillaTableHtml(plan.rows || [], plan.totals || {})}
         ${closingExcelBlocks(c, { fupas: d.fupas, expenses: d.expenses, dispersion: d.dispersion, pendientes })}`;
       $("toggleDecimals")?.addEventListener("click", () => { showDecimals = !showDecimals; loadClosing(); });
+      $("printCierre")?.addEventListener("click", () => printCierre(date));
       wireMethodsFilter(loadClosing);
       if (editSale) $("closingBody").querySelectorAll("[data-editsale]").forEach((b) => b.addEventListener("click", () => editSale(Number(b.dataset.editsale))));
     } catch (e) { toast(e.message); }
@@ -310,6 +311,40 @@ export function createClosingReportModule(context) {
       </table></body></html>`;
     const w = window.open("", "_blank", "width=1100,height=800");
     if (!w) return toast("Permite las ventanas emergentes para generar el PDF");
+    w.document.write(html); w.document.close(); w.focus();
+  }
+
+  // Imprime el CIERRE DEL DÍA COMPLETO tal como se ve (planilla + bloques de resumen +
+  // dispersión). A diferencia del PDF del consolidado (selección), aquí va TODO.
+  function printCierre(date) {
+    const body = $("closingBody");
+    if (!body) return;
+    const clone = body.cloneNode(true);
+    // Quita controles que no van en el impreso (botones, filtro de métodos, links, inputs).
+    clone.querySelectorAll("button, .methods-filter, input, [data-editsale]").forEach((el) => el.remove());
+    const fecha = new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cierre del día ${esc(date)}</title>
+      <style>
+        @page{size:landscape;margin:8mm}
+        *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
+        body{margin:0;padding:12px;color:#111;font-size:11px}
+        h1{font-size:15px;margin:0 0 2px} .muted{color:#555;font-size:11px;margin-bottom:8px}
+        table{border-collapse:collapse;margin:6px 0;font-size:9px;width:100%}
+        th,td{border:1px solid #ccc;padding:2px 4px;text-align:left}
+        th{background:#ed7d31;color:#fff} .r,td.r,th.r{text-align:right}
+        caption{font-weight:bold;text-align:left;margin:8px 0 2px;font-size:12px}
+        .xls-title{font-weight:bold;font-size:13px;margin:8px 0 4px}
+        .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+        .kpi{border:1px solid #ddd;padding:4px 8px;border-radius:4px;font-size:10px}
+        .pill{display:inline-block;padding:2px 6px;border:1px solid #ddd;border-radius:10px;font-size:10px}
+        h3{font-size:12px;margin:10px 0 4px}
+      </style></head><body onload="window.print()">
+      <h1>RTM Motos · Girardot — Cierre del día</h1>
+      <div class="muted">${esc(date)} · generado ${esc(fecha)}</div>
+      ${clone.innerHTML}
+      </body></html>`;
+    const w = window.open("", "_blank", "width=1200,height=850");
+    if (!w) return toast("Permite las ventanas emergentes para imprimir el cierre");
     w.document.write(html); w.document.close(); w.focus();
   }
 
