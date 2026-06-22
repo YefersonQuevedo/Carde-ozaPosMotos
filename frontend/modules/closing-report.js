@@ -62,7 +62,7 @@ export function createClosingReportModule(context) {
   }
 
   // ---- Helpers compartidos por Cierre del día y Consolidado (mismo formato Excel) ----
-  const PLAN_COLS = `<thead><tr><th>ITEM</th><th>FACT</th><th>TIPO DOC</th><th>NUM. DOC</th><th>CLIENTE</th><th>TELEFONOS</th><th>REFERIDOS</th><th>PLACA</th><th>MODELO</th><th>N°PIN ADQUIRIDO</th><th class="r">TOTAL</th><th>METODO DE PAGO</th><th class="r">DEDUCCIONES CONVENIOS</th><th class="r">SICOV SERV HOM</th><th class="r">IVA SICOV</th><th class="r">RECAUDO</th><th class="r">IVA RECAUDO</th><th class="r">ANSV</th><th class="r">FUPA</th><th class="r">COSTE TRANSACCION</th><th class="r">IVA de FACT</th><th class="r">Sustratos</th><th class="r">COSTOS TOTAL</th><th>OBSERVACIONES</th><th></th></tr></thead>`;
+  const PLAN_COLS = `<thead><tr><th>ITEM</th><th>FACT</th><th>TIPO DOC</th><th>NUM. DOC</th><th>CLIENTE</th><th>TELEFONOS</th><th>REFERIDOS</th><th>PLACA</th><th>MODELO</th><th>N°PIN ADQUIRIDO</th><th class="r">TOTAL</th><th>METODO DE PAGO</th><th class="r">DEDUCCIONES CONVENIOS</th><th class="r">SICOV SERV HOM</th><th class="r">IVA SICOV</th><th class="r">RECAUDO</th><th class="r">IVA RECAUDO</th><th class="r">ANSV</th><th class="r">FUPA</th><th class="r">COSTE TRANSACCION</th><th class="r">IVA de FACT</th><th class="r">Sustratos</th><th class="r">COSTOS TOTAL</th><th>OBSERVACIONES</th><th>REGISTRÓ</th><th></th></tr></thead>`;
   function planillaRowsHtml(rows, { selectable } = {}) {
     return (rows || []).map((r, i) => `<tr>
       ${selectable ? `<td style="text-align:center"><input type="checkbox" class="sel-sale" data-selid="${r.id}" /></td>` : ""}
@@ -75,6 +75,7 @@ export function createClosingReportModule(context) {
       <td class="r">${fmtCost(r.fupa)}</td><td class="r">${fmtCost(r.costeTransaccion)}</td><td class="r">${fmtCost(r.ivaFact)}</td>
       <td class="r">${fmtCost(r.sustratos)}</td><td class="r"><b>${fmtCost(r.costosTotal)}</b></td>
       <td>${esc(r.observaciones)}</td>
+      <td class="hint">${esc(r.registro || "")}</td>
       <td>${r.id && editSale ? `<button class="link" data-editsale="${r.id}">editar</button>` : ""}</td>
     </tr>`).join("");
   }
@@ -82,12 +83,12 @@ export function createClosingReportModule(context) {
     const pt = totals || {};
     const search = searchId ? `<div class="row" style="margin:6px 0 10px"><input id="${searchId}" type="search" placeholder="🔎 Buscar transacción (cliente, placa, factura, cédula, convenio, PIN)…" style="max-width:520px" /></div>` : "";
     const thead = selectable ? PLAN_COLS.replace("<tr>", `<tr><th style="width:30px;text-align:center"><input type="checkbox" id="selAll" title="Seleccionar todas" /></th>`) : PLAN_COLS;
-    const emptyColspan = selectable ? 26 : 25;
+    const emptyColspan = selectable ? 27 : 26;
     const footLabel = selectable ? 11 : 10;
     return `${search}<div style="overflow-x:auto"><table class="data xls-plan" style="font-size:.84em;white-space:nowrap">
       ${thead}
       <tbody ${bodyId ? `id="${bodyId}"` : ""}>${planillaRowsHtml(rows, { selectable }) || `<tr><td class="hint" colspan="${emptyColspan}">Sin ventas en el rango</td></tr>`}</tbody>
-      ${(rows || []).length ? `<tfoot><tr><td colspan="${footLabel}"><b>Totales</b></td><td class="r"><b>${money(pt.total)}</b></td><td></td><td class="r"><b>${money(pt.deduccionesConvenios)}</b></td><td colspan="9"></td><td class="r"><b>${money(pt.costosTotal)}</b></td><td colspan="2"></td></tr></tfoot>` : ""}
+      ${(rows || []).length ? `<tfoot><tr><td colspan="${footLabel}"><b>Totales</b></td><td class="r"><b>${money(pt.total)}</b></td><td></td><td class="r"><b>${money(pt.deduccionesConvenios)}</b></td><td colspan="9"></td><td class="r"><b>${money(pt.costosTotal)}</b></td><td colspan="3"></td></tr></tfoot>` : ""}
     </table></div>`;
   }
   // Bloques estilo Excel (INGRESOS/RESUMEN/EGRESOS/DATAFONO/RTM PEND/ENTREGAS/CAJA MENOR + dispersión).
@@ -249,7 +250,7 @@ export function createClosingReportModule(context) {
         const body = $("repPlanBody");
         if (!body) return;
         const filtered = filterPlanRows(reportPlanRows, search.value);
-        body.innerHTML = planillaRowsHtml(filtered, { selectable: true }) || '<tr><td class="hint" colspan="26">Sin coincidencias</td></tr>';
+        body.innerHTML = planillaRowsHtml(filtered, { selectable: true }) || '<tr><td class="hint" colspan="27">Sin coincidencias</td></tr>';
         wireEditSale(body); wireSelect(body); updateSelCount();
         const all = $("selAll"); if (all) all.checked = false;
       });
@@ -289,7 +290,8 @@ export function createClosingReportModule(context) {
       ["Recaudo", (r) => fmtCost(r.recaudo), 1], ["IVA Rec.", (r) => fmtCost(r.ivaRecaudo), 1],
       ["ANSV", (r) => fmtCost(r.fnsv), 1], ["FUPA", (r) => fmtCost(r.fupa), 1],
       ["Coste trans.", (r) => fmtCost(r.costeTransaccion), 1], ["IVA fact.", (r) => fmtCost(r.ivaFact), 1],
-      ["Sustratos", (r) => fmtCost(r.sustratos), 1], ["Costos total", (r) => fmtCost(r.costosTotal), 1]
+      ["Sustratos", (r) => fmtCost(r.sustratos), 1], ["Costos total", (r) => fmtCost(r.costosTotal), 1],
+      ["Registró", (r) => r.registro || ""]
     ];
     const th = cols.map(([h, , r]) => `<th class="${r ? "r" : ""}">${esc(h)}</th>`).join("");
     const trs = rows.map((row, i) => `<tr>${cols.map(([, fn, r]) => `<td class="${r ? "r" : ""}">${esc(String(fn(row, i)))}</td>`).join("")}</tr>`).join("");
@@ -310,7 +312,7 @@ export function createClosingReportModule(context) {
       <h1>RTM Motos · Girardot — ${esc(titulo)}</h1>
       <div class="muted">${esc(subtitulo)} · ${rows.length} venta(s) · generado ${esc(fecha)}</div>
       <table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
-      <tfoot><tr><td colspan="8">TOTALES</td><td class="r">${money(tTotal)}</td><td></td><td class="r">${money(tDed)}</td><td colspan="9"></td><td class="r">${money(tCostos)}</td></tr></tfoot>
+      <tfoot><tr><td colspan="8">TOTALES</td><td class="r">${money(tTotal)}</td><td></td><td class="r">${money(tDed)}</td><td colspan="9"></td><td class="r">${money(tCostos)}</td><td></td></tr></tfoot>
       </table></body></html>`;
     const w = window.open("", "_blank", "width=1100,height=800");
     if (!w) return toast("Permite las ventanas emergentes para generar el PDF");

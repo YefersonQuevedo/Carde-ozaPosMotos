@@ -594,6 +594,7 @@ async function buildConsolidadoDetalle(from, to, methodCodes = null) {
       sustratos: dec3(cost.sustratos),
       costosTotal: dec3(cost.costosTotal),
       observaciones: s.observaciones || "",
+      registro: s.createdBy || "",
       dispersion
     };
   });
@@ -651,7 +652,8 @@ const consolidadoDetalleColumns = [
   { header: "IVA de FACT", key: "ivaFact", width: 13, dec3: true },
   { header: "Sustratos", key: "sustratos", width: 12, dec3: true },
   { header: "COSTOS TOTAL", key: "costosTotal", width: 14, dec3: true },
-  { header: "OBSERVACIONES", key: "observaciones", width: 26 }
+  { header: "OBSERVACIONES", key: "observaciones", width: 26 },
+  { header: "REGISTRÓ", key: "registro", width: 18 }
 ];
 
 // GET /api/closings/report/detail?from=&to=  -> planilla por venta (vista Consolidado).
