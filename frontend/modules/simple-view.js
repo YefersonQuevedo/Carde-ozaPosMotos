@@ -5,9 +5,14 @@ import { $, esc, money, readCop, todayIso, confirmDialog } from "../utils.js";
 // (el admin sigue viendo todo el menu); es una segunda interfaz minimalista.
 // "Facturar" delega en el asistente de venta real (ya es guiado paso a paso).
 export function createSimpleModule(context) {
-  const { api, toast, go } = context;
+  const { api, toast, go, canView } = context;
   let root = null;
   let cache = { boxes: [], natures: [] };
+
+  // Cada pantalla del modo simple = el MISMO módulo del menú normal, así que respeta
+  // los permisos del rol (lo que se configura en Usuarios). Mapa pantalla -> panel.
+  const SCREEN_VIEW = { facturar: "venta", ventas: "ventas", clientes: "clientes", llamadas: "llamadas", caja: "payables", ingreso: "ingresos", gasto: "gastos" };
+  const allowed = (screen) => { const v = SCREEN_VIEW[screen]; return !v || !canView || canView(v); };
 
   const HOME_TILES = [
     { screen: "facturar", icon: "🧾", title: "Facturar", sub: "Registrar una venta", color: "#1bb760" },
@@ -27,6 +32,8 @@ export function createSimpleModule(context) {
   function show(screen) {
     if (!root) return;
     const screens = { home: scrHome, ventas: scrVentas, ingreso: scrIngreso, gasto: scrGasto, caja: scrCaja, clientes: scrClientes, llamadas: scrLlamadas };
+    // Blindaje: si el rol no tiene permiso para ese módulo, vuelve al inicio.
+    if (screen !== "home" && !allowed(screen)) { toast("No tienes permiso para ese módulo"); show("home"); return; }
     if (screen === "facturar") { go("venta"); return; } // usa el asistente real (ya es guiado)
     (screens[screen] || scrHome)();
   }
@@ -60,9 +67,9 @@ export function createSimpleModule(context) {
         </div>
         <h3 class="simple-h">¿Qué quieres hacer?</h3>
         <div class="simple-tiles">
-          ${HOME_TILES.map((t) => `<button class="simple-tile" data-screen="${t.screen}" style="--tile:${t.color}">
+          ${HOME_TILES.filter((t) => allowed(t.screen)).map((t) => `<button class="simple-tile" data-screen="${t.screen}" style="--tile:${t.color}">
             <span class="simple-ico">${t.icon}</span><span class="simple-title">${esc(t.title)}</span><span class="simple-sub">${esc(t.sub)}</span>
-          </button>`).join("")}
+          </button>`).join("") || '<p class="hint">No tienes módulos habilitados en modo simple.</p>'}
         </div>
         <p class="hint" style="text-align:center;margin-top:20px">Modo simple. El menú completo sigue disponible a la izquierda.</p>
       </div>`;

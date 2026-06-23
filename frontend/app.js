@@ -39,7 +39,7 @@ const manualInvoicesModule = createManualInvoicesModule({ api, toast });
 const suppliersModule = createSuppliersModule({ api, toast });
 const usersModule = createUsersModule({ api, toast });
 const clientsModule = createClientsModule({ api, toast });
-const simpleModule = createSimpleModule({ api, toast, go: switchView });
+const simpleModule = createSimpleModule({ api, toast, go: switchView, canView });
 const nominaModule = createNominaModule({ api, toast });
 const shiftsModule = createShiftsModule({ api, toast, onShiftChange: renderShiftBadge });
 
@@ -149,6 +149,11 @@ async function loadMyPerms() {
 function canExport(id) {
   if (api.currentUser()?.role === "admin") return true;
   return !!(myPerms && Array.isArray(myPerms.exports) && myPerms.exports.includes(id));
+}
+// Paneles permitidos para el usuario actual (lo usa también la Vista simple).
+function canView(viewId) {
+  if (api.currentUser()?.role === "admin") return true;
+  return !!(myPerms && Array.isArray(myPerms.views) && myPerms.views.includes(viewId));
 }
 
 function applyRole() {
