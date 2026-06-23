@@ -237,20 +237,13 @@ export function createPayablesModule(context) {
     if (!$("pyKpis")) return; // solo existe en la vista de caja
     const saldoCaja = boxBalanceOf("CAJA_MENOR");
     const debeSG = (window.__pyItems || []).filter((p) => (p.creditor || "").toUpperCase() === "SUPERGIROS" && p.status !== "pagado").reduce((a, p) => a + p.pending, 0);
-    const pendienteTotal = (window.__pyTotals || {}).pending || 0;
-    const faltante = Math.max(0, pendienteTotal - saldoCaja);
-    const boxPills = boxes.filter((b) => b.code !== "CAJA_MENOR").map((b) => {
-      // La caja de IVA no muestra su saldo de movimientos: muestra el IVA recaudado de las
-      // facturas enviadas a la DIAN (factura interna PENDIENTE no cuenta; solo ENVIADA/ACEPTADA).
-      const isIva = String(b.kind) === "iva" || /iva/i.test(b.name);
-      if (isIva) return `<div class="kpi"><span>${esc(b.name)}</span><b>${money(ivaDian)}</b><span class="hint" style="margin:2px 0 0">IVA de facturas emitidas</span></div>`;
-      return `<div class="kpi"><span>${esc(b.name)}</span><b>${money(b.balance)}</b></div>`;
-    }).join("");
+    // Lo que queda en caja menor después de pagar la deuda con Supergiros.
+    const dispoSG = saldoCaja - debeSG;
+    // Las demás cajas (provisiones, bancos, IVA) no se muestran acá: se ven en su pestaña.
     $("pyKpis").innerHTML = `
       <div class="kpi" style="border:2px solid ${saldoCaja < 0 ? "#c0392b" : "#1e7e34"};border-radius:8px"><span>💵 Saldo caja menor</span><b style="font-size:1.3em;color:${saldoCaja < 0 ? "#c0392b" : "#1e7e34"}">${money(saldoCaja)}</b></div>
       <div class="kpi"><span>Debo a Supergiros</span><b>${money(debeSG)}</b></div>
-      <div class="kpi"><span>Faltante p/ cubrir</span><b style="${faltante > 0 ? "color:#c0392b" : ""}">${money(faltante)}</b></div>
-      ${boxPills}`;
+      <div class="kpi"><span>Disponible después de Supergiros</span><b style="${dispoSG < 0 ? "color:#c0392b" : ""}">${money(dispoSG)}</b></div>`;
   }
 
   // Ingreso rapido de dinero a una caja permitida (retiro del banco / reposicion):
