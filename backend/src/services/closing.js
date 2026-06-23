@@ -24,6 +24,12 @@ export function computeClosing({ sales = [], payments = [], receivables = [], ga
     byMethod[p.methodCode] = (byMethod[p.methodCode] || 0) + (Number(p.amount) || 0);
     countByMethod[p.methodCode] = (countByMethod[p.methodCode] || 0) + 1;
   }
+  // El VUELTO se entrega en efectivo: se descuenta del efectivo recibido para no inflar
+  // el efectivo que realmente queda en caja (antes contaba el efectivo bruto con vuelto).
+  const totalChange = sales.reduce((s, v) => s + (Number(v.changeAmount) || 0), 0);
+  if (totalChange > 0 && byMethod["EFECTIVO"]) {
+    byMethod["EFECTIVO"] = Math.max(0, byMethod["EFECTIVO"] - totalChange);
+  }
 
   const salesTotal = sales.reduce((s, v) => s + (Number(v.total) || 0), 0);
   const ingresosTotal = Object.values(byMethod).reduce((s, v) => s + v, 0);
