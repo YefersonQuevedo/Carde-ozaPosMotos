@@ -6,6 +6,7 @@ export function createPayablesModule(context) {
   let boxes = [];
   let creditors = [];
   let ivaDian = 0; // IVA recaudado de facturas enviadas a la DIAN (se muestra en la caja IVA)
+  let activeDrill = "pyDrill"; // contenedor donde se abre el panel de pago (Caja usa otro)
   const PAY_FREQ = ["unico", "mensual", "bimestral", "cuotas"];
   const PAY_BADGE = { pagado: "ok", parcial: "warn", pendiente: "danger" };
 
@@ -67,7 +68,14 @@ export function createPayablesModule(context) {
         <div id="ledTotals" class="pill"></div>
         <div id="ledBody"></div>
       </div>
-      <p class="hint">Las obligaciones y cuentas por pagar se manejan en su propia pestaña: <b>Obligaciones / por pagar</b>.</p>`;
+      <div class="card">
+        <div class="card-head"><h2>Cuentas por pagar — pendientes</h2>
+          <span class="hint">Pagá desde acá; el dinero sale de caja menor.</span>
+        </div>
+        <div id="cajaPyBody"><p class="hint">Cargando…</p></div>
+        <div id="cajaPyDrill" style="margin-top:12px"></div>
+      </div>
+      <p class="hint">La gestión completa (crear obligaciones, abonos, historial) está en <b>Obligaciones / por pagar</b>.</p>`;
     $("ledLoad").addEventListener("click", loadLedger);
     $("dcLoad").addEventListener("click", loadDayClose);
     $("cmIngresoBtn").addEventListener("click", toggleCmIngreso);
@@ -300,6 +308,7 @@ export function createPayablesModule(context) {
         }
       }
       renderKpis();
+      loadCajaPayables(); // lista pagable embebida en la vista de Caja (si está presente)
       if (!$("pyBody")) return; // la tabla solo existe en la vista de obligaciones
       $("pyTotals").textContent = `Pendiente ${money(totals.pending)} · Total ${money(totals.total)} · Pagado ${money(totals.paid)}`;
       $("pyBody").innerHTML = `<table class="data"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Naturaleza</th><th>Frec.</th><th>Vence</th><th>Estado</th><th class="r">Total</th><th class="r">Pendiente</th><th></th></tr></thead><tbody>${
@@ -317,11 +326,34 @@ export function createPayablesModule(context) {
           <td>${p.status !== "pagado" ? `<button class="btn primary sm" data-pay="${p.id}">Pagar</button> ` : ""}${p.paidAmount > 0 ? `<button class="link" data-abonos="${p.id}">abonos</button> ` : ""}<button class="link" data-delpay="${p.id}">eliminar</button></td>
         </tr>`; }).join("") || '<tr><td class="hint" colspan="9">Sin cuentas por pagar</td></tr>'
       }</tbody></table>`;
-      $("pyBody").querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.pay))));
-      $("pyBody").querySelectorAll("[data-abonos]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.abonos))));
+      $("pyBody").querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.pay), "pyDrill")));
+      $("pyBody").querySelectorAll("[data-abonos]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.abonos), "pyDrill")));
       $("pyBody").querySelectorAll("[data-delpay]").forEach((b) => b.addEventListener("click", () => delPayableUI(Number(b.dataset.delpay))));
       $("pyBody").querySelectorAll("[data-day]").forEach((b) => b.addEventListener("click", () => loadDaySales(b.dataset.day)));
     } catch (e) { toast(e.message); }
+  }
+
+  // Lista de cuentas por pagar PENDIENTES embebida en la vista de Caja (para pagar
+  // sin ir a Obligaciones). Reusa el panel de pago (openPayablePanel) en cajaPyDrill.
+  async function loadCajaPayables() {
+    const box = $("cajaPyBody");
+    if (!box) return;
+    let items = window.__pyItems;
+    if (!items) { try { items = (await api.payables({})).items || []; window.__pyItems = items; } catch { items = []; } }
+    const pend = (items || []).filter((p) => p.status !== "pagado");
+    const totalPend = pend.reduce((a, p) => a + (p.pending || 0), 0);
+    box.innerHTML = pend.length ? `
+      <div class="pill warn" style="margin-bottom:8px">${pend.length} cuenta(s) pendiente(s) · ${money(totalPend)}</div>
+      <div style="overflow-x:auto"><table class="data"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vence</th><th>Estado</th><th class="r">Pendiente</th><th></th></tr></thead><tbody>${
+        pend.map((p) => `<tr>
+          <td><b>${esc(p.concept)}</b>${p.refType === "closing" ? ' <span class="pill">auto</span>' : ""}</td>
+          <td>${esc(p.creditor || "")}</td><td>${esc(p.dueDate || "")}</td>
+          <td><span class="pill ${PAY_BADGE[p.status] || ""}">${esc(p.status)}</span></td>
+          <td class="r"><b>${money(p.pending)}</b></td>
+          <td><button class="btn primary sm" data-cajapay="${p.id}">Pagar</button></td>
+        </tr>`).join("")
+      }</tbody></table></div>` : '<p class="hint">No hay cuentas por pagar pendientes. 🎉</p>';
+    box.querySelectorAll("[data-cajapay]").forEach((b) => b.addEventListener("click", () => openPayablePanel(Number(b.dataset.cajapay), "cajaPyDrill")));
   }
 
   async function addPayableUI() {
@@ -339,8 +371,9 @@ export function createPayablesModule(context) {
 
   // Panel de pago + historial de abonos con comprobante (Supergiros firma con huella:
   // el comprobante subido es la prueba de que la cajera sí pagó lo que dijo que pagó).
-  async function openPayablePanel(id) {
-    const box = $("pyDrill");
+  async function openPayablePanel(id, drillId = activeDrill) {
+    activeDrill = drillId;
+    const box = $(drillId);
     if (!box) return;
     box.innerHTML = `<p class="hint">Cargando cuenta…</p>`;
     try {
