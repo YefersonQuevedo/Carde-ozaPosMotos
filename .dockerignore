@@ -1,0 +1,27 @@
+# Que NO entra a la imagen.
+# Esto no es solo peso: _local/ tiene datos reales de clientes y NUNCA debe
+# viajar dentro de una imagen que se entrega a otro cliente.
+
+_local/
+.git/
+.git*
+node_modules/
+**/node_modules/
+backend/.env
+.env
+
+# Datos y respaldos
+*.sql
+*.xlsx
+*.pdf
+*.zip
+backend/uploads/
+
+# Material de trabajo que no hace falta en runtime
+legacy/
+revisiones/
+*.md
+.claude/
+.agents/
+.playwright-mcp/
+codex/

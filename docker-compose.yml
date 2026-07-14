@@ -1,0 +1,63 @@
+# MotoPOS — stack completo (base de datos + aplicacion).
+#
+# El cliente solo necesita Docker Desktop instalado. Ver INSTALACION.md.
+#
+#   docker compose up -d      levanta todo
+#   docker compose down       apaga (los datos se conservan)
+#   docker compose logs -f    ver que esta pasando
+#
+# IMPORTANTE: los datos viven en el volumen "motopos-db", no en la imagen.
+# "docker compose down" NO los borra. "docker compose down -v" SI los borra.
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: motopos-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?falta MYSQL_ROOT_PASSWORD en el archivo .env}
+      MYSQL_DATABASE: motopos
+    volumes:
+      - motopos-db:/var/lib/mysql
+    # Sin "ports": la base NO se expone al exterior. Solo la app la alcanza por
+    # la red interna de compose. Si necesitas entrar con un cliente MySQL,
+    # descomenta la linea de abajo (y entende que abris el puerto en el PC).
+    # ports:
+    #   - "127.0.0.1:3306:3306"
+    healthcheck:
+      # La app espera a que esto pase antes de arrancar (depends_on: healthy).
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  app:
+    build:
+      # Contexto = raiz del proyecto: la imagen necesita backend/ Y frontend/.
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: motopos-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD}@db:3306/motopos
+      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET en el archivo .env}
+      PORT: 5180
+    ports:
+      # Solo 127.0.0.1: el POS queda accesible desde ESTE PC y nada mas.
+      # Para usarlo desde otras maquinas del local, cambiar a "5180:5180"
+      # (y entender que queda expuesto a toda la red).
+      - "127.0.0.1:5180:5180"
+    volumes:
+      # Los archivos que sube el cliente sobreviven a las actualizaciones.
+      - motopos-uploads:/app/uploads
+    # Aplica las migraciones pendientes y recien ahi arranca el server.
+    # Es idempotente: si no hay migraciones nuevas, no hace nada.
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+
+volumes:
+  motopos-db:
+  motopos-uploads:

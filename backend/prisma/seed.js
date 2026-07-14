@@ -1,11 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 
 const prisma = new PrismaClient();
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // --- Componentes fiscales internos (precios IVA-incluido) ---
 const products = [
@@ -72,16 +70,39 @@ const cashBoxes = [
   { code: "IVA", name: "Provision IVA", kind: "iva" }
 ];
 
+// Empresa que siembra este seed. El seed usa el PrismaClient crudo (sin la
+// extension multi-empresa de src/db.js), y tenant.js usa 1 como fallback fuera
+// de un request, asi que todo el catalogo base va a la empresa 1.
+const COMPANY_ID = 1;
+
 async function main() {
-  // Catalogos (idempotente por code)
+  // Empresa inicial. Sin esta fila, tenant.js apunta a una empresa inexistente.
+  // El nombre real lo pone el cliente desde la app; aca solo un placeholder.
+  if ((await prisma.company.count()) === 0) {
+    await prisma.company.create({
+      data: { id: COMPANY_ID, name: process.env.COMPANY_NAME?.trim() || "Mi empresa", active: true }
+    });
+    console.log("Empresa inicial creada.");
+  }
+
+  // Catalogos (idempotente por code).
+  // OJO: el unique es compuesto (@@unique([companyId, code])), asi que el where
+  // de los upsert tiene que ser companyId_code. Con { code } solo, Prisma falla.
   for (const p of products) {
-    await prisma.product.upsert({ where: { code: p.code }, update: p, create: p });
+    await prisma.product.upsert({
+      where: { companyId_code: { companyId: COMPANY_ID, code: p.code } }, update: p, create: p
+    });
   }
   for (const b of cashBoxes) {
-    await prisma.cashBox.upsert({ where: { code: b.code }, update: { name: b.name, kind: b.kind }, create: b });
+    await prisma.cashBox.upsert({
+      where: { companyId_code: { companyId: COMPANY_ID, code: b.code } },
+      update: { name: b.name, kind: b.kind }, create: b
+    });
   }
   for (const p of packages) {
-    await prisma.package.upsert({ where: { code: p.code }, update: p, create: p });
+    await prisma.package.upsert({
+      where: { companyId_code: { companyId: COMPANY_ID, code: p.code } }, update: p, create: p
+    });
   }
   await prisma.packageComponent.deleteMany();
   for (const [packageCode, comps] of Object.entries(bundleMap)) {
@@ -90,35 +111,79 @@ async function main() {
     }
   }
   for (const m of paymentMethods) {
-    await prisma.paymentMethod.upsert({ where: { code: m.code }, update: m, create: m });
+    await prisma.paymentMethod.upsert({
+      where: { companyId_code: { companyId: COMPANY_ID, code: m.code } }, update: m, create: m
+    });
   }
 
   // Tarifas (catalogo: se reescriben en cada seed)
   await prisma.tariff.deleteMany();
   for (const t of tariffs) await prisma.tariff.create({ data: t });
 
-  // Usuario admin inicial (solo si no hay usuarios). Clave: admin123
+  // Usuario admin inicial (solo si no hay usuarios).
+  // La clave sale de ADMIN_PASSWORD; si no esta, se genera una al azar y se
+  // imprime UNA sola vez. Nunca una clave fija: si no, todas las instalaciones
+  // salen con la misma credencial conocida.
   if ((await prisma.user.count()) === 0) {
+    const plain = process.env.ADMIN_PASSWORD?.trim() || randomBytes(9).toString("base64url");
     await prisma.user.create({
-      data: { username: "admin", name: "Administrador", role: "admin", passwordHash: await bcrypt.hash("admin123", 10) }
+      data: { username: "admin", name: "Administrador", role: "admin", passwordHash: await bcrypt.hash(plain, 10) }
     });
-    console.log("Usuario admin creado (admin / admin123).");
+    console.log("\n" + "=".repeat(52));
+    console.log("  Usuario admin creado.");
+    console.log(`  usuario: admin`);
+    console.log(`  clave:   ${plain}`);
+    console.log("  Anotala: no se vuelve a mostrar. Cambiala al entrar.");
+    console.log("=".repeat(52) + "\n");
   }
-
-  // Convenios / aliados desde el Excel — solo si la tabla esta vacia (no pisar ediciones).
-  const existingAllies = await prisma.ally.count();
-  if (existingAllies > 0) {
-    console.log(`Aliados ya cargados (${existingAllies}); no se reimportan.`);
-    console.log(`Seed listo: ${products.length} productos, ${packages.length} paquetes, ${paymentMethods.length} metodos, ${tariffs.length} tarifas.`);
-    return;
-  }
-  const conveniosPath = join(__dirname, "data", "convenios.json");
-  const convenios = JSON.parse(readFileSync(conveniosPath, "utf-8"));
 
   // Usuario directo (fidelizado) siempre presente.
-  await prisma.ally.create({
-    data: { name: "USUARIO", company: "DIRECTO", commission: 20000, isDirectUser: true, enrolled: true, active: true }
+  if ((await prisma.ally.count()) === 0) {
+    await prisma.ally.create({
+      data: { name: "USUARIO", company: "DIRECTO", commission: 20000, isDirectUser: true, enrolled: true, active: true }
+    });
+  }
+
+  // Clientes base. "Consumidor final" lo necesita el POS para las ventas sin
+  // cliente identificado, asi que va SIEMPRE (antes del corte de aliados).
+  await prisma.client.upsert({
+    where: { companyId_docNumber: { companyId: COMPANY_ID, docNumber: "222222222222" } },
+    update: {},
+    create: { docType: "CC", docNumber: "222222222222", name: "Consumidor final", status: "ACTIVO" }
   });
+  await prisma.client.upsert({
+    where: { companyId_docNumber: { companyId: COMPANY_ID, docNumber: "900975741" } },
+    update: {},
+    create: { docType: "NIT", docNumber: "900975741", name: "INVERSIONES GORA SAS", address: "Girardot", status: "ACTIVO" }
+  });
+
+  // --- Convenios / aliados (OPCIONAL, datos de UN cliente concreto) ---
+  //
+  // Estos son datos personales reales (nombres, cedulas, cuentas bancarias) de
+  // los aliados de una empresa. NO van en el repo ni en la imagen Docker: cada
+  // CDA carga los suyos. Por eso el archivo es externo y opcional.
+  //
+  //   SEED_ALLIES_FILE=/ruta/a/convenios.json npm run seed
+  //
+  // Sin esa variable, el seed termina aca y la instalacion arranca sin aliados,
+  // que es lo correcto para un cliente nuevo.
+  const alliesFile = process.env.SEED_ALLIES_FILE?.trim();
+  if (!alliesFile) {
+    console.log(`Seed base listo: ${products.length} productos, ${packages.length} paquetes, ${paymentMethods.length} metodos, ${tariffs.length} tarifas.`);
+    console.log("Sin aliados (defini SEED_ALLIES_FILE para importarlos).");
+    return;
+  }
+  if (!existsSync(alliesFile)) {
+    console.error(`SEED_ALLIES_FILE apunta a un archivo que no existe: ${alliesFile}`);
+    process.exit(1);
+  }
+
+  // Solo si la tabla esta vacia (aparte del USUARIO directo): no pisar ediciones.
+  if ((await prisma.ally.count()) > 1) {
+    console.log("Aliados ya cargados; no se reimportan.");
+    return;
+  }
+  const convenios = JSON.parse(readFileSync(alliesFile, "utf-8"));
 
   for (const c of convenios) {
     if (c.name.toUpperCase() === "USUARIO") continue;
@@ -144,18 +209,6 @@ async function main() {
       }
     });
   }
-
-  // Clientes/motos de ejemplo
-  await prisma.client.upsert({
-    where: { docNumber: "222222222222" },
-    update: {},
-    create: { docType: "CC", docNumber: "222222222222", name: "Consumidor final", status: "ACTIVO" }
-  });
-  await prisma.client.upsert({
-    where: { docNumber: "900975741" },
-    update: {},
-    create: { docType: "NIT", docNumber: "900975741", name: "INVERSIONES GORA SAS", address: "Girardot", status: "ACTIVO" }
-  });
 
   const count = await prisma.ally.count();
   console.log(`Seed listo: ${products.length} productos, ${packages.length} paquetes, ${paymentMethods.length} metodos, ${count} aliados.`);
