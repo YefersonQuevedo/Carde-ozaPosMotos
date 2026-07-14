@@ -19,6 +19,7 @@
 import ExcelJS from "exceljs";
 
 const MONEY_FMT = '"$"#,##0';
+const DEC3_FMT = '"$"#,##0.000'; // costos/dispersion con 3 decimales
 
 /// Construye un workbook xlsx y devuelve un Buffer.
 /// sheets: [{ name, columns:[{header,key,width,money?,number?}], rows:[obj], title? }]
@@ -56,6 +57,7 @@ export async function toWorkbook({ sheets = [], creator = "MotoPOS" } = {}) {
         const v = row[c.key];
         return v == null ? "" : v;
       }));
+      const fmtOf = (c) => (c.dec3 ? DEC3_FMT : c.money ? MONEY_FMT : "#,##0");
       const safeName = (sheet.name || "Tabla").replace(/[^A-Za-z0-9_]/g, "_").slice(0, 26) + "_tbl";
       ws.addTable({
         name: safeName,
@@ -70,8 +72,8 @@ export async function toWorkbook({ sheets = [], creator = "MotoPOS" } = {}) {
       const lastRow = headerRowIdx + dataRows.length + (sheet.totals ? 1 : 0);
       columns.forEach((c, i) => {
         ws.getColumn(i + 1).width = c.width || 16;
-        if (c.money || c.number) {
-          const fmt = c.money ? MONEY_FMT : "#,##0";
+        if (c.money || c.number || c.dec3) {
+          const fmt = fmtOf(c);
           for (let rr = headerRowIdx + 1; rr <= lastRow; rr++) ws.getCell(rr, i + 1).numFmt = fmt;
         }
       });
@@ -93,8 +95,9 @@ export async function toWorkbook({ sheets = [], creator = "MotoPOS" } = {}) {
       columns.forEach((c, i) => {
         const cell = ws.getCell(headerRowIdx + 1 + r, i + 1);
         const val = row[c.key];
-        cell.value = val ?? (c.money || c.number ? 0 : "");
-        if (c.money) cell.numFmt = MONEY_FMT;
+        cell.value = val ?? (c.money || c.number || c.dec3 ? 0 : "");
+        if (c.dec3) cell.numFmt = DEC3_FMT;
+        else if (c.money) cell.numFmt = MONEY_FMT;
         else if (c.number) cell.numFmt = "#,##0";
       });
     });
@@ -102,7 +105,7 @@ export async function toWorkbook({ sheets = [], creator = "MotoPOS" } = {}) {
     // Totales opcionales: sheet.totals = { columnKey: value }
     if (sheet.totals) {
       const totalRow = headerRowIdx + 1 + (sheet.rows || []).length;
-      const labelCol = columns.findIndex((c) => !(c.money || c.number));
+      const labelCol = columns.findIndex((c) => !(c.money || c.number || c.dec3));
       if (labelCol >= 0) {
         const lc = ws.getCell(totalRow, labelCol + 1);
         lc.value = "TOTAL";
@@ -113,7 +116,8 @@ export async function toWorkbook({ sheets = [], creator = "MotoPOS" } = {}) {
           const cell = ws.getCell(totalRow, i + 1);
           cell.value = sheet.totals[c.key];
           cell.font = { bold: true };
-          if (c.money) cell.numFmt = MONEY_FMT;
+          if (c.dec3) cell.numFmt = DEC3_FMT;
+          else if (c.money) cell.numFmt = MONEY_FMT;
           else if (c.number) cell.numFmt = "#,##0";
         }
       });

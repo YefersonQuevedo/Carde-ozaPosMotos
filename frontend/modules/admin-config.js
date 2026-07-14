@@ -1,4 +1,4 @@
-import { $, esc, money, downloadBlob, confirmDialog } from "../utils.js";
+import { $, esc, money, readCop, todayIso, downloadBlob, confirmDialog } from "../utils.js";
 
 export function createAdminConfigModule(context) {
   const { api, toast } = context;
@@ -92,6 +92,30 @@ export function createAdminConfigModule(context) {
 
       ${(api.currentUser?.()?.role === "admin") ? `
       <div class="card">
+        <div class="card-head"><h2>Tarifas y costos (RTM)</h2></div>
+        <p class="hint">Valores que usa el sistema para calcular los costos de cada venta: SICOV, RECAUDO, FUPA, SUSTRATOS, IVA de facturación, % de IVA (IVA_RATE) y ANSV (por rango de modelo). Para IVA_RATE el valor es el porcentaje (ej. 19). Cambiarlas afecta las ventas NUEVAS (las ya hechas conservan sus costos congelados).</p>
+        <div class="form-grid">
+          <label class="fld">Concepto *<select id="trConcept">
+            <option value="SICOV">SICOV</option><option value="RECAUDO">RECAUDO</option>
+            <option value="FUPA">FUPA</option><option value="SUSTRATOS">SUSTRATOS</option>
+            <option value="IVA_FACT">IVA_FACT (IVA de factura)</option><option value="IVA_RATE">IVA_RATE (% IVA)</option>
+            <option value="ANSV">ANSV</option><option value="ICA">ICA</option>
+          </select></label>
+          <label class="fld">Vehículo<input id="trVeh" value="MOTO" /></label>
+          <label class="fld">Valor *<input id="trValue" inputmode="numeric" placeholder="$ (o % si es IVA_RATE)" /></label>
+          <label class="fld">Año desde (ANSV)<input id="trYearFrom" inputmode="numeric" placeholder="0" /></label>
+          <label class="fld">Año hasta (ANSV)<input id="trYearTo" inputmode="numeric" placeholder="9999" /></label>
+          <label class="fld">Vigente desde<input type="date" id="trValidFrom" value="${todayIso()}" /></label>
+        </div>
+        <div class="row form-actions">
+          <button class="btn success" id="trSave">Agregar tarifa</button>
+          <button class="btn ghost hidden" id="trCancel">Cancelar edición</button>
+        </div>
+        <div id="trBody"></div>
+      </div>` : ""}
+
+      ${(api.currentUser?.()?.role === "admin") ? `
+      <div class="card">
         <div class="card-head"><h2>Naturalezas de ingresos y gastos</h2></div>
         <p class="hint">Clasifican los ingresos, gastos, obligaciones y facturas de proveedor para los reportes gerenciales. Las inactivas dejan de salir en los formularios pero conservan su historial.</p>
         <div class="form-grid">
@@ -125,6 +149,7 @@ export function createAdminConfigModule(context) {
     $("cfgNotifSave").addEventListener("click", saveNotifConfigUI);
     c.querySelectorAll("[data-test]").forEach((b) => b.addEventListener("click", () => testNotifUI(b.dataset.test)));
     wireCompanies();
+    wireTariffs();
     wireNatures();
     wireResetOps();
   }
@@ -180,6 +205,66 @@ export function createAdminConfigModule(context) {
       toast(`Empresa "${r.company.name}" creada · catálogo copiado · admin: ${r.admin.username}`);
       ["coName", "coNit", "coCity", "coAdminUser", "coAdminName", "coAdminPass"].forEach((id) => { $(id).value = ""; });
       loadCompanies();
+    } catch (e) { toast(e.message); }
+  }
+
+  // ---------- CRUD de tarifas/costos (RTM) ----------
+  let editingTariff = null;
+  function wireTariffs() {
+    if (!$("trSave")) return;
+    $("trSave").addEventListener("click", saveTariffUI);
+    $("trCancel").addEventListener("click", resetTariffForm);
+    loadTariffs();
+  }
+  function resetTariffForm() {
+    editingTariff = null;
+    $("trValue").value = ""; $("trYearFrom").value = ""; $("trYearTo").value = ""; $("trVeh").value = "MOTO";
+    $("trValidFrom").value = todayIso();
+    $("trSave").textContent = "Agregar tarifa";
+    $("trCancel").classList.add("hidden");
+  }
+  async function loadTariffs() {
+    const box = $("trBody");
+    if (!box) return;
+    try {
+      const { items } = await api.tariffs();
+      box.innerHTML = `<table class="data"><thead><tr><th>Concepto</th><th>Vehículo</th><th class="r">Valor</th><th class="r">Año desde</th><th class="r">Año hasta</th><th>Vigente desde</th><th>Estado</th><th></th></tr></thead><tbody>${
+        items.map((t) => `<tr style="${t.active ? "" : "opacity:.5"}">
+          <td><b>${esc(t.concept)}</b></td><td>${esc(t.vehicleType)}</td>
+          <td class="r">${t.concept === "IVA_RATE" ? t.value + "%" : money(t.value)}</td>
+          <td class="r">${t.yearFrom || 0}</td><td class="r">${t.yearTo || 9999}</td>
+          <td>${esc(t.validFrom)}</td>
+          <td><span class="pill ${t.active ? "ok" : "danger"}">${t.active ? "activa" : "inactiva"}</span></td>
+          <td><button class="link" data-tredit="${t.id}">editar</button> <button class="link" data-trdel="${t.id}">eliminar</button></td>
+        </tr>`).join("") || '<tr><td class="hint" colspan="8">Sin tarifas. Agrega la primera arriba.</td></tr>'
+      }</tbody></table>`;
+      const byId = Object.fromEntries(items.map((t) => [t.id, t]));
+      box.querySelectorAll("[data-tredit]").forEach((b) => b.addEventListener("click", () => {
+        const t = byId[b.dataset.tredit]; if (!t) return;
+        editingTariff = t.id;
+        $("trConcept").value = t.concept; $("trVeh").value = t.vehicleType; $("trValue").value = t.value;
+        $("trYearFrom").value = t.yearFrom || 0; $("trYearTo").value = t.yearTo || 9999; $("trValidFrom").value = t.validFrom;
+        $("trSave").textContent = `Guardar cambios (${t.concept})`;
+        $("trCancel").classList.remove("hidden");
+        $("trValue").focus();
+      }));
+      box.querySelectorAll("[data-trdel]").forEach((b) => b.addEventListener("click", async () => {
+        if (!(await confirmDialog("Se elimina esta tarifa. Las ventas ya hechas no cambian (sus costos están congelados).", { title: "¿Eliminar tarifa?", okText: "Eliminar", danger: true }))) return;
+        try { await api.deleteTariff(Number(b.dataset.trdel)); toast("Tarifa eliminada"); loadTariffs(); }
+        catch (e) { toast(e.message); }
+      }));
+    } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+  }
+  async function saveTariffUI() {
+    const body = {
+      concept: $("trConcept").value, vehicleType: $("trVeh").value.trim() || "MOTO",
+      value: readCop("trValue"), yearFrom: readCop("trYearFrom"), yearTo: readCop("trYearTo") || 9999,
+      validFrom: $("trValidFrom").value || todayIso()
+    };
+    try {
+      if (editingTariff) await api.updateTariff(editingTariff, body); else await api.saveTariff(body);
+      toast(editingTariff ? "Tarifa actualizada" : "Tarifa agregada");
+      resetTariffForm(); loadTariffs();
     } catch (e) { toast(e.message); }
   }
 

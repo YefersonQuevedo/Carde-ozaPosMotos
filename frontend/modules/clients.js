@@ -1,4 +1,5 @@
 import { $, esc } from "../utils.js";
+import { openRuntConsulta, runtBookmarkletHtml } from "./runt-helper.js";
 
 export function createClientsModule(context) {
   const { api, toast } = context;
@@ -73,8 +74,10 @@ export function createClientsModule(context) {
         <div class="detail-meta">${esc(c.docType || "")} ${esc(c.docNumber)}</div>
         <div class="row form-actions">
           <button class="btn success" id="clSave">Guardar cliente</button>
+          <button class="btn runt-btn" id="clRunt">Buscar en el RUNT</button>
           <button class="btn danger" id="clDelete">Eliminar</button>
         </div>
+        <p class="hint runt-helper-note">Primera vez: arrastra ${runtBookmarkletHtml()} a la barra de favoritos. Luego usa Buscar en el RUNT y, en RUNT, pulsa ese favorito.</p>
         <h3>Motos / placas (${veh.length})</h3>
         <table class="data"><thead><tr><th>Placa</th><th>Año</th><th>Rango</th><th></th></tr></thead><tbody>${
           veh.map((v) => `<tr><td><b>${esc(v.plate)}</b></td><td>${v.modelYear || "-"}</td><td>${esc(v.rangeName || "")}</td><td><button class="link" data-delveh="${v.id}">eliminar</button></td></tr>`).join("") || '<tr><td class="hint" colspan="4">Sin motos registradas</td></tr>'
@@ -88,6 +91,10 @@ export function createClientsModule(context) {
         ${historyTableHtml(hist)}`;
       wirePhonesEditor();
       $("clSave").addEventListener("click", () => saveClientEdit(c.docNumber));
+      $("clRunt").addEventListener("click", () => {
+        if (!veh.length) return toast("Agrega una moto/placa antes de buscar en RUNT");
+        openRuntConsulta({ client: c, vehicle: veh[0] }, toast);
+      });
       $("clDelete").addEventListener("click", () => deleteClientUI(c.docNumber, c.name));
       $("clAddVeh").addEventListener("click", () => addVehicleUI(c.docNumber));
       $("clientDetailBody").querySelectorAll("[data-delveh]").forEach((b) => b.addEventListener("click", () => delVehicleUI(Number(b.dataset.delveh), c.docNumber)));

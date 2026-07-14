@@ -3,6 +3,8 @@
 // para escalar a otros vehiculos (carros, etc.) y soportar cambios anuales sin tocar codigo.
 
 const round = (n) => Math.round(Number(n) || 0);
+// Costos con 3 decimales (IVA, costos de transaccion): no se redondean a peso entero.
+const dec3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 
 /// Construye el lookup de tarifas vigentes a una fecha, eligiendo la ultima vigencia.
 /// `rows` = filas de Tariff (ya filtradas por vehicleType o no).
@@ -37,11 +39,11 @@ export function paymentCost(method, amount) {
   const value = Number(amount) || 0;
   const type = method?.costType || "none";
   if (value <= 0 || type === "none") return { costType: type, costAmount: 0, costTax: 0 };
-  if (type === "percent") return { costType: type, costAmount: round(value * (method.costRate || 0)), costTax: 0 };
-  if (type === "fixed") return { costType: type, costAmount: round(method.costAmount || 0), costTax: 0 };
+  if (type === "percent") return { costType: type, costAmount: dec3(value * (method.costRate || 0)), costTax: 0 };
+  if (type === "fixed") return { costType: type, costAmount: dec3(method.costAmount || 0), costTax: 0 };
   if (type === "percent_plus_tax") {
     const commission = value * (method.costRate || 0);
-    return { costType: type, costAmount: round(commission), costTax: round(commission * (method.costTaxRate || 0.19)) };
+    return { costType: type, costAmount: dec3(commission), costTax: dec3(commission * (method.costTaxRate || 0.19)) };
   }
   return { costType: type, costAmount: 0, costTax: 0 };
 }
@@ -53,16 +55,16 @@ export function computeSaleCosts({ tariffs, pinAdquirido = 0, modelYear = 0, fac
   const f = t.fixed || {};
 
   const sicov = rtmDone ? f.SICOV || 0 : 0;
-  const ivaSicov = round(sicov * t.ivaRate);
+  const ivaSicov = dec3(sicov * t.ivaRate);
   const recaudo = rtmDone ? f.RECAUDO || 0 : 0;
-  const ivaRecaudo = round(recaudo * t.ivaRate);
+  const ivaRecaudo = dec3(recaudo * t.ivaRate);
   const ansv = ansvFromTariffs(t.ansv || [], modelYear);
   const fupa = rtmDone ? f.FUPA || 0 : 0;
   const sustratos = rtmDone ? f.SUSTRATOS || 0 : 0;
   const ivaFact = facturada ? f.IVA_FACT || 0 : 0;
 
-  const costeTransaccion = payments.reduce((s, p) => s + (Number(p.costAmount) || 0) + (Number(p.costTax) || 0), 0);
-  const costosTotal = sicov + ivaSicov + recaudo + ivaRecaudo + ansv + fupa + sustratos + ivaFact + costeTransaccion;
+  const costeTransaccion = dec3(payments.reduce((s, p) => s + (Number(p.costAmount) || 0) + (Number(p.costTax) || 0), 0));
+  const costosTotal = dec3(sicov + ivaSicov + recaudo + ivaRecaudo + ansv + fupa + sustratos + ivaFact + costeTransaccion);
 
   return { sicov, ivaSicov, recaudo, ivaRecaudo, ansv, fupa, sustratos, ivaFact, costeTransaccion, costosTotal };
 }

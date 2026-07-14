@@ -8,7 +8,10 @@
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='Cmd';e={\\($_.CommandLine -replace '\\\\s+',' '\\).Substring\\(0,[Math]::Min\\(90,\\($_.CommandLine\\).Length\\)\\)}} | Format-Table -AutoSize -Wrap)",
       "PowerShell(Get-Process node,mysqld -ErrorAction SilentlyContinue)",
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'pos-motos|server\\\\.js' } | Select-Object ProcessId,CommandLine | Format-List)",
-      "PowerShell(Invoke-RestMethod http://localhost:5188/api/health)"
+      "PowerShell(Invoke-RestMethod http://localhost:5188/api/health)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'server\\\\.js' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; Start-Sleep -Seconds 1; Set-Location \"e:\\\\guardando datos\\\\pos-motos-facturacion\\\\backend\"; npx prisma migrate deploy 2>&1 | Select-Object -Last 4; npx prisma generate 2>&1 | Select-Object -Last 2)",
+      "PowerShell(Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Write-Output \"node: $\\(\\(Get-Process node -ErrorAction SilentlyContinue|Measure-Object\\).Count\\)\")",
+      "PowerShell($p = Get-Process node -ErrorAction SilentlyContinue; Write-Output \\(\"procesos node: \" + \\($p | Measure-Object\\).Count\\); $p | Select-Object Id, StartTime | Format-Table -AutoSize)"
     ]
   }
 }

@@ -307,6 +307,21 @@ body.readonly .btn.danger { display: none !important; }
 }
 .runt-panel span { color: var(--muted); font-size: 12px; }
 .runt-btn { border-color: var(--blue); color: var(--blue); }
+.runt-helper-note {
+  padding: 9px 12px;
+  border: 1px dashed #9bb8e6;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+.runt-bookmarklet {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-weight: 800;
+  text-decoration: none;
+}
 
 /* ---------- Cards / tables ---------- */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow-sm); }
