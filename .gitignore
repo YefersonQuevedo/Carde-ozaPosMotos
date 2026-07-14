@@ -2,3 +2,19 @@ node_modules/
 .env
 .playwright-mcp/
 ~$*
+
+# Cosas que NO van al despliegue ni al repo (ver _local/README.md)
+_local/
+
+# Datos reales del cliente: NUNCA commitear, aunque queden sueltos en la raiz.
+# Estos patrones son la red de seguridad por si un backup nuevo cae fuera de _local/.
+backup_*.sql
+backup_*.json
+*.xlsx
+*.pdf
+
+# Artefactos de build / empaquetado
+*.zip
+
+# Subidas de archivos en runtime
+backend/uploads/
