@@ -2,6 +2,9 @@ import { $, esc, money, readCop, todayIso, downloadBlob } from "../utils.js";
 
 export function createCashflowModule(context) {
   const { api, toast } = context;
+  // Tras editar un ingreso/gasto, recarga la página para que el Cierre y demás vistas
+  // queden frescos. El toast alcanza a verse antes.
+  function reloadSoon() { setTimeout(() => location.reload(), 900); }
   // ---------- Ingresos (plantilla) ----------
   let incomeBoxes = [];
   let incomeItems = [];       // cache de la ultima lista (para editar en el formulario)
@@ -158,11 +161,11 @@ export function createCashflowModule(context) {
         await api.updateIncome(editingIncomeId, body);
         toast("Ingreso actualizado");
         cancelEditIncome();
-      } else {
-        await api.addIncome(body);
-        toast("Ingreso registrado");
-        $("inValue").value = ""; $("inObs").value = "";
+        return reloadSoon();     // recarga para refrescar Cierre y demás vistas
       }
+      await api.addIncome(body);
+      toast("Ingreso registrado");
+      $("inValue").value = ""; $("inObs").value = "";
       loadIncome();
     } catch (e) { toast(e.message); }
   }
@@ -393,11 +396,11 @@ export function createCashflowModule(context) {
         await api.updateExpense(editingExpenseId, body);
         toast("Gasto actualizado");
         cancelEditGasto();
-      } else {
-        await api.addExpense(body);
-        toast("Gasto registrado");
-        $("gxConcept").value = ""; $("gxAmount").value = ""; $("gxCategory").value = ""; $("gxNote").value = "";
+        return reloadSoon();     // recarga para refrescar Cierre y demás vistas
       }
+      await api.addExpense(body);
+      toast("Gasto registrado");
+      $("gxConcept").value = ""; $("gxAmount").value = ""; $("gxCategory").value = ""; $("gxNote").value = "";
       loadGastos();
     } catch (e) { toast(e.message); }
   }

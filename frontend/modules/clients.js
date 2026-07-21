@@ -3,6 +3,8 @@ import { openRuntConsulta, runtBookmarkletHtml } from "./runt-helper.js";
 
 export function createClientsModule(context) {
   const { api, toast } = context;
+  // Tras editar un cliente, recarga la página para que las demás vistas queden frescas.
+  function reloadSoon() { setTimeout(() => location.reload(), 900); }
   async function loadClientes(q = "") {
     try {
       const items = await api.findClients(q);
@@ -121,8 +123,7 @@ export function createClientsModule(context) {
     try {
       await api.saveClient({ docNumber: doc, docType, name, phone, phones, email, address: $("cl_address").value.trim() });
       toast("Cliente guardado");
-      loadClientes($("clientListSearch").value || "");
-      loadClientDetail(doc);
+      reloadSoon();            // recarga para refrescar las demás vistas
     } catch (e) { toast(e.message); }
   }
   async function deleteClientUI(doc, name) {
