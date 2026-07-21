@@ -2,6 +2,9 @@ import { $, esc, money, downloadBlob, todayIso } from "../utils.js";
 
 export function createSalesListModule(context) {
   const { api, toast } = context;
+  // Tras editar/anular/recalcular una venta, recarga la página para que TODAS las vistas
+  // (Consolidado, Cierre, Clientes) queden frescas. El toast alcanza a verse antes.
+  function reloadSoon() { setTimeout(() => location.reload(), 900); }
   let selectedSale = null;
   let allAllies = [];
 
@@ -325,8 +328,7 @@ export function createSalesListModule(context) {
     try {
       await api.recomputeSale(id, body);
       toast("✅ Venta recalculada");
-      await loadVentas();
-      await openSaleById(id);
+      reloadSoon();
     } catch (e) { toast(e.message); }
   }
 
@@ -362,8 +364,7 @@ export function createSalesListModule(context) {
     try {
       await api.updateSale(id, body);
       toast("✅ Venta actualizada");
-      await loadVentas();        // refresca la lista al instante
-      await openSaleById(id);    // refresca el panel con los datos nuevos
+      reloadSoon();              // recarga para que Consolidado/Cierre/Clientes queden frescos
     } catch (e) { toast(e.message); }
   }
 
@@ -375,10 +376,8 @@ export function createSalesListModule(context) {
     try {
       await api.voidSale(id, { reason, authorizedBy });
       toast("Venta anulada");
-      $("ventasDetailTitle").textContent = "Detalle";
-      $("ventasDetailBody").innerHTML = `<p class="hint">Venta anulada. Selecciona otra para continuar.</p>`;
       selectedSale = null;
-      await loadVentas();
+      reloadSoon();
     } catch (e) { toast(e.message); }
   }
 
@@ -388,8 +387,7 @@ export function createSalesListModule(context) {
     try {
       await api.reactivateSale(id);
       toast("✅ Venta reactivada");
-      await loadVentas();
-      await openSaleById(id);
+      reloadSoon();
     } catch (e) { toast(e.message); }
   }
 
@@ -399,10 +397,8 @@ export function createSalesListModule(context) {
     try {
       await api.deleteSale(id);
       toast("Venta eliminada");
-      $("ventasDetailTitle").textContent = "Detalle";
-      $("ventasDetailBody").innerHTML = `<p class="hint">Haz clic en una venta para ver el detalle.</p>`;
       selectedSale = null;
-      await loadVentas();
+      reloadSoon();
     } catch (e) { toast(e.message); }
   }
 
