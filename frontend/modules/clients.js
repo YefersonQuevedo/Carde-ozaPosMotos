@@ -1,4 +1,4 @@
-import { $, esc } from "../utils.js";
+import { $, esc, CO_MOBILE_RE, EMAIL_RE, normalizeCoPhone, isValidName, isValidDoc } from "../utils.js";
 import { openRuntConsulta, runtBookmarkletHtml } from "./runt-helper.js";
 
 export function createClientsModule(context) {
@@ -20,7 +20,7 @@ export function createClientsModule(context) {
   function phonesEditorHtml(phone, phones) {
     const extra = Array.isArray(phones) ? phones : [];
     return `
-      <label class="fld">Telefono principal *<input id="cl_phone" value="${esc(phone || "")}" placeholder="Obligatorio" /></label>
+      <label class="fld">Telefono principal *<input id="cl_phone" value="${esc(phone || "")}" placeholder="Celular (3XXXXXXXXX)" inputmode="numeric" maxlength="13" /></label>
       <label class="fld">Telefonos adicionales
         <div id="cl_phones">${extra.map((p) => phoneRowHtml(p)).join("")}</div>
         <button class="link" id="cl_addphone" type="button">+ agregar telefono</button>
@@ -39,9 +39,20 @@ export function createClientsModule(context) {
     $("cl_phones")?.querySelectorAll("[data-delphone]").forEach((b) => b.addEventListener("click", (e) => e.target.closest(".payrow").remove()));
   }
   function readPhones() {
-    const phone = $("cl_phone").value.trim();
-    const phones = [...document.querySelectorAll(".cl-extra-phone")].map((i) => i.value.trim()).filter(Boolean);
+    const phone = normalizeCoPhone($("cl_phone").value);
+    const phones = [...document.querySelectorAll(".cl-extra-phone")].map((i) => normalizeCoPhone(i.value)).filter(Boolean);
     return { phone, phones };
+  }
+  // Valida los campos comunes del cliente. Devuelve un mensaje de error o null si todo esta bien.
+  function validateClient({ docNumber, docType, name, phone, phones = [], email = "" }) {
+    if (!isValidName(name)) return "El nombre debe tener al menos 3 caracteres y no ser solo numeros.";
+    if (!isValidDoc(docNumber, docType)) return docType === "NIT" ? "El NIT debe tener 9 o 10 digitos (solo numeros)." : "La cedula debe tener entre 6 y 10 digitos (solo numeros).";
+    if (!phone) return "El telefono principal es obligatorio.";
+    for (const p of [phone, ...phones]) {
+      if (!CO_MOBILE_RE.test(p)) return `Telefono invalido: "${p}". Debe ser un celular de 10 digitos que empiece en 3.`;
+    }
+    if (email && !EMAIL_RE.test(email)) return "El email no tiene un formato valido.";
+    return null;
   }
   const HIST_LABEL = { directo: "Directo", referido: "Referido", rtm: "RTM", no_rtm: "Sin RTM" };
   // Fecha + hora exactas del evento (momento en que se registró la venta).
@@ -53,7 +64,7 @@ export function createClientsModule(context) {
   function historyTableHtml(history = []) {
     if (!history.length) return '<p class="hint">Sin historial todavia.</p>';
     return `<table class="data"><thead><tr><th>Fecha y hora</th><th>Como llego</th><th>Placa</th><th>Convenio</th><th>Nota</th></tr></thead><tbody>${
-      history.map((h) => `<tr><td>${esc(histFechaHora(h))}</td><td><span class="pill ${h.eventType === "referido" ? "warn" : ""}">${esc(HIST_LABEL[h.eventType] || h.eventType)}</span></td><td>${esc(h.plate || "")}</td><td>${esc(h.allyName || "")}</td><td class="hint">${esc(h.note || "")}</td></tr>`).join("")
+      history.map((h) => `<tr style="${h.voided ? "opacity:.55;text-decoration:line-through" : ""}"><td>${esc(histFechaHora(h))}</td><td><span class="pill ${h.voided ? "danger" : (h.eventType === "referido" ? "warn" : "")}">${esc(HIST_LABEL[h.eventType] || h.eventType)}</span>${h.voided ? ' <span class="pill danger" style="text-decoration:none">anulada</span>' : ""}</td><td>${esc(h.plate || "")}</td><td>${esc(h.allyName || "")}</td><td class="hint" style="text-decoration:none">${esc(h.note || "")}</td></tr>`).join("")
     }</tbody></table>`;
   }
 
@@ -102,9 +113,13 @@ export function createClientsModule(context) {
   }
   async function saveClientEdit(doc) {
     const { phone, phones } = readPhones();
-    if (!phone) return toast("El telefono principal es obligatorio");
+    const docType = $("cl_docType").value;
+    const name = $("cl_name").value.trim();
+    const email = $("cl_email").value.trim();
+    const err = validateClient({ docNumber: doc, docType, name, phone, phones, email });
+    if (err) return toast(err);
     try {
-      await api.saveClient({ docNumber: doc, docType: $("cl_docType").value, name: $("cl_name").value.trim(), phone, phones, email: $("cl_email").value.trim(), address: $("cl_address").value.trim() });
+      await api.saveClient({ docNumber: doc, docType, name, phone, phones, email, address: $("cl_address").value.trim() });
       toast("Cliente guardado");
       loadClientes($("clientListSearch").value || "");
       loadClientDetail(doc);
@@ -150,11 +165,14 @@ export function createClientsModule(context) {
   async function createClientUI() {
     const docNumber = $("cl_newdoc").value.trim();
     const name = $("cl_name").value.trim();
+    const docType = $("cl_docType").value;
+    const email = $("cl_email").value.trim();
     const { phone, phones } = readPhones();
     if (!docNumber || !name) return toast("Documento y nombre obligatorios");
-    if (!phone) return toast("El telefono principal es obligatorio");
+    const err = validateClient({ docNumber, docType, name, phone, phones, email });
+    if (err) return toast(err);
     try {
-      await api.saveClient({ docNumber, name, phone, phones, email: $("cl_email").value.trim(), address: $("cl_address").value.trim(), docType: $("cl_docType").value });
+      await api.saveClient({ docNumber, name, phone, phones, email, address: $("cl_address").value.trim(), docType });
       toast("Cliente creado");
       loadClientes();
       loadClientDetail(docNumber);

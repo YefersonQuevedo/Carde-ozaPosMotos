@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import { currentCompanyId } from "../tenant.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { auth, actor } from "../auth.js";
+import { refreshDailyClosingIfExists } from "../services/consistency.js";
 
 const router = Router();
 const iso = () => new Date().toISOString().slice(0, 10);
@@ -331,6 +332,35 @@ router.post("/", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+// PUT /api/expenses/:id -> edita un gasto activo y ajusta su egreso de caja + el cierre.
+router.put("/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const exp = await prisma.expense.findUnique({ where: { id } });
+    if (!exp) return res.status(404).json({ error: "No existe" });
+    if (exp.status === "anulada") return res.status(400).json({ error: "El gasto está anulado: no se puede editar" });
+    const b = req.body || {};
+    const amount = toInt(b.amount);
+    const concept = String(b.concept || "").trim();
+    if (!concept || amount <= 0) return res.status(400).json({ error: "concepto y monto > 0 obligatorios" });
+    const date = b.date || exp.date;
+    const boxCode = b.boxCode || exp.boxCode || "CAJA_MENOR";
+    const oldDate = exp.date;
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.expense.update({
+        where: { id },
+        data: { date, concept, category: b.category !== undefined ? (b.category || null) : exp.category, amount, boxCode, note: b.note !== undefined ? (b.note || null) : exp.note, updatedBy: actor(req) }
+      });
+      // Ajusta el egreso de caja original del gasto (mismo refType/refId).
+      await tx.cashMovement.updateMany({ where: { refType: "expense", refId: id }, data: { boxCode, amount, date, note: `Gasto: ${concept}` } });
+      return u;
+    });
+    if (oldDate !== date) await refreshDailyClosingIfExists(oldDate);
+    await refreshDailyClosingIfExists(date);
+    res.json(updated);
+  } catch (e) { next(e); }
 });
 
 // DELETE /api/expenses/:id  -> anula el gasto y revierte su egreso de caja.

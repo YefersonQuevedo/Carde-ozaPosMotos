@@ -405,6 +405,7 @@ model RolePermission {
   label     String? // nombre visible del rol (para roles personalizados)
   canWrite  Boolean  @default(true) // puede crear/editar (POST/PUT/PATCH)
   canDelete Boolean  @default(true) // puede eliminar (DELETE)
+  canBackdate Boolean @default(false) // puede facturar con fecha de un dia anterior
   views     Json // ids de panel permitidos
   exports   Json // ids de export permitidos
   updatedAt DateTime @updatedAt

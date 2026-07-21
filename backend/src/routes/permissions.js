@@ -50,6 +50,8 @@ router.put("/:role", auth(["admin"]), async (req, res, next) => {
     const views = Array.isArray(req.body?.views) ? req.body.views.map(String) : [];
     const exports = Array.isArray(req.body?.exports) ? req.body.exports.map(String) : [];
     const data = { views, exports };
+    // canBackdate (facturar dias anteriores) se puede dar a cualquier rol, incluidos los de fabrica.
+    if (req.body?.canBackdate !== undefined) data.canBackdate = !!req.body.canBackdate;
     // canWrite/canDelete/label solo cambian en roles personalizados (los de fábrica son fijos).
     if (!isBuiltinRole(role)) {
       if (req.body?.canWrite !== undefined) data.canWrite = !!req.body.canWrite;
@@ -60,9 +62,9 @@ router.put("/:role", auth(["admin"]), async (req, res, next) => {
     const item = await prisma.rolePermission.upsert({
       where: { companyId_role: { companyId, role } },
       update: data,
-      create: { role, views, exports, canWrite: data.canWrite !== false, canDelete: data.canDelete !== false, label: data.label || null }
+      create: { role, views, exports, canWrite: data.canWrite !== false, canDelete: data.canDelete !== false, canBackdate: !!data.canBackdate, label: data.label || null }
     });
-    res.json({ item: { role: item.role, label: item.label, canWrite: item.canWrite, canDelete: item.canDelete, views: item.views, exports: item.exports } });
+    res.json({ item: { role: item.role, label: item.label, canWrite: item.canWrite, canDelete: item.canDelete, canBackdate: item.canBackdate, views: item.views, exports: item.exports } });
   } catch (e) { next(e); }
 });
 

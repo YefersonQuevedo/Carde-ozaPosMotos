@@ -8,7 +8,7 @@ router.get("/", async (req, res, next) => {
   try {
     const q = String(req.query.q || "").trim();
     const where = q ? { name: { contains: q } } : {};
-    const items = await prisma.ally.findMany({ where, take: 50, orderBy: { name: "asc" } });
+    const items = await prisma.ally.findMany({ where, take: 1000, orderBy: { name: "asc" } });
     res.json(items);
   } catch (e) {
     next(e);

@@ -78,17 +78,18 @@ export const DEFAULT_PERMS = {
 // Permisos efectivos de un rol: fila en BD si existe, si no los defaults.
 // Devuelve { views, exports, canWrite, canDelete }.
 export async function permsForRole(role) {
-  if (role === "admin") return { views: ALL_PANELS, exports: ALL_EXPORTS, canWrite: true, canDelete: true };
+  if (role === "admin") return { views: ALL_PANELS, exports: ALL_EXPORTS, canWrite: true, canDelete: true, canBackdate: true };
   const row = await prisma.rolePermission.findFirst({ where: { role } });
   if (row) return {
     views: Array.isArray(row.views) ? row.views : [],
     exports: Array.isArray(row.exports) ? row.exports : [],
     canWrite: !!row.canWrite,
-    canDelete: !!row.canDelete
+    canDelete: !!row.canDelete,
+    canBackdate: !!row.canBackdate
   };
   const d = DEFAULT_PERMS[role];
   const b = BUILTIN_ROLES[role];
-  return d ? { ...d, canWrite: b ? b.canWrite : true, canDelete: b ? b.canDelete : true } : { views: [], exports: [], canWrite: false, canDelete: false };
+  return d ? { ...d, canWrite: b ? b.canWrite : true, canDelete: b ? b.canDelete : true, canBackdate: false } : { views: [], exports: [], canWrite: false, canDelete: false, canBackdate: false };
 }
 
 // ¿Existe el rol? (admin, built-in, o fila personalizada en BD).
@@ -109,13 +110,14 @@ export async function allRoles() {
       role, label: b.label, builtin: true,
       canWrite: r ? !!r.canWrite : b.canWrite,
       canDelete: r ? !!r.canDelete : b.canDelete,
+      canBackdate: r ? !!r.canBackdate : false,
       views: r ? r.views : DEFAULT_PERMS[role].views,
       exports: r ? r.exports : DEFAULT_PERMS[role].exports
     });
   }
   for (const r of rows) {
     if (BUILTIN_ROLES[r.role]) continue;
-    out.push({ role: r.role, label: r.label || r.role, builtin: false, canWrite: !!r.canWrite, canDelete: !!r.canDelete, views: r.views || [], exports: r.exports || [] });
+    out.push({ role: r.role, label: r.label || r.role, builtin: false, canWrite: !!r.canWrite, canDelete: !!r.canDelete, canBackdate: !!r.canBackdate, views: r.views || [], exports: r.exports || [] });
   }
   return out;
 }

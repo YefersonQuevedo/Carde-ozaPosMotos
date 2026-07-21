@@ -1,4 +1,4 @@
-import { $, esc, money, readCop, todayIso, MOTO_PLATE_RE, PIN_RE } from "../utils.js";
+import { $, esc, money, readCop, todayIso, MOTO_PLATE_RE, PIN_RE, CO_MOBILE_RE, normalizeCoPhone, isValidName, isValidDoc } from "../utils.js";
 
 export function createSaleModule(context) {
   const { api, catalog, productByCode, methodByCode, toast } = context;
@@ -18,6 +18,7 @@ export function createSaleModule(context) {
   // ---------- Estado de la venta (wizard) ----------
   function blankSale() {
     return {
+      saleDate: todayIso(), // dia operativo de la venta (el admin puede backdatear)
       client: null, // {docNumber, name, phone, docType}
       vehicle: { plate: "", modelYear: null, rangeName: "" },
       packageCode: "",
@@ -111,7 +112,7 @@ export function createSaleModule(context) {
   function isDone(key) {
     switch (key) {
       case "cliente": return !!sale.client;
-      case "moto": return !!sale.vehicle.plate && !!sale.packageCode;
+      case "moto": return !!sale.vehicle.plate && !!sale.vehicle.modelYear && !!sale.packageCode;
       case "rtmPaid": return sale.rtmAlreadyPaid !== null;
       case "credito": return sale.needsCredit !== null;
       case "creditoProveedor": return !!sale.creditProvider;
@@ -176,7 +177,7 @@ export function createSaleModule(context) {
             </select>
             <input id="cNewDoc" placeholder="Número de documento" />
             <input id="cName" placeholder="Nombre completo" />
-            <input id="cPhone" placeholder="Telefono" />
+            <input id="cPhone" placeholder="Celular (3XXXXXXXXX)" inputmode="numeric" maxlength="13" />
             <button class="btn primary" id="cSave">Guardar y continuar</button>
           </div>`, false);
       case "moto":
@@ -186,7 +187,7 @@ export function createSaleModule(context) {
               <input id="vPlate" autocomplete="off" placeholder="Placa" maxlength="8" style="text-transform:uppercase" />
               <div id="vehicleSuggest" class="suggest hidden"></div>
             </div>
-            <input id="vYear" type="number" placeholder="Año modelo" min="1980" max="2035" style="flex:1 1 120px" />
+            <input id="vYear" type="number" placeholder="Año modelo *" min="1980" max="2035" required style="flex:1 1 120px" />
           </div>
           <div id="vRange" class="hint">Ingresa el año del modelo para cargar el paquete RTM.</div>
           <button class="btn primary" id="vNext">Continuar</button>`, false);
@@ -297,10 +298,18 @@ export function createSaleModule(context) {
           ${search}
           <button class="btn primary" id="provContinue" style="margin-top:8px">Crear venta nueva</button>`, false);
       }
-      case "resumen":
+      case "resumen": {
+        const canBackdate = api.currentUser()?.role === "admin" || !!api.cachedPerms()?.canBackdate;
+        const dateField = canBackdate ? `
+          <label class="fld" style="max-width:220px;margin-bottom:10px">Fecha de la venta <span class="hint">(facturar día anterior)</span>
+            <input id="saleDate" type="date" value="${esc(sale.saleDate)}" max="${todayIso()}" />
+          </label>
+          ${sale.saleDate !== todayIso() ? `<div class="hint" style="color:#b45309;margin-bottom:8px">⚠️ Esta venta se registrará con fecha <b>${esc(sale.saleDate)}</b> (día operativo distinto a hoy).</div>` : ""}` : "";
         return card(key, "8 · Resumen y registro", `
+          ${dateField}
           <div class="hint">Revisa el resumen a la derecha.</div>
           <button class="btn success big" id="registerBtn">Registrar venta</button>`, false);
+      }
     }
     return "";
   }
@@ -518,7 +527,9 @@ export function createSaleModule(context) {
         const year = Number($("vYear").value) || null;
         if (!plate) return toast("Ingresa la placa");
         if (!MOTO_PLATE_RE.test(plate)) return toast("La placa de moto debe tener formato AAA00A");
-        const range = year ? rangeFromModel(year) : "MOTOCICLETAS 2024-2026";
+        if (!year) return toast("Ingresa el año del modelo");
+        if (year < 1980 || year > 2035) return toast("El año del modelo no es válido");
+        const range = rangeFromModel(year);
         sale.vehicle = { plate, modelYear: year, rangeName: range };
         sale.packageCode = packageForRange(range)?.code || "";
         render();
@@ -623,6 +634,7 @@ export function createSaleModule(context) {
       render();
     });
 
+    $("saleDate")?.addEventListener("change", (e) => { sale.saleDate = e.target.value || todayIso(); render(); });
     $("registerBtn")?.addEventListener("click", registerSale);
   }
 
@@ -720,16 +732,21 @@ export function createSaleModule(context) {
     const docNumber = $("cNewDoc").value.trim();
     const name = $("cName").value.trim();
     if (!docNumber || !name) return toast("Documento y nombre obligatorios");
+    const docType = $("cNewDocType")?.value || (/^\d{6,10}$/.test(docNumber) ? "CC" : "NIT");
+    const phone = normalizeCoPhone($("cPhone").value);
+    if (!isValidName(name)) return toast("El nombre debe tener al menos 3 caracteres y no ser solo numeros.");
+    if (!isValidDoc(docNumber, docType)) return toast(docType === "NIT" ? "El NIT debe tener 9 o 10 digitos (solo numeros)." : "La cedula debe tener entre 6 y 10 digitos (solo numeros).");
+    if (!phone) return toast("El telefono es obligatorio.");
+    if (!CO_MOBILE_RE.test(phone)) return toast("Telefono invalido: debe ser un celular de 10 digitos que empiece en 3.");
     try {
-      const docType = $("cNewDocType")?.value || (/^\d{6,10}$/.test(docNumber) ? "CC" : "NIT");
-      const c = await api.saveClient({ docNumber, name, phone: $("cPhone").value.trim(), docType });
+      const c = await api.saveClient({ docNumber, name, phone, docType });
       selectClient(c);
     } catch (e) { toast(e.message); }
   }
   async function registerSale() {
     try {
       const body = {
-        date: todayIso(),
+        date: sale.saleDate || todayIso(),
         client: sale.client,
         vehicle: sale.vehicle,
         packageCode: sale.packageCode,

@@ -4,6 +4,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { toWorkbook, sendXlsx } from "../services/excel.js";
 import { actor } from "../auth.js";
+import { refreshDailyClosingIfExists } from "../services/consistency.js";
 
 const router = Router();
 const iso = () => new Date().toISOString().slice(0, 10);
@@ -256,6 +257,39 @@ router.post("/", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+// PUT /api/income/:id -> edita un ingreso activo y ajusta su movimiento de caja.
+router.put("/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const inc = await prisma.income.findUnique({ where: { id } });
+    if (!inc) return res.status(404).json({ error: "No existe" });
+    if (inc.status === "anulada") return res.status(400).json({ error: "El ingreso está anulado: no se puede editar" });
+    const b = req.body || {};
+    const value = toInt(b.value);
+    if (value <= 0) return res.status(400).json({ error: "valor > 0 obligatorio" });
+    const observation = String(b.observation || "").trim();
+    if (!observation) return res.status(400).json({ error: "concepto o motivo obligatorio" });
+    const date = b.date || inc.date;
+    const boxCode = String(b.boxCode || inc.boxCode || "CAJA_MENOR");
+    const box = await validIncomeBox(boxCode);
+    if (!box) return res.status(400).json({ error: "Selecciona caja menor, bancos, una caja de provisiones o una tercera caja activa" });
+    const source = isBankBox(box) ? "bancos" : "efectivo";
+    const oldDate = inc.date;
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.income.update({
+        where: { id },
+        data: { date, value, observation, natureCode: b.natureCode !== undefined ? (b.natureCode || null) : inc.natureCode, source, boxCode, note: b.note !== undefined ? (b.note || null) : inc.note, updatedBy: actor(req) }
+      });
+      // Ajusta el movimiento de caja original del ingreso (mismo refType/refId).
+      await tx.cashMovement.updateMany({ where: { refType: "income", refId: id }, data: { boxCode, amount: value, date, note: `Ingreso: ${observation}` } });
+      return u;
+    });
+    if (oldDate !== date) await refreshDailyClosingIfExists(oldDate);
+    await refreshDailyClosingIfExists(date);
+    res.json(updated);
+  } catch (e) { next(e); }
 });
 
 // DELETE /api/income/:id -> anula (y revierte caja si la afecto)

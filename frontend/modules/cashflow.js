@@ -4,6 +4,8 @@ export function createCashflowModule(context) {
   const { api, toast } = context;
   // ---------- Ingresos (plantilla) ----------
   let incomeBoxes = [];
+  let incomeItems = [];       // cache de la ultima lista (para editar en el formulario)
+  let editingIncomeId = null; // id del ingreso en edicion (null = registrando uno nuevo)
   function isBankBox(b) {
     const kind = String(b.kind || "").toLowerCase();
     return kind === "banco" || kind === "bancos" || String(b.name || "").toLowerCase().includes("banco");
@@ -92,6 +94,7 @@ export function createCashflowModule(context) {
       const params = { from: $("inFrom").value, to: $("inTo").value };
       if ($("inBoxFilter").value) params.boxCode = $("inBoxFilter").value;
       const { items, total, count, bySource } = await api.income(params);
+      incomeItems = items || [];
       const natName = Object.fromEntries((expenseNatures || []).map((n) => [n.code, n.name]));
       const bancos = (bySource || {}).bancos || 0;
       const efectivo = (bySource || {}).efectivo || 0;
@@ -101,10 +104,12 @@ export function createCashflowModule(context) {
           const manual = i.sourceTable === "cashMovement";
           const nature = i.natureCode === "MOVIMIENTO_CAJA" ? "Movimiento de caja" : (natName[i.natureCode] || i.natureCode || "");
           const fuente = fuenteOf(i, incomeBoxes);
-          return `<tr><td>${esc(i.date)}</td><td class="r">${money(i.value)}</td><td>${esc(i.observation || "")}</td><td>${esc(nature)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(incomeBoxName(i.boxCode))}</td><td class="hint">${esc(i.createdBy || "")}</td><td><button class="link" data-delinc="${esc(i.id)}" data-source="${manual ? "cashMovement" : "income"}" data-cashid="${i.cashMovementId || ""}">anular</button></td></tr>`;
+          const editBtn = manual ? "" : `<button class="link" data-editinc="${esc(i.id)}">editar</button> · `;
+          return `<tr><td>${esc(i.date)}</td><td class="r">${money(i.value)}</td><td>${esc(i.observation || "")}</td><td>${esc(nature)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(incomeBoxName(i.boxCode))}</td><td class="hint">${esc(i.createdBy || "")}</td><td>${editBtn}<button class="link" data-delinc="${esc(i.id)}" data-source="${manual ? "cashMovement" : "income"}" data-cashid="${i.cashMovementId || ""}">anular</button></td></tr>`;
         }).join("") || '<tr><td class="hint" colspan="8">Sin ingresos en el rango</td></tr>'
       }</tbody></table>`;
       $("inBody").querySelectorAll("[data-delinc]").forEach((b) => b.addEventListener("click", () => delIncomeUI(b.dataset.delinc, b.dataset.source, Number(b.dataset.cashid || 0))));
+      $("inBody").querySelectorAll("[data-editinc]").forEach((b) => b.addEventListener("click", () => startEditIncome(Number(b.dataset.editinc))));
       loadIncomeConsolidado();
     } catch (e) { toast(e.message); }
   }
@@ -116,15 +121,48 @@ export function createCashflowModule(context) {
       box.innerHTML = consolidadoTable(data, "CONSOLIDADO DE INGRESOS", "ing");
     } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
   }
+  // Carga un ingreso en el formulario para editarlo (reutiliza el form de registro).
+  function startEditIncome(id) {
+    const i = incomeItems.find((x) => Number(x.id) === id);
+    if (!i) return toast("No se encontró el ingreso");
+    editingIncomeId = id;
+    $("inDate").value = i.date || todayIso();
+    $("inValue").value = i.value ?? "";
+    $("inObs").value = i.observation || "";
+    if ($("inNature")) $("inNature").value = i.natureCode || "";
+    if ($("inBox")) $("inBox").value = i.boxCode || "CAJA_MENOR";
+    const btn = $("inSave");
+    if (btn) btn.textContent = "💾 Guardar cambios";
+    if (!$("inCancelEdit")) {
+      const cancel = document.createElement("button");
+      cancel.className = "btn ghost"; cancel.id = "inCancelEdit"; cancel.type = "button"; cancel.textContent = "Cancelar";
+      cancel.addEventListener("click", cancelEditIncome);
+      btn?.parentElement?.appendChild(cancel);
+    }
+    $("inDate").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  function cancelEditIncome() {
+    editingIncomeId = null;
+    $("inValue").value = ""; $("inObs").value = "";
+    if ($("inSave")) $("inSave").textContent = "Registrar ingreso";
+    $("inCancelEdit")?.remove();
+  }
   async function addIncomeUI() {
     const value = readCop("inValue");
     const observation = $("inObs").value.trim();
     if (value <= 0) return toast("Ingresa el valor");
     if (!observation) return toast("El concepto o motivo es obligatorio");
+    const body = { date: $("inDate").value || todayIso(), value, observation, natureCode: $("inNature").value, boxCode: $("inBox").value || "CAJA_MENOR" };
     try {
-      await api.addIncome({ date: $("inDate").value || todayIso(), value, observation, natureCode: $("inNature").value, boxCode: $("inBox").value || "CAJA_MENOR" });
-      toast("Ingreso registrado");
-      $("inValue").value = ""; $("inObs").value = "";
+      if (editingIncomeId) {
+        await api.updateIncome(editingIncomeId, body);
+        toast("Ingreso actualizado");
+        cancelEditIncome();
+      } else {
+        await api.addIncome(body);
+        toast("Ingreso registrado");
+        $("inValue").value = ""; $("inObs").value = "";
+      }
       loadIncome();
     } catch (e) { toast(e.message); }
   }
@@ -150,6 +188,8 @@ export function createCashflowModule(context) {
   // ---------- Gastos (Claude) ----------
   let gastosBoxes = [];
   let expenseNatures = [];
+  let expenseItems = [];       // cache de la ultima lista (para editar)
+  let editingExpenseId = null; // id del gasto en edicion (null = registrando)
   function natureOptions(selected = "") {
     return expenseNatures.map((n) => `<option value="${esc(n.code)}" ${n.code === selected ? "selected" : ""}>${esc(n.name)}</option>`).join("");
   }
@@ -278,6 +318,7 @@ export function createCashflowModule(context) {
     try {
       const from = $("gxFrom").value, to = $("gxTo").value;
       const { items, total, count } = await api.expenses({ from, to });
+      expenseItems = items || [];
       const natName = Object.fromEntries((expenseNatures || []).map((n) => [n.code, n.name]));
       const bancos = items.filter((e) => fuenteOf(e, gastosBoxes) === "Bancos").reduce((a, e) => a + e.amount, 0);
       $("gxTotal").textContent = `${count} gasto(s) · TOTAL ${money(total)} · Bancos ${money(bancos)} · Efectivo ${money(total - bancos)}`;
@@ -285,10 +326,11 @@ export function createCashflowModule(context) {
         items.map((e) => {
           const fuente = fuenteOf(e, gastosBoxes);
           const nat = natName[e.category] || e.category || "";
-          return `<tr><td>${esc(e.date)}</td><td>${esc(e.concept)}</td><td>${esc(nat)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(e.boxCode)}</td><td class="hint">${esc(e.note || "")}</td><td class="hint">${esc(e.createdBy || "")}</td><td class="r">${money(e.amount)}</td><td><button class="link" data-delgasto="${e.id}">anular</button></td></tr>`;
+          return `<tr><td>${esc(e.date)}</td><td>${esc(e.concept)}</td><td>${esc(nat)}</td><td><span class="pill ${fuente === "Bancos" ? "" : "ok"}">${fuente}</span></td><td>${esc(e.boxCode)}</td><td class="hint">${esc(e.note || "")}</td><td class="hint">${esc(e.createdBy || "")}</td><td class="r">${money(e.amount)}</td><td><button class="link" data-editgasto="${e.id}">editar</button> · <button class="link" data-delgasto="${e.id}">anular</button></td></tr>`;
         }).join("") || '<tr><td class="hint" colspan="9">Sin gastos en el rango</td></tr>'
       }</tbody></table>`;
       $("gxBody").querySelectorAll("[data-delgasto]").forEach((b) => b.addEventListener("click", () => delGastoUI(Number(b.dataset.delgasto))));
+      $("gxBody").querySelectorAll("[data-editgasto]").forEach((b) => b.addEventListener("click", () => startEditGasto(Number(b.dataset.editgasto))));
       loadExpenseConsolidado();
       loadNatureReport();
     } catch (e) { toast(e.message); }
@@ -314,15 +356,48 @@ export function createCashflowModule(context) {
       }</tbody></table>`;
     } catch (e) { toast(e.message); }
   }
+  function startEditGasto(id) {
+    const e = expenseItems.find((x) => Number(x.id) === id);
+    if (!e) return toast("No se encontró el gasto");
+    editingExpenseId = id;
+    $("gxDate").value = e.date || todayIso();
+    $("gxConcept").value = e.concept || "";
+    if ($("gxCategory")) $("gxCategory").value = e.category || "";
+    if ($("gxBox")) $("gxBox").value = e.boxCode || "CAJA_MENOR";
+    $("gxAmount").value = e.amount ?? "";
+    $("gxNote").value = e.note || "";
+    const btn = $("gxSave");
+    if (btn) btn.textContent = "💾 Guardar cambios";
+    if (!$("gxCancelEdit")) {
+      const cancel = document.createElement("button");
+      cancel.className = "btn ghost"; cancel.id = "gxCancelEdit"; cancel.type = "button"; cancel.textContent = "Cancelar";
+      cancel.addEventListener("click", cancelEditGasto);
+      btn?.parentElement?.appendChild(cancel);
+    }
+    $("gxDate").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  function cancelEditGasto() {
+    editingExpenseId = null;
+    $("gxConcept").value = ""; $("gxAmount").value = ""; $("gxCategory").value = ""; $("gxNote").value = "";
+    if ($("gxSave")) $("gxSave").textContent = "Registrar gasto";
+    $("gxCancelEdit")?.remove();
+  }
   async function addGastoUI() {
     const concept = $("gxConcept").value.trim();
     const amount = readCop("gxAmount");
     if (!concept) return toast("El concepto es obligatorio");
     if (amount <= 0) return toast("Ingresa un monto");
+    const body = { date: $("gxDate").value || todayIso(), concept, category: $("gxCategory").value.trim(), boxCode: $("gxBox").value, amount, note: $("gxNote").value.trim() };
     try {
-      await api.addExpense({ date: $("gxDate").value || todayIso(), concept, category: $("gxCategory").value.trim(), boxCode: $("gxBox").value, amount, note: $("gxNote").value.trim() });
-      toast("Gasto registrado");
-      $("gxConcept").value = ""; $("gxAmount").value = ""; $("gxCategory").value = ""; $("gxNote").value = "";
+      if (editingExpenseId) {
+        await api.updateExpense(editingExpenseId, body);
+        toast("Gasto actualizado");
+        cancelEditGasto();
+      } else {
+        await api.addExpense(body);
+        toast("Gasto registrado");
+        $("gxConcept").value = ""; $("gxAmount").value = ""; $("gxCategory").value = ""; $("gxNote").value = "";
+      }
       loadGastos();
     } catch (e) { toast(e.message); }
   }

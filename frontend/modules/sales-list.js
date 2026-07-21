@@ -1,4 +1,4 @@
-import { $, esc, money, downloadBlob } from "../utils.js";
+import { $, esc, money, downloadBlob, todayIso } from "../utils.js";
 
 export function createSalesListModule(context) {
   const { api, toast } = context;
@@ -42,8 +42,8 @@ export function createSalesListModule(context) {
         <th>Estado</th><th>Registró</th><th>Imprimir</th></tr></thead><tbody>${items.map((s) => {
         const anulada = s.status === "anulada";
         return `<tr
-            class="${anulada ? "" : "clickable"}"
-            style="${anulada ? "opacity:.45;text-decoration:line-through" : ""}"
+            class="clickable"
+            style="${anulada ? "opacity:.55" : ""}"
             data-id="${s.id}">
             <td>${esc(s.saleDate)}</td>
             <td>${esc(s.saleNumber)}</td>
@@ -68,7 +68,7 @@ export function createSalesListModule(context) {
 
       $("ventasBody").querySelectorAll("[data-id]").forEach((tr) => {
         const sale = items.find((s) => s.id === Number(tr.dataset.id));
-        if (sale && sale.status !== "anulada") {
+        if (sale) {
           tr.addEventListener("click", () => openDetail(sale));
         }
       });
@@ -152,7 +152,6 @@ export function createSalesListModule(context) {
     try {
       const { sale } = await api.getSale(Number(id));
       if (!sale) return toast("Venta no encontrada");
-      if (sale.status === "anulada") return toast("La venta está anulada");
       await openDetail(sale);
       document.getElementById("ventasDetailBody")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) { toast(e.message); }
@@ -167,6 +166,7 @@ export function createSalesListModule(context) {
     try { allAllies = await api.findAllies(""); } catch (_) { allAllies = []; }
 
     const isAdmin = api.currentUser()?.role === "admin";
+    const anulada = sale.status === "anulada";
     // Si la venta es directa (usuario), el convenio se muestra como USUARIO aunque tenga
     // un allyName viejo pegado (dato inconsistente): así el panel queda coherente.
     const isDirecto = sale.allyType === "usuario";
@@ -185,6 +185,9 @@ export function createSalesListModule(context) {
       </div>
 
       <div class="form-grid">
+        ${isAdmin ? `<label class="fld">Fecha de la venta <span class="hint">(solo admin · reajusta el cierre)</span>
+          <input id="ve_saleDate" type="date" value="${esc(sale.saleDate)}" max="${todayIso()}" />
+        </label>` : ""}
         <label class="fld">Nombre cliente
           <input id="ve_clientName" value="${esc(sale.clientName)}" />
         </label>
@@ -215,12 +218,20 @@ export function createSalesListModule(context) {
         </label>
       </div>
 
+      ${anulada ? `<div class="pill danger" style="margin-top:12px;display:block">⛔ Esta venta está <b>ANULADA</b>. Para volver a dejarla activa usa "Reactivar". Mientras esté anulada no se puede editar.</div>` : ""}
       <div class="row form-actions" style="margin-top:16px;flex-wrap:wrap;gap:8px">
-        <button class="btn success" id="ve_save">💾 Guardar cambios</button>
-        <button class="btn primary" id="ve_print">🖨️ Reimprimir</button>
-        <button class="btn" id="ve_void">⛔ Anular venta</button>
-        ${isAdmin ? `<button class="btn danger" id="ve_delete">🗑️ Eliminar</button>` : ""}
+        ${anulada
+          ? `<button class="btn success" id="ve_reactivate">♻️ Reactivar venta</button>
+             <button class="btn primary" id="ve_print">🖨️ Reimprimir</button>
+             ${isAdmin ? `<button class="btn danger" id="ve_delete">🗑️ Eliminar</button>` : ""}`
+          : `<button class="btn success" id="ve_save">💾 Guardar cambios</button>
+             <button class="btn primary" id="ve_print">🖨️ Reimprimir</button>
+             ${isAdmin ? `<button class="btn" id="ve_recompute">🧮 Recalcular (pago/paquete/PIN)</button>` : ""}
+             <button class="btn" id="ve_void">⛔ Anular venta</button>
+             ${isAdmin ? `<button class="btn danger" id="ve_delete">🗑️ Eliminar</button>` : ""}`}
       </div>
+
+      ${!anulada && isAdmin ? `<div id="ve_recomputeBox" style="margin-top:12px"></div>` : ""}
 
       <div class="hint" style="margin-top:10px">
         PIN: <b>${esc(sale.pinNumber || "-")}</b> &nbsp;·&nbsp;
@@ -231,16 +242,92 @@ export function createSalesListModule(context) {
     // Sincronía instantánea convenio ⟺ tipo:
     //  - elegir USUARIO → tipo directo; elegir un convenio → tipo referido.
     //  - poner tipo directo → el convenio se vacía a USUARIO automáticamente.
-    $("ve_allyName").addEventListener("change", (e) => {
+    $("ve_allyName")?.addEventListener("change", (e) => {
       $("ve_allyType").value = e.target.value === "USUARIO" ? "usuario" : "referido";
     });
-    $("ve_allyType").addEventListener("change", (e) => {
+    $("ve_allyType")?.addEventListener("change", (e) => {
       if (e.target.value === "usuario") $("ve_allyName").value = "USUARIO";
     });
-    $("ve_save").addEventListener("click", saveSale);
-    $("ve_print").addEventListener("click", () => printSale(sale.id));
-    $("ve_void").addEventListener("click", () => voidSaleUI(sale.id));
-    if (isAdmin) $("ve_delete").addEventListener("click", () => deleteSaleUI(sale.id));
+    $("ve_save")?.addEventListener("click", saveSale);
+    $("ve_print")?.addEventListener("click", () => printSale(sale.id));
+    $("ve_void")?.addEventListener("click", () => voidSaleUI(sale.id));
+    $("ve_reactivate")?.addEventListener("click", () => reactivateSaleUI(sale.id));
+    $("ve_recompute")?.addEventListener("click", () => openRecompute(sale.id));
+    $("ve_delete")?.addEventListener("click", () => deleteSaleUI(sale.id));
+  }
+
+  // ─── Recalcular venta (método de pago / paquete / PIN / RTM) ──────────────────
+  let recomputeCatalog = null;
+  async function ensureRecomputeCatalog() {
+    if (!recomputeCatalog) recomputeCatalog = await api.catalog();
+    return recomputeCatalog;
+  }
+  function paymentRowHtml(methods, sel = {}) {
+    const opts = methods.map((m) => `<option value="${esc(m.code)}" ${m.code === sel.methodCode ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+    return `<div class="row rc-payrow" style="gap:8px;margin-bottom:6px">
+      <select class="rc-method" style="flex:2 1 180px">${opts}</select>
+      <input class="rc-amount" inputmode="numeric" value="${sel.amount ?? ""}" placeholder="$" style="flex:1 1 120px" />
+      <button type="button" class="link rc-delrow" style="color:#b72c35">quitar</button>
+    </div>`;
+  }
+  async function openRecompute(id) {
+    const box = $("ve_recomputeBox");
+    if (!box) return;
+    if (box.dataset.open === "1") { box.innerHTML = ""; box.dataset.open = ""; return; }
+    box.dataset.open = "1";
+    box.innerHTML = `<p class="hint">Cargando…</p>`;
+    try {
+      const [cat, detail] = await Promise.all([ensureRecomputeCatalog(), api.getSale(id)]);
+      const sale = detail.sale;
+      const payments = detail.payments || [];
+      const methods = cat.paymentMethods || cat.methods || [];
+      const packages = cat.packages || [];
+      const pkgOpts = `<option value="">— sin paquete —</option>` + packages.map((p) => `<option value="${esc(p.code)}" ${p.code === sale.packageCode ? "selected" : ""}>${esc(p.name)} (${esc(p.code)})</option>`).join("");
+      const payRows = (payments.length ? payments : [{ methodCode: "", amount: "" }]).map((p) => paymentRowHtml(methods, p)).join("");
+      box.innerHTML = `
+        <div class="card" style="border:1px solid #f0c9ae;padding:12px">
+          <h3 style="margin:0 0 8px">🧮 Recalcular venta</h3>
+          <p class="hint" style="margin:0 0 10px">Cambia método(s) de pago, paquete, PIN o si la RTM se realiza hoy. Recalcula costos, provisión, cartera, factura y cierre. Mantiene el número de venta y la fecha.</p>
+          <div class="form-grid">
+            <label class="fld">Paquete RTM<select id="rc_package">${pkgOpts}</select></label>
+            <label class="fld">PIN (si la RTM se realiza hoy)<input id="rc_pin" value="${esc(sale.pinNumber || "")}" placeholder="19-20 dígitos" /></label>
+            <label class="chk" style="align-self:end"><input type="checkbox" id="rc_rtmToday" ${sale.rtmToday ? "checked" : ""} /> La RTM se realiza hoy</label>
+          </div>
+          <div style="margin-top:8px"><b>Pagos</b> <span class="hint">(la suma debe cubrir el total; solo el efectivo puede exceder por las vueltas)</span></div>
+          <div id="rc_payments" style="margin-top:6px">${payRows}</div>
+          <button type="button" class="link" id="rc_addpay">+ agregar pago</button>
+          <div class="row" style="margin-top:12px;gap:8px">
+            <button class="btn success" id="rc_save">💾 Guardar recálculo</button>
+            <button class="btn ghost" id="rc_cancel">Cancelar</button>
+          </div>
+        </div>`;
+      const wireDel = () => box.querySelectorAll(".rc-delrow").forEach((b) => b.onclick = () => { if (box.querySelectorAll(".rc-payrow").length > 1) b.closest(".rc-payrow").remove(); });
+      wireDel();
+      $("rc_addpay").onclick = () => { $("rc_payments").insertAdjacentHTML("beforeend", paymentRowHtml(methods)); wireDel(); };
+      $("rc_cancel").onclick = () => { box.innerHTML = ""; box.dataset.open = ""; };
+      $("rc_save").onclick = () => saveRecompute(id);
+    } catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; box.dataset.open = ""; }
+  }
+  async function saveRecompute(id) {
+    const box = $("ve_recomputeBox");
+    const payments = [...box.querySelectorAll(".rc-payrow")].map((row) => ({
+      methodCode: row.querySelector(".rc-method").value,
+      amount: Math.round(Number(String(row.querySelector(".rc-amount").value).replace(/[^\d]/g, "")) || 0)
+    })).filter((p) => p.methodCode && p.amount > 0);
+    if (!payments.length) return toast("Agrega al menos un pago con método y monto");
+    const body = {
+      packageCode: $("rc_package").value,
+      pinNumber: $("rc_pin").value.trim(),
+      rtmToday: $("rc_rtmToday").checked,
+      payments
+    };
+    if (!confirm("¿Recalcular la venta con estos cambios?\n\nSe reemplazan pagos, costos, provisión, cartera y factura, y se recalcula el cierre del día.")) return;
+    try {
+      await api.recomputeSale(id, body);
+      toast("✅ Venta recalculada");
+      await loadVentas();
+      await openSaleById(id);
+    } catch (e) { toast(e.message); }
   }
 
   // ─── Guardar edición ─────────────────────────────────────────────────────────
@@ -265,6 +352,12 @@ export function createSalesListModule(context) {
       observaciones: $("ve_observaciones").value.trim() || null,
     };
     if (!body.clientName) return toast("El nombre del cliente es obligatorio");
+    // Cambio de fecha: solo si el admin lo tocó y es distinto. Confirmar por el impacto en el cierre.
+    const newDate = $("ve_saleDate")?.value;
+    if (newDate && newDate !== selectedSale.saleDate) {
+      if (!confirm(`Vas a cambiar la fecha de la venta de ${selectedSale.saleDate} a ${newDate}.\n\nEsto reajusta los cálculos (caja, cartera y cierre) de AMBOS días. ¿Continuar?`)) return;
+      body.saleDate = newDate;
+    }
     const id = selectedSale.id;
     try {
       await api.updateSale(id, body);
@@ -286,6 +379,17 @@ export function createSalesListModule(context) {
       $("ventasDetailBody").innerHTML = `<p class="hint">Venta anulada. Selecciona otra para continuar.</p>`;
       selectedSale = null;
       await loadVentas();
+    } catch (e) { toast(e.message); }
+  }
+
+  // ─── Reactivar (des-anular) ──────────────────────────────────────────────────
+  async function reactivateSaleUI(id) {
+    if (!confirm("¿Reactivar esta venta anulada?\n\nVuelve a quedar activa: se restauran su cartera y sus movimientos de caja, y se recalcula el cierre del día.")) return;
+    try {
+      await api.reactivateSale(id);
+      toast("✅ Venta reactivada");
+      await loadVentas();
+      await openSaleById(id);
     } catch (e) { toast(e.message); }
   }
 

@@ -6,12 +6,29 @@ import { toWorkbook, sendXlsx } from "../services/excel.js";
 const router = Router();
 
 const normalizePlate = (v) => String(v || "").trim().toUpperCase().replace(/\s+/g, "");
+
+// --- Validaciones de cliente (Colombia) ---
+const CO_MOBILE_RE = /^3\d{9}$/;                       // celular: 10 digitos, empieza en 3
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Deja solo digitos y descarta el prefijo 57 (+57): guardamos los 10 digitos pelados.
+function normalizeCoPhone(raw) {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.length === 12 && d.startsWith("57")) d = d.slice(2);
+  return d;
+}
+
 // Normaliza la lista de telefonos: principal (`phone`) + adicionales (`phones`).
+// Cada telefono debe ser un celular colombiano valido (10 digitos, empieza en 3).
 function normalizePhones(b) {
   const list = [];
   if (Array.isArray(b.phones)) list.push(...b.phones);
   if (b.phone) list.unshift(b.phone);
-  const clean = [...new Set(list.map((p) => String(p || "").trim()).filter(Boolean))];
+  const clean = [...new Set(list.map((p) => normalizeCoPhone(p)).filter(Boolean))];
+  for (const p of clean) {
+    if (!CO_MOBILE_RE.test(p)) {
+      throw Object.assign(new Error(`Telefono invalido: "${p}". Debe ser un celular de 10 digitos que empiece en 3.`), { status: 400 });
+    }
+  }
   return { phone: clean[0] || null, phones: clean.length > 1 ? clean.slice(1) : null };
 }
 
@@ -106,7 +123,16 @@ router.get("/:docNumber", async (req, res, next) => {
       prisma.vehicle.findMany({ where: { clientDoc: client.docNumber } }),
       prisma.clientHistory.findMany({ where: { clientDoc: client.docNumber }, orderBy: { id: "desc" }, take: 100 })
     ]);
-    res.json({ ...client, vehicles, history });
+    // Marca los eventos cuya venta fue anulada: la anulación no borra el historial
+    // (queda como rastro), pero el cliente debe verlos señalados como anulados.
+    const saleIds = [...new Set(history.map((h) => h.saleId).filter((id) => id != null))];
+    const voidedIds = new Set();
+    if (saleIds.length) {
+      const sales = await prisma.sale.findMany({ where: { id: { in: saleIds }, status: "anulada" }, select: { id: true } });
+      for (const s of sales) voidedIds.add(s.id);
+    }
+    const historyMarked = history.map((h) => ({ ...h, voided: h.saleId != null && voidedIds.has(h.saleId) }));
+    res.json({ ...client, vehicles, history: historyMarked });
   } catch (e) {
     next(e);
   }
@@ -117,15 +143,37 @@ router.post("/", async (req, res, next) => {
   try {
     const b = req.body || {};
     if (!b.docNumber || !b.name) return res.status(400).json({ error: "docNumber y name son obligatorios" });
+
+    // Nombre: minimo 3 caracteres y que no sea solo numeros.
+    const name = String(b.name).trim();
+    if (name.length < 3 || /^\d+$/.test(name)) {
+      return res.status(400).json({ error: "El nombre debe tener al menos 3 caracteres y no puede ser solo numeros." });
+    }
+    // Documento: solo numeros. CC 6-10 digitos, NIT 9-10 digitos.
+    const docType = b.docType || (b.personType === "JURIDICA" ? "NIT" : "CC");
+    const docNumber = String(b.docNumber).trim();
+    if (!/^\d+$/.test(docNumber)) {
+      return res.status(400).json({ error: "El documento debe contener solo numeros." });
+    }
+    const docOk = docType === "NIT" ? /^\d{9,10}$/.test(docNumber) : /^\d{6,10}$/.test(docNumber);
+    if (!docOk) {
+      return res.status(400).json({ error: docType === "NIT" ? "El NIT debe tener 9 o 10 digitos." : "La cedula debe tener entre 6 y 10 digitos." });
+    }
+    // Email opcional, pero si viene debe tener formato valido.
+    const email = String(b.email || "").trim();
+    if (email && !EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: "El email no tiene un formato valido." });
+    }
+
     const { phone, phones } = normalizePhones(b);
     const data = {
-      docType: b.docType || "CC",
-      docNumber: String(b.docNumber).trim(),
+      docType,
+      docNumber,
       dv: b.dv || null,
-      personType: b.personType || (b.docType === "NIT" ? "JURIDICA" : "NATURAL"),
-      name: b.name,
+      personType: b.personType || (docType === "NIT" ? "JURIDICA" : "NATURAL"),
+      name,
       commercialName: b.commercialName || null,
-      email: b.email || null,
+      email: email || null,
       phone,
       phones,
       address: b.address || null,

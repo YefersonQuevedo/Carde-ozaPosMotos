@@ -3,6 +3,7 @@ const BASE = "/api";
 
 let token = localStorage.getItem("motopos.token") || null;
 let currentUser = JSON.parse(localStorage.getItem("motopos.user") || "null");
+let cachedPerms = null; // permisos del usuario actual (se llenan al llamar myPermissions)
 
 function setSession(t, u) {
   token = t;
@@ -70,8 +71,9 @@ export const api = {
     setSession(d.token, d.user);
     return d.user;
   },
-  logout: clearSession,
+  logout: () => { cachedPerms = null; clearSession(); },
   currentUser: () => currentUser,
+  cachedPerms: () => cachedPerms,
   hasToken: () => !!token,
 
   catalog: () => req("/catalog"),
@@ -129,6 +131,7 @@ export const api = {
 
   income: (params = {}) => req(`/income?${new URLSearchParams(params)}`),
   addIncome: (body) => req("/income", { method: "POST", body }),
+  updateIncome: (id, body) => req(`/income/${id}`, { method: "PUT", body }),
   deleteIncome: (id) => req(`/income/${id}`, { method: "DELETE" }),
   incomeByNature: (params = {}) => req(`/income/by-nature?${new URLSearchParams(params)}`),
   incomeConsolidado: (params = {}) => req(`/income/consolidado?${new URLSearchParams(params)}`),
@@ -137,6 +140,7 @@ export const api = {
   expenses: (params = {}) => req(`/expenses?${new URLSearchParams(params)}`),
   expenseConsolidado: (params = {}) => req(`/expenses/consolidado?${new URLSearchParams(params)}`),
   addExpense: (body) => req("/expenses", { method: "POST", body }),
+  updateExpense: (id, body) => req(`/expenses/${id}`, { method: "PUT", body }),
   deleteExpense: (id) => req(`/expenses/${id}`, { method: "DELETE" }),
   exportExpenses: (params = {}) => reqBlob(`/expenses/export?${new URLSearchParams(params)}`),
   expenseNatures: () => req("/expenses/natures"),
@@ -165,6 +169,8 @@ export const api = {
   deleteSale: (id) => req(`/sales/${id}`, { method: "DELETE" }),
   invoice: (id) => req(`/sales/${id}/invoice`, { method: "POST" }),
   voidSale: (id, body) => req(`/sales/${id}/void`, { method: "POST", body }),
+  reactivateSale: (id) => req(`/sales/${id}/reactivate`, { method: "POST" }),
+  recomputeSale: (id, body) => req(`/sales/${id}/recompute`, { method: "POST", body }),
 
   currentShift: () => req("/shifts/current"),
   shifts: (params = {}) => req(`/shifts?${new URLSearchParams(params)}`),
@@ -243,7 +249,7 @@ export const api = {
   updateUser: (id, body) => req(`/users/${id}`, { method: "PUT", body }),
   deleteUser: (id) => req(`/users/${id}`, { method: "DELETE" }),
 
-  myPermissions: () => req("/permissions/mine"),
+  myPermissions: async () => { cachedPerms = await req("/permissions/mine"); return cachedPerms; },
   rolePermissions: () => req("/permissions"),
   saveRolePermissions: (role, body) => req(`/permissions/${encodeURIComponent(role)}`, { method: "PUT", body }),
   createRole: (body) => req("/permissions/roles", { method: "POST", body }),

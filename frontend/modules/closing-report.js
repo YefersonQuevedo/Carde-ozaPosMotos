@@ -158,6 +158,8 @@ export function createClosingReportModule(context) {
       const c = d.closing;
       const titulo = new Date(date + "T12:00:00").toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).toUpperCase();
       const pendientes = (d.detail || []).filter((s) => s.rtmEstado === "pending");
+      // Datos del resumen (bloques Excel) para la 2ª hoja de la impresión del cierre.
+      closingSummary = { c, opts: { fupas: d.fupas, expenses: d.expenses, dispersion: d.dispersion, pendientes }, titulo };
 
       $("closingBody").innerHTML = `
         <div class="xls-title">${esc(titulo)}</div>
@@ -205,6 +207,8 @@ export function createClosingReportModule(context) {
 
   let reportPlanRows = []; // filas de la planilla del rango (para el buscador)
   let closingPlanRows = []; // filas de la planilla del día (para imprimir el cierre)
+  let closingSummary = null; // { c, opts, titulo } — resumen del día para la 2ª hoja del PDF
+  let reportSummary = null; // { c, opts, from, to } — resumen del período para la 2ª hoja del PDF de contabilidad
   function wireEditSale(scope) {
     if (!editSale || !scope) return;
     scope.querySelectorAll("[data-editsale]").forEach((b) => b.addEventListener("click", () => editSale(Number(b.dataset.editsale))));
@@ -222,6 +226,8 @@ export function createClosingReportModule(context) {
       const [range, plan] = await Promise.all([api.closingRange(from, to, methods), api.reportDetail(from, to, methods)]);
       const c = range.closing || {};
       reportPlanRows = plan.rows || [];
+      // Resumen del período (bloques Excel) para la 2ª hoja del PDF de contabilidad.
+      reportSummary = { c, opts: { fupas: range.fupas, expenses: range.expenses, dispersion: range.dispersion, pendientes: range.pendientes }, from, to };
       $("reportBody").innerHTML = `
         <div class="xls-title">CONSOLIDADO · ${esc(from)} → ${esc(to)}</div>
         ${methodsActiveHint()}
@@ -278,7 +284,7 @@ export function createClosingReportModule(context) {
   // Abre un PDF/impresión con la planilla (venta por venta) en formato horizontal
   // compacto que SÍ cabe en la hoja. Lo usan el consolidado (selección) y el cierre
   // del día (detalle completo del día).
-  function openPlanillaPdf(rows, { titulo, subtitulo }) {
+  function openPlanillaPdf(rows, { titulo, subtitulo, extraPage } = {}) {
     if (!rows || !rows.length) return toast("No hay transacciones para imprimir");
     const fecha = new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
     const cols = [
@@ -304,16 +310,34 @@ export function createClosingReportModule(context) {
         *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
         body{margin:0;padding:14px;color:#111}
         h1{font-size:16px;margin:0 0 2px} .muted{color:#555;font-size:11px}
-        table{width:100%;border-collapse:collapse;margin-top:12px;font-size:10px}
-        th,td{border:1px solid #ccc;padding:3px 4px;text-align:left}
-        th{background:#ed7d31;color:#fff} td.r,th.r{text-align:right}
-        tfoot td{font-weight:bold;background:#fce4d6}
+        table.plan{width:100%;border-collapse:collapse;margin-top:12px;font-size:10px}
+        table.plan th,table.plan td{border:1px solid #ccc;padding:3px 4px;text-align:left}
+        table.plan th{background:#ed7d31;color:#fff} td.r,th.r{text-align:right}
+        table.plan tfoot td{font-weight:bold;background:#fce4d6}
+        /* Segunda hoja: bloques de resumen (mismo look que en pantalla) */
+        .page2{page-break-before:always}
+        .xls-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px;align-items:start}
+        .xls-block{border:1px solid #f0c9ae;border-radius:8px;overflow:hidden}
+        .xls-block h4{margin:0;background:#ed7d31;color:#fff;text-align:center;padding:6px;font-size:12px}
+        .xls-block table{width:100%;border-collapse:collapse;font-size:12px}
+        .xls-block td,.xls-block th{border:none;border-bottom:1px solid #f6e3d5;padding:5px 9px;text-align:left}
+        .xls-block td.r{text-align:right}
+        .xls-block tr.sub td{background:#f8cbad;font-weight:800}
+        .xls-block tr.tot td{background:#ed7d31;color:#fff;font-weight:800}
+        .xls-block tr.ok td{background:#e7f7ec;color:#0b3d20;font-weight:800}
+        .page2 h3{font-size:13px;margin:16px 0 4px}
+        table.data{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+        table.data th,table.data td{border:1px solid #ddd;padding:4px 6px}
+        table.data th{background:#f3f4f6}
+        .hint{color:#555;font-size:10px;margin:8px 0}
       </style></head><body onload="window.print()">
       <h1>RTM Motos · Girardot — ${esc(titulo)}</h1>
       <div class="muted">${esc(subtitulo)} · ${rows.length} venta(s) · generado ${esc(fecha)}</div>
-      <table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
+      <table class="plan"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
       <tfoot><tr><td colspan="8">TOTALES</td><td class="r">${money(tTotal)}</td><td></td><td class="r">${money(tDed)}</td><td colspan="9"></td><td class="r">${money(tCostos)}</td><td></td></tr></tfoot>
-      </table></body></html>`;
+      </table>
+      ${extraPage ? `<div class="page2"><h1>Resumen — ${esc(subtitulo)}</h1>${extraPage}</div>` : ""}
+      </body></html>`;
     const w = window.open("", "_blank", "width=1100,height=800");
     if (!w) return toast("Permite las ventanas emergentes para generar el PDF");
     w.document.write(html); w.document.close(); w.focus();
@@ -323,13 +347,21 @@ export function createClosingReportModule(context) {
     const ids = [...document.querySelectorAll(".sel-sale:checked")].map((c) => Number(c.dataset.selid));
     if (!ids.length) return toast("Marca al menos una venta (chulo de la izquierda) para el PDF");
     const sel = reportPlanRows.filter((r) => ids.includes(r.id));
-    openPlanillaPdf(sel, { titulo: "Reporte para contabilidad", subtitulo: `Período ${from} a ${to}` });
+    // 2ª hoja: resumen del PERÍODO completo (INGRESOS/RESUMEN/EGRESOS/DATAFONO/RTM PEND./ENTREGAS/CAJA MENOR).
+    const parcial = sel.length !== reportPlanRows.length;
+    const nota = parcial
+      ? `<p class="hint">⚠️ La planilla (hoja 1) muestra ${sel.length} venta(s) seleccionada(s), pero este resumen corresponde al <b>período completo</b> ${esc(from)} → ${esc(to)} (${reportPlanRows.length} ventas).</p>`
+      : "";
+    const extraPage = reportSummary ? nota + closingExcelBlocks(reportSummary.c, reportSummary.opts) : "";
+    openPlanillaPdf(sel, { titulo: "Reporte para contabilidad", subtitulo: `Período ${from} a ${to}`, extraPage });
   }
 
   // Imprime el DETALLE DEL DÍA (venta por venta) en el mismo formato horizontal
   // compacto del consolidado, que cabe bien en la hoja. Va TODO el día (sin selección).
   function printCierre(date) {
-    openPlanillaPdf(closingPlanRows, { titulo: "Cierre del día — detalle", subtitulo: String(date) });
+    // 2ª hoja: bloques de resumen (INGRESOS/RESUMEN/EGRESOS/DATAFONO/RTM PEND./ENTREGAS/CAJA MENOR).
+    const extraPage = closingSummary ? closingExcelBlocks(closingSummary.c, closingSummary.opts) : "";
+    openPlanillaPdf(closingPlanRows, { titulo: "Cierre del día — detalle", subtitulo: String(date), extraPage });
   }
 
   // Planilla venta por venta, igual a como el cliente la lleva en su Excel.

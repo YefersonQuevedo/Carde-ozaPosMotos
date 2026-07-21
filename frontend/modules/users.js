@@ -40,12 +40,13 @@ export function createUsersModule(context) {
       };
       // Resumen de roles: acceso (lectura siempre; escritura/borrar editables en personalizados) + conteos.
       const summary = `<div style="overflow-x:auto"><table class="data perm-matrix">
-        <thead><tr><th style="text-align:left">Rol</th><th>Lectura</th><th>Escritura</th><th>Borrar</th><th>Paneles</th><th>Exports</th><th>Tipo</th><th></th></tr></thead>
+        <thead><tr><th style="text-align:left">Rol</th><th>Lectura</th><th>Escritura</th><th>Borrar</th><th title="Facturar con fecha de un día anterior">Fac. día ant.</th><th>Paneles</th><th>Exports</th><th>Tipo</th><th></th></tr></thead>
         <tbody>${roles.map((r) => `<tr>
           <td><b>${esc(r.label)}</b></td>
           <td style="text-align:center">✓</td>
           <td style="text-align:center"><input type="checkbox" data-acc="write" data-role="${esc(r.role)}" ${r.canWrite ? "checked" : ""} ${r.builtin ? "disabled" : ""} /></td>
           <td style="text-align:center"><input type="checkbox" data-acc="del" data-role="${esc(r.role)}" ${r.canDelete ? "checked" : ""} ${r.builtin ? "disabled" : ""} /></td>
+          <td style="text-align:center"><input type="checkbox" data-acc="backdate" data-role="${esc(r.role)}" ${r.canBackdate ? "checked" : ""} /></td>
           <td style="text-align:center">${(r.views || []).length}</td>
           <td style="text-align:center">${(r.exports || []).length}</td>
           <td>${r.builtin ? "de fábrica" : "personalizado"}</td>
@@ -86,6 +87,8 @@ export function createUsersModule(context) {
         const views = [...box.querySelectorAll(`[data-perm="view"][data-role="${role}"]:checked`)].map((x) => x.value);
         const exports = [...box.querySelectorAll(`[data-perm="export"][data-role="${role}"]:checked`)].map((x) => x.value);
         const body = { views, exports };
+        // canBackdate se puede dar a cualquier rol (incluidos los de fábrica).
+        body.canBackdate = box.querySelector(`[data-acc="backdate"][data-role="${role}"]`)?.checked ?? false;
         if (!r.builtin) {
           body.canWrite = box.querySelector(`[data-acc="write"][data-role="${role}"]`)?.checked ?? true;
           body.canDelete = box.querySelector(`[data-acc="del"][data-role="${role}"]`)?.checked ?? true;

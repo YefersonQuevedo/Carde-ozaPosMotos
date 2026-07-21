@@ -5,6 +5,20 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&am
 export const readCop = (id) => Math.round(Number(String($(id)?.value || "").replace(/[^\d]/g, "")) || 0);
 export const MOTO_PLATE_RE = /^[A-Z]{3}\d{2}[A-Z]$/;
 export const PIN_RE = /^\d{19,20}$/; // SICOV: 19 o 20 digitos (el instructivo dice 20)
+export const CO_MOBILE_RE = /^3\d{9}$/; // celular Colombia: 10 digitos, empieza en 3
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Deja solo digitos y descarta el prefijo 57 (+57): guardamos los 10 digitos pelados.
+export const normalizeCoPhone = (raw) => {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.length === 12 && d.startsWith("57")) d = d.slice(2);
+  return d;
+};
+export const isValidName = (n) => { const s = String(n || "").trim(); return s.length >= 3 && !/^\d+$/.test(s); };
+export const isValidDoc = (doc, docType) => {
+  const d = String(doc || "").trim();
+  if (!/^\d+$/.test(d)) return false;
+  return docType === "NIT" ? /^\d{9,10}$/.test(d) : /^\d{6,10}$/.test(d);
+};
 // Descarga un Blob (export a Excel) como una descarga normal del navegador: así
 // aparece en la barra de descargas de Chrome/Edge con la opción "Abrir archivo"
 // (no usamos el diálogo "Guardar como" porque ese guarda el archivo sin registrarlo
